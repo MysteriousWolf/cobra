@@ -14,7 +14,7 @@ pub(crate) fn encode(rgba: &[u8], width: usize, height: usize, scratch: &mut Vec
     scratch.resize(width * height, 0);
     for pass in 0..2 {
         palette.clear();
-        for (i, px) in rgba.chunks_exact(4).enumerate() {
+        for (i, px) in rgba.as_chunks::<4>().0.iter().enumerate() {
             scratch[i] = if px[3] == 0 {
                 0
             } else {

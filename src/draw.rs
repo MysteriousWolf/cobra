@@ -204,7 +204,7 @@ impl Canvas {
                 }
             }
             xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            for pair in xs.chunks_exact(2) {
+            for pair in xs.as_chunks::<2>().0 {
                 self.span(y, first(pair[0]), first(pair[1]), paint);
             }
         }

@@ -2,7 +2,7 @@
 name = "cobra"
 version = "26.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Per-dot coloured braille canvases for the terminal, drawn with the best graphics protocol the terminal supports."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/MysteriousWolf/cobra"
