@@ -1,5 +1,7 @@
 //! Kitty graphics protocol: zlib-compressed RGBA, chunked, direct or virtual placement.
 
+use std::fmt::Write as _;
+
 use crate::encode::base64;
 
 /// Base64 characters per chunk (the protocol's maximum is 4096).
@@ -21,7 +23,7 @@ pub(super) fn frame(
     // gives flicker-free updates.
     let mut control = format!("a=T,f=32,o=z,s={width},v={height},i={id},q=2,C=1");
     if let Some((cols, rows)) = virt {
-        control.push_str(&format!(",U=1,c={cols},r={rows}"));
+        let _ = write!(control, ",U=1,c={cols},r={rows}");
     }
     let chunks = scratch.chunks(CHUNK);
     let n = chunks.len().max(1);

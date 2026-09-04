@@ -11,7 +11,7 @@ mod common;
 use std::io;
 use std::time::Duration;
 
-use cobra::ratatui::{overlay, Braille};
+use cobra::ratatui::{Braille, overlay};
 use cobra::{Canvas, Renderer, Terminal};
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::Rect;

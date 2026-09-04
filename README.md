@@ -2,6 +2,10 @@
 
 # cobra
 
+[![CI](https://github.com/MysteriousWolf/cobra/actions/workflows/ci.yml/badge.svg)](https://github.com/MysteriousWolf/cobra/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/cobra.svg)](https://crates.io/crates/cobra)
+[![docs.rs](https://docs.rs/cobra/badge.svg)](https://docs.rs/cobra)
+
 Draw with individually coloured dots in the terminal.
 
 A braille character packs a 2×4 grid of dots into one cell, which gives you a cheap
@@ -198,7 +202,7 @@ themselves rather than from the font, so on those the two always agree.
 ## ratatui
 
 ```toml
-cobra = { version = "0.1", features = ["ratatui"] }
+cobra = { version = "26.1", features = ["ratatui"] }
 ```
 
 ```rust
@@ -294,6 +298,41 @@ cargo bench                                 # the table above
 * Off unix there are no tty queries. Overrides are honoured, otherwise text.
 * `copy_text` prints the glyphs under the image so selecting the region copies braille. On
   terminals that draw text above images it shows through, so it is off by default.
+
+## Versioning
+
+Releases are named for the year they ship in: `YY.N.P` is the `N`th release of 20`YY`,
+patch `P`. `26.1.0` is the first release of 2026, `26.1.1` a patch on it, `26.2.0` the
+next release of the year, and `27.1.0` the first of the next.
+
+The three fields are still a valid semver triple, so Cargo treats them the way you would
+want: a patch is a drop-in, a new release within a year is a compatible upgrade, and a new
+year bumps the major — which is the one place a yearly line should be free to break things.
+Depending on `"26.1"` gets you every release of 2026 from `26.1.0` onwards.
+
+`tests/version.rs` checks the shape of the version in `Cargo.toml`, and `ci/version.fish`
+checks the rest against the repository's tags: main always carries a version strictly newer
+than the newest release, so a release can never be cut twice or go backwards. Both run in
+CI on every pull request.
+
+## Contributing
+
+```sh
+cargo test --all-features           # unit, integration and doc tests
+cargo clippy --all-features --all-targets -- -D warnings
+cargo fmt --all
+ci/version.fish check               # the version gate CI runs
+```
+
+Integration tests under `tests/` decode frames back to pixels with their own PNG, zlib,
+sixel and kitty readers, deliberately not sharing code with `src/encode`, so a round trip
+is real evidence rather than a restatement.
+
+To cut a release, bump the version in `Cargo.toml` and merge it to main; the release
+workflow tags it, publishes it and opens the next patch version. A patch can also be cut
+straight from the Actions tab: run **Release** with a `bump` of `patch`, `release` or
+`year`, and it does the bump, the checks and the tag in one go. Every release runs the
+full test suite first, so a red build cannot ship.
 
 ## License
 

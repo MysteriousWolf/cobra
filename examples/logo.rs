@@ -13,7 +13,7 @@ mod common;
 
 use std::io::{self, Write};
 
-use cobra::{export, Canvas, Options, Renderer, Terminal};
+use cobra::{Canvas, Options, Renderer, Terminal, export};
 
 fn main() -> io::Result<()> {
     let mut canvas = Canvas::new(common::COLS, common::ROWS);

@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+      # The default feature set has to be clean too: `detect` gates the only unsafe code.
+      - run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-features
+      - run: cargo test --all-features --doc
+      # `--all-targets` would *run* the harness-less benchmark, so build it instead.
+      - run: cargo build --all-features --all-targets
+      # Terminal detection is unix-only, so the no-detect build is the one that has to
+      # keep working everywhere.
+      - run: cargo test --no-default-features
+
+  features:
+    name: feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --no-default-features
+      - run: cargo check --no-default-features --features detect
+      - run: cargo check --no-default-features --features ratatui
+      - run: cargo check --features ratatui
+      - run: cargo check --all-features --all-targets
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-features --all-targets
+
+  docs:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      # `docsrs` gates the feature badges the crate documents itself with.
+      - run: cargo doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: --cfg docsrs -D warnings
+
+  version:
+    name: version policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install fish
+        run: sudo apt-get update && sudo apt-get install -y fish
+      # Shape rules (YY.N.P, no pre-release, not dated in the future).
+      - run: cargo test --all-features --test version
+      # Repository rules: strictly newer than the last release.
+      - run: ci/version.fish check
+
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Catches anything that would only fail at `cargo publish` time: missing files,
+      # bad metadata, a package that does not build from its own tarball.
+      - run: cargo publish --all-features --dry-run

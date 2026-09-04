@@ -66,7 +66,7 @@ impl Protocol {
             return Some(Self::Sixel);
         }
         match var("TERM_PROGRAM").as_deref() {
-            Some("WezTerm") | Some("ghostty") => Some(Self::Kitty),
+            Some("WezTerm" | "ghostty") => Some(Self::Kitty),
             Some("iTerm.app") => Some(Self::Iterm2),
             _ => None,
         }

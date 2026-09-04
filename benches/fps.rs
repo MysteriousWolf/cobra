@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 use cobra::{Canvas, CellSize, Color, Depth, Font, Options, Paint, Placement, Protocol, Renderer, Rgb, Terminal};
 
 const CELL: CellSize = CellSize { width: 9, height: 18 };
-const PROTOCOLS: [Protocol; 4] = [Protocol::Text, Protocol::Kitty, Protocol::Iterm2, Protocol::Sixel];
 
 /// Every protocol, plus the text protocol quantised to 16 colours.
 fn terminals() -> [(&'static str, Terminal); 5] {
@@ -168,26 +167,18 @@ fn main() {
 
 fn us(d: Duration) -> String {
     let u = d.as_secs_f64() * 1e6;
-    if u < 1000.0 {
-        format!("{u:.0} µs")
-    } else {
-        format!("{:.2} ms", u / 1000.0)
-    }
+    if u < 1000.0 { format!("{u:.0} µs") } else { format!("{:.2} ms", u / 1000.0) }
 }
 
 fn kb(b: usize) -> String {
-    if b < 1024 {
-        format!("{b} B")
-    } else {
-        format!("{:.1} KB", b as f64 / 1024.0)
-    }
+    if b < 1024 { format!("{b} B") } else { format!("{:.1} KB", b as f64 / 1024.0) }
 }
 
 /// The full ratatui frame path: widget into a `Buffer`, the buffer diff against the
 /// previous frame written out as a `TestBackend` would, then the overlay.
 #[cfg(feature = "ratatui")]
 fn ratatui_path(runs: usize, iters: usize) {
-    use cobra::ratatui::{overlay, Braille};
+    use cobra::ratatui::{Braille, overlay};
     use ratatui::backend::{Backend, TestBackend};
     use ratatui::layout::Rect;
     use ratatui::widgets::Widget;
@@ -198,7 +189,7 @@ fn ratatui_path(runs: usize, iters: usize) {
     for (name, cols, rows, draw) in
         [("logo 32×8", common::COLS, common::ROWS, snake as fn(&mut Canvas, f32, bool)), ("plot 80×24", 80, 24, plot)]
     {
-        for protocol in PROTOCOLS {
+        for protocol in [Protocol::Text, Protocol::Kitty, Protocol::Iterm2, Protocol::Sixel] {
             let term = Terminal::new(protocol, CELL);
             let mut renderer = Renderer::with_options(term, Options::default());
             let mut canvas = Canvas::new(cols, rows);

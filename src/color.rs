@@ -41,11 +41,7 @@ impl Rgb {
     pub fn luminance(self) -> f32 {
         let lin = |c: u8| {
             let c = c as f32 / 255.0;
-            if c <= 0.04045 {
-                c / 12.92
-            } else {
-                ((c + 0.055) / 1.055).powf(2.4)
-            }
+            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
         };
         0.2126 * lin(self.r) + 0.7152 * lin(self.g) + 0.0722 * lin(self.b)
     }
@@ -53,11 +49,7 @@ impl Rgb {
     /// WCAG contrast ratio between two colours, `1..=21`.
     pub fn contrast(self, other: Rgb) -> f32 {
         let (a, b) = (self.luminance() + 0.05, other.luminance() + 0.05);
-        if a > b {
-            a / b
-        } else {
-            b / a
-        }
+        if a > b { a / b } else { b / a }
     }
 
     #[inline]
@@ -285,11 +277,7 @@ fn nearest_256(c: Rgb) -> u8 {
     let avg = (c.r as u32 + c.g as u32 + c.b as u32) / 3;
     let gi = if avg < 8 { 0 } else { ((avg - 8 + 5) / 10).min(23) } as u8;
     let grey = Rgb::new(8 + 10 * gi, 8 + 10 * gi, 8 + 10 * gi);
-    if distance(c, grey) < distance(c, cube) {
-        232 + gi
-    } else {
-        16 + (ri * 36 + level(c.g) * 6 + bi) as u8
-    }
+    if distance(c, grey) < distance(c, cube) { 232 + gi } else { 16 + (ri * 36 + level(c.g) * 6 + bi) as u8 }
 }
 
 /// The terminal's colour scheme: 256 palette entries plus default foreground and

@@ -59,7 +59,7 @@ pub(crate) fn encode(rgba: &[u8], width: usize, height: usize, scratch: &mut Vec
                 present[p as usize] = true;
             }
         }
-        for (color, _) in present.iter().enumerate().skip(1).filter(|(_, &p)| p) {
+        for color in present.iter().enumerate().skip(1).filter_map(|(i, &p)| p.then_some(i)) {
             out.push(b'#');
             out.extend_from_slice(color.to_string().as_bytes());
             let (mut run_ch, mut run_n) = (0u8, 0usize);
@@ -87,19 +87,14 @@ pub(crate) fn encode(rgba: &[u8], width: usize, height: usize, scratch: &mut Vec
     out.extend_from_slice(b"\x1b\\");
 }
 
+/// Emits `n` copies of `ch`, as a `!n` run when that is shorter. `n == 0` writes nothing.
 fn flush_run(out: &mut Vec<u8>, ch: u8, n: usize) {
-    if n > 0 {
-        emit(out, ch, n);
-    }
-}
-
-fn emit(out: &mut Vec<u8>, ch: u8, n: usize) {
     if n > 3 {
         out.push(b'!');
         out.extend_from_slice(n.to_string().as_bytes());
         out.push(ch);
     } else {
-        out.extend(std::iter::repeat(ch).take(n));
+        out.extend(std::iter::repeat_n(ch, n));
     }
 }
 

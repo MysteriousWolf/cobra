@@ -10,6 +10,7 @@
 //! std::fs::write("dots.svg", export::svg(&canvas, &export::Style::default())).unwrap();
 //! ```
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::raster::Raster;
@@ -73,21 +74,16 @@ pub fn svg(canvas: &Canvas, style: &Style) -> String {
     if let Some(bg) = style.background {
         let _ = writeln!(s, r##"<rect width="100%" height="100%" fill="#{:02x}{:02x}{:02x}"/>"##, bg.r, bg.g, bg.b);
     }
-    // Group dots by colour so the file stays small and stylable.
-    let mut groups: Vec<(u32, String)> = Vec::new();
+    // Group dots by colour so the file stays small and stylable. A map keyed by the
+    // packed colour keeps the output deterministic however many colours a canvas uses.
+    let mut groups: BTreeMap<u32, String> = BTreeMap::new();
     for y in 0..canvas.height() {
         for x in 0..canvas.width() {
             let Some(color) = canvas.get(x, y) else { continue };
             let c = color.resolve(&style.palette);
             let key = (c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32;
             let (cx, cy) = ((x as f32 + 0.5) * slot_w, (y as f32 + 0.5) * slot_h);
-            let group = match groups.iter_mut().find(|(k, _)| *k == key) {
-                Some((_, g)) => g,
-                None => {
-                    groups.push((key, String::new()));
-                    &mut groups.last_mut().unwrap().1
-                }
-            };
+            let group = groups.entry(key).or_default();
             let _ = write!(group, r#"<circle cx="{cx}" cy="{cy}" r="{r}"/>"#);
         }
     }
