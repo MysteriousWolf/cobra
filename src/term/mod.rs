@@ -11,13 +11,15 @@
 //! 2. Not a tty → [`Protocol::Text`].
 //! 3. Cell size from `TIOCGWINSZ` (pixel fields), which costs one `ioctl`.
 //! 4. Protocol from well-known environment variables ([`Protocol::from_env`]).
-//! 5. Otherwise one round trip on `/dev/tty`: a kitty graphics probe, `CSI 16 t`
-//!    for the cell size if still unknown, and `DA1` for sixel (which also
-//!    terminates the response).
+//! 5. One round trip on `/dev/tty`: a kitty graphics probe and `CSI 16 t` for the
+//!    cell size when still unknown, `OSC 4` / `OSC 10` / `OSC 11` for the palette,
+//!    and `DA1` for sixel (which also terminates the response).
 //! 6. Anything without a usable cell size falls back to [`Protocol::Text`].
 
 #[cfg(all(feature = "detect", unix))]
 mod query;
+
+use crate::Palette;
 
 /// How the canvas gets onto the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -105,19 +107,32 @@ pub struct Terminal {
     pub cols: u16,
     /// Terminal height in cells, `0` when unknown.
     pub rows: u16,
+    /// The terminal's colour scheme, used to draw [`Color::Indexed`](crate::Color::Indexed)
+    /// and [`Color::Foreground`](crate::Color::Foreground) dots in the image protocols.
+    /// The xterm defaults until [`detect`](Self::detect) learns better.
+    pub palette: Palette,
+    /// Whether `palette` was reported by the terminal rather than assumed.
+    pub palette_queried: bool,
 }
 
 impl Terminal {
     /// A terminal that only gets braille text. Always safe.
-    pub const fn text() -> Self {
-        Self { protocol: Protocol::Text, cell: CellSize { width: 0, height: 0 }, cols: 0, rows: 0 }
+    pub fn text() -> Self {
+        Self::new(Protocol::Text, CellSize::default())
     }
 
     /// Builds a terminal description by hand (for tests, or when you know better).
     /// Image protocols with an unknown cell size are demoted to text.
     pub fn new(protocol: Protocol, cell: CellSize) -> Self {
         let protocol = if cell.is_known() { protocol } else { Protocol::Text };
-        Self { protocol, cell, cols: 0, rows: 0 }
+        Self { protocol, cell, cols: 0, rows: 0, palette: Palette::default(), palette_queried: false }
+    }
+
+    /// Replaces the palette (builder style).
+    pub fn with_palette(mut self, palette: Palette) -> Self {
+        self.palette = palette;
+        self.palette_queried = true;
+        self
     }
 
     /// Whether frames are transmitted as images rather than glyphs.
@@ -129,12 +144,15 @@ impl Terminal {
     /// Detects the terminal on stdout / `/dev/tty`.
     ///
     /// Order: `COBRA_PROTOCOL` / `COBRA_CELL` overrides, tty check, cell size from
-    /// `TIOCGWINSZ`, protocol from the environment ([`Protocol::from_env`]), and only
-    /// then one escape-sequence round trip (kitty probe, `CSI 16 t`, `DA1`). Image
+    /// `TIOCGWINSZ`, protocol from the environment ([`Protocol::from_env`]), then one
+    /// escape-sequence round trip that asks for whatever is still unknown (kitty probe,
+    /// `CSI 16 t`, `DA1`) plus the colour scheme (`OSC 4`, `OSC 10`, `OSC 11`). Image
     /// protocols without a known cell size fall back to [`Protocol::Text`].
     ///
-    /// Costs one `ioctl` plus, at most, one escape-sequence round trip with a short
-    /// timeout. Call it once at start-up and keep the result.
+    /// Costs one `ioctl` plus one escape-sequence round trip, bounded by a short
+    /// timeout and normally ending as soon as the terminal answers `DA1` (a few
+    /// milliseconds). Call it once at start-up and keep the result. Set
+    /// `COBRA_PALETTE=0` to skip the colour queries.
     #[cfg(feature = "detect")]
     pub fn detect() -> Self {
         let override_protocol = std::env::var("COBRA_PROTOCOL").ok().and_then(|s| Protocol::parse(&s));
@@ -148,11 +166,14 @@ impl Terminal {
             return Self::text();
         }
         let ws = query::winsize();
-        let mut t = Self { protocol: Protocol::Text, cell: cell.unwrap_or(ws.cell), cols: ws.cols, rows: ws.rows };
+        let mut t = Self { cell: cell.unwrap_or(ws.cell), cols: ws.cols, rows: ws.rows, ..Self::text() };
 
         let mut protocol = protocol.or_else(Protocol::from_env);
-        if protocol.is_none() || !t.cell.is_known() {
-            let probe = query::probe(protocol.is_none(), !t.cell.is_known());
+        let want_palette = std::env::var("COBRA_PALETTE").map_or(true, |v| v != "0");
+        // Inside a multiplexer the queries would be swallowed or misrouted; skip them.
+        let multiplexed = protocol == Some(Protocol::Text) && std::env::var("TMUX").is_ok();
+        if (protocol.is_none() || !t.cell.is_known() || want_palette) && !multiplexed {
+            let probe = query::probe(protocol.is_none(), !t.cell.is_known(), want_palette);
             if !t.cell.is_known() {
                 if let Some(c) = probe.cell {
                     t.cell = c;
@@ -166,6 +187,10 @@ impl Terminal {
                 } else {
                     Protocol::Text
                 });
+            }
+            if probe.palette_entries > 0 {
+                t.palette = probe.palette;
+                t.palette_queried = true;
             }
         }
         if t.cell.is_known() {

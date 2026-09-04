@@ -1,4 +1,5 @@
-//! ratatui integration: the snake inside a bordered block, animated.
+//! ratatui integration: the snake inside a bordered block, animated. `t` toggles
+//! between RGB and the terminal's palette colours, `q` quits.
 //!
 //! ```text
 //! cargo run --release --features ratatui --example tui
@@ -22,13 +23,21 @@ fn main() -> io::Result<()> {
     let mut canvas = Canvas::new(common::COLS, common::ROWS);
     let mut tui = ratatui::init();
     let mut phase = 0.0f32;
+    let mut themed = false;
     let result = loop {
-        common::draw(&mut canvas, phase);
+        if themed {
+            common::draw_themed(&mut canvas, phase);
+        } else {
+            common::draw(&mut canvas, phase);
+        }
         phase += 0.15;
         let mut inner = Rect::default();
         let frame = tui.draw(|f| {
-            let block =
-                Block::default().borders(Borders::ALL).title(format!(" cobra · {:?} · q quits ", term.protocol));
+            let block = Block::default().borders(Borders::ALL).title(format!(
+                " cobra · {:?} · {} · t toggles · q quits ",
+                term.protocol,
+                if themed { "palette" } else { "rgb" }
+            ));
             let area = Rect::new(2, 1, common::COLS + 2, common::ROWS + 2).intersection(f.area());
             inner = block.inner(area);
             f.render_widget(block, area);
@@ -44,8 +53,10 @@ fn main() -> io::Result<()> {
         }
         if event::poll(Duration::from_millis(33))? {
             if let Event::Key(k) = event::read()? {
-                if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc) {
-                    break Ok(());
+                match k.code {
+                    KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
+                    KeyCode::Char('t') => themed = !themed,
+                    _ => {}
                 }
             }
         }

@@ -1,6 +1,6 @@
 //! The dot grid.
 
-use crate::Rgb;
+use crate::Color;
 
 /// Braille bit for dot `(dx, dy)` inside a cell, indexed `[dy][dx]`.
 ///
@@ -20,7 +20,7 @@ pub struct Cell {
     /// Braille dot bits (`U+2800 + bits` is the glyph).
     pub bits: u8,
     /// The most frequent colour among the set dots, `None` when the cell is empty.
-    pub color: Option<Rgb>,
+    pub color: Option<Color>,
 }
 
 impl Cell {
@@ -38,6 +38,14 @@ pub fn braille(bits: u8) -> char {
     char::from_u32(0x2800 + bits as u32).unwrap_or('\u{2800}')
 }
 
+/// Ordered-dither threshold for dot `(x, y)`: a 4×4 Bayer matrix scaled to `0..1`
+/// (sixteen evenly spaced levels). A dot is drawn when its coverage exceeds this.
+#[inline]
+pub fn bayer(x: i32, y: i32) -> f32 {
+    const M: [[u8; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+    (M[(y & 3) as usize][(x & 3) as usize] as f32 + 0.5) / 16.0
+}
+
 /// A grid of individually coloured braille dots.
 ///
 /// The canvas is sized in terminal cells; each cell holds a 2×4 block of dots, so a
@@ -45,7 +53,7 @@ pub fn braille(bits: u8) -> char {
 /// left. Coordinates are `i32` so callers can draw partially off-canvas shapes without
 /// clamping; out-of-range dots are ignored.
 ///
-/// Storage is one `u32` per dot (`0` = unset, otherwise `0xFF_RR_GG_BB`), so a full
+/// Storage is one `u32` per dot (`0` = unset, otherwise a tagged [`Color`]), so a full
 /// 200×50-cell canvas is 320 KiB and never allocates after construction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Canvas {
@@ -96,10 +104,24 @@ impl Canvas {
     }
 
     /// Sets dot `(x, y)` to `color`. Out-of-range dots are ignored.
+    ///
+    /// Accepts an [`Rgb`](crate::Rgb), a `0xRRGGBB` literal, an `(r, g, b)` tuple or a
+    /// [`Color`] (for palette colours).
     #[inline]
-    pub fn set(&mut self, x: i32, y: i32, color: Rgb) {
+    pub fn set(&mut self, x: i32, y: i32, color: impl Into<Color>) {
         if let Some(i) = self.index(x, y) {
-            self.dots[i] = color.packed();
+            self.dots[i] = color.into().packed();
+        }
+    }
+
+    /// Sets dot `(x, y)` to `color` with probability `coverage` (`0..=1`) using an
+    /// ordered 4×4 Bayer pattern, which is what dithering means on a dot matrix:
+    /// dots are on or off, so partial coverage is spread evenly across the area.
+    /// Dots that the pattern skips are left unchanged.
+    #[inline]
+    pub fn set_dithered(&mut self, x: i32, y: i32, color: impl Into<Color>, coverage: f32) {
+        if coverage > bayer(x, y) {
+            self.set(x, y, color);
         }
     }
 
@@ -113,13 +135,14 @@ impl Canvas {
 
     /// The colour of dot `(x, y)`, `None` if unset or out of range.
     #[inline]
-    pub fn get(&self, x: i32, y: i32) -> Option<Rgb> {
+    pub fn get(&self, x: i32, y: i32) -> Option<Color> {
         let v = self.index(x, y).map(|i| self.dots[i])?;
-        (v != 0).then(|| Rgb::from_packed(v))
+        (v != 0).then(|| Color::from_packed(v))
     }
 
     /// Draws a one-dot-wide line with Bresenham's algorithm.
-    pub fn line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgb) {
+    pub fn line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: impl Into<Color>) {
+        let color = color.into();
         let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
         let (sx, sy) = ((x1 - x0).signum(), (y1 - y0).signum());
         let (mut x, mut y, mut err) = (x0, y0, dx + dy);
@@ -141,13 +164,34 @@ impl Canvas {
     }
 
     /// Fills a disc of radius `r` (in dots) centred on `(cx, cy)`.
-    pub fn disc(&mut self, cx: f32, cy: f32, r: f32, color: Rgb) {
+    pub fn disc(&mut self, cx: f32, cy: f32, r: f32, color: impl Into<Color>) {
+        self.disc_dithered(cx, cy, r, color, 1.0);
+    }
+
+    /// Fills a disc like [`disc`](Self::disc) but only `coverage` (`0..=1`) of its
+    /// dots, in an ordered pattern; see [`set_dithered`](Self::set_dithered).
+    pub fn disc_dithered(&mut self, cx: f32, cy: f32, r: f32, color: impl Into<Color>, coverage: f32) {
+        let color = color.into();
         let r2 = r * r;
         for y in (cy - r).floor() as i32..=(cy + r).ceil() as i32 {
             for x in (cx - r).floor() as i32..=(cx + r).ceil() as i32 {
                 let (ex, ey) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
                 if ex * ex + ey * ey <= r2 {
-                    self.set(x, y, color);
+                    self.set_dithered(x, y, color, coverage);
+                }
+            }
+        }
+    }
+
+    /// Unsets every dot inside a disc of radius `r` centred on `(cx, cy)`; a cleared
+    /// ring around a shape separates it from what is behind it on any background.
+    pub fn clear_disc(&mut self, cx: f32, cy: f32, r: f32) {
+        let r2 = r * r;
+        for y in (cy - r).floor() as i32..=(cy + r).ceil() as i32 {
+            for x in (cx - r).floor() as i32..=(cx + r).ceil() as i32 {
+                let (ex, ey) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                if ex * ex + ey * ey <= r2 {
+                    self.unset(x, y);
                 }
             }
         }
@@ -184,7 +228,7 @@ impl Canvas {
                 best_n = n;
             }
         }
-        Cell { bits, color: (best != 0).then(|| Rgb::from_packed(best)) }
+        Cell { bits, color: (best != 0).then(|| Color::from_packed(best)) }
     }
 
     /// Iterates over all cells, row-major.
@@ -209,6 +253,7 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Rgb;
 
     #[test]
     fn bits_match_unicode_layout() {
@@ -226,7 +271,7 @@ mod tests {
         c.set(0, 0, a);
         c.set(1, 0, b);
         c.set(0, 1, b);
-        assert_eq!(c.cell(0, 0).color, Some(b));
+        assert_eq!(c.cell(0, 0).color, Some(Color::Rgb(b)));
         assert_eq!(Canvas::new(2, 2).cell(1, 1).color, None);
     }
 
@@ -245,5 +290,33 @@ mod tests {
         let mut c = Canvas::new(2, 1);
         c.line(0, 0, 3, 0, Rgb::hex(0xffffff));
         assert_eq!(c.to_text(), "⠉⠉\n");
+    }
+}
+
+#[cfg(test)]
+mod dither_tests {
+    use super::*;
+
+    #[test]
+    fn coverage_matches_dot_count() {
+        for (coverage, expect) in [(0.0, 0), (0.25, 4), (0.5, 8), (1.0, 16)] {
+            let mut c = Canvas::new(2, 1);
+            for y in 0..4 {
+                for x in 0..4 {
+                    c.set_dithered(x, y, 0xffffffu32, coverage);
+                }
+            }
+            let n = c.cells().map(|cell| cell.bits.count_ones()).sum::<u32>();
+            assert_eq!(n, expect, "coverage {coverage}");
+        }
+    }
+
+    #[test]
+    fn palette_colours_round_trip() {
+        let mut c = Canvas::new(1, 1);
+        c.set(0, 0, Color::Indexed(4));
+        c.set(1, 0, Color::Foreground);
+        assert_eq!(c.get(0, 0), Some(Color::Indexed(4)));
+        assert_eq!(c.get(1, 0), Some(Color::Foreground));
     }
 }

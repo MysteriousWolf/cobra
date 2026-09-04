@@ -14,7 +14,9 @@ use crate::{Canvas, Protocol, Terminal};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Options {
     /// Dot diameter as a fraction of its 2×4 slot, `0..=1`. Default `0.7`, close to
-    /// what monospace fonts draw for braille.
+    /// what monospace fonts draw for braille; `COBRA_DOT` overrides it in
+    /// [`Options::from_env`] so the image dots can be matched to the font's glyphs
+    /// (`cargo run --example calibrate` shows them side by side).
     pub dot_size: f32,
     /// Print the braille text underneath the image so the canvas can still be copied
     /// as text. Only meaningful for image protocols. Default `false`.
@@ -24,6 +26,14 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self { dot_size: 0.7, copy_text: false }
+    }
+}
+
+impl Options {
+    /// Defaults, with `COBRA_DOT` (a fraction such as `0.8`) applied to `dot_size`.
+    pub fn from_env() -> Self {
+        let dot_size = std::env::var("COBRA_DOT").ok().and_then(|s| s.trim().parse::<f32>().ok());
+        Self { dot_size: dot_size.map_or(0.7, |d| d.clamp(0.05, 1.0)), ..Self::default() }
     }
 }
 
@@ -55,9 +65,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Creates a renderer for `term` with default [`Options`].
+    /// Creates a renderer for `term` with [`Options::from_env`].
     pub fn new(term: Terminal) -> Self {
-        Self::with_options(term, Options::default())
+        Self::with_options(term, Options::from_env())
     }
 
     /// Creates a renderer with explicit options.
@@ -136,9 +146,13 @@ impl Renderer {
             return &self.out;
         }
 
-        let (w, h) = self.raster.draw(canvas, self.term.cell, self.opts.dot_size, cols, rows);
+        let (w, h) = self.raster.draw(canvas, self.term.cell, self.opts.dot_size, &self.term.palette, cols, rows);
         let rgba = &self.raster.rgba;
         self.payload.clear();
+        // LZ77 distances in pixels: one pixel (runs), one cell (dither patterns),
+        // one row and one dot row (vertical repetition).
+        let (cw, ch) = (self.term.cell.width as usize, self.term.cell.height as usize);
+        let dists = [1, cw, w as usize, w as usize * (ch / 4).max(1)];
 
         // Position and, for flow placement, make room so the image never overlaps
         // what was already on screen.
@@ -168,12 +182,13 @@ impl Renderer {
 
         match self.term.protocol {
             Protocol::Kitty => {
-                crate::encode::deflate::zlib(rgba, 4, w as usize * 4, &mut self.payload);
+                let bytes = dists.map(|d| d * 4);
+                crate::encode::deflate::zlib(rgba, &bytes, &mut self.payload);
                 let virt = (placement == Placement::Virtual).then_some((cols, rows));
                 kitty::frame(&self.payload, w, h, self.id, virt, &mut self.scratch, &mut self.out);
             }
             Protocol::Iterm2 => {
-                crate::encode::png::encode(rgba, w, h, &mut self.scratch, &mut self.payload);
+                crate::encode::png::encode(rgba, w, h, &dists, &mut self.scratch, &mut self.payload);
                 iterm2::frame(&self.payload, w, h, &mut self.out);
             }
             Protocol::Sixel => {
@@ -205,12 +220,22 @@ mod tests {
 
     #[test]
     fn text_frames() {
-        let mut r = Renderer::new(Terminal::text());
+        let mut r = Renderer::with_options(Terminal::text(), Options::default());
         let s = String::from_utf8(r.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
         assert_eq!(s, "\x1b[38;2;255;0;0m⠁⠀⠀\x1b[0m\r\n⠀⠀\x1b[38;2;0;255;0m⢀\x1b[0m\r\n");
         let s = String::from_utf8(r.encode(&canvas(), Placement::At(4, 2)).to_vec()).unwrap();
         assert!(s.starts_with("\x1b7\x1b[3;5H") && s.ends_with("\x1b8"));
         assert!(r.encode(&canvas(), Placement::Virtual).is_empty());
+    }
+
+    #[test]
+    fn text_frames_use_palette_sgr() {
+        let mut c = Canvas::new(2, 1);
+        c.set(0, 0, crate::Color::Indexed(12));
+        c.set(2, 0, crate::Color::Foreground);
+        let mut r = Renderer::new(Terminal::text());
+        let s = String::from_utf8(r.encode(&c, Placement::Flow).to_vec()).unwrap();
+        assert_eq!(s, "\x1b[38;5;12m⠁\x1b[39m⠁\x1b[0m\r\n");
     }
 
     #[test]

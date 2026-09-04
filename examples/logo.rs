@@ -1,9 +1,11 @@
-//! Prints the cobra logo using the best protocol the terminal offers.
+//! Prints the cobra logo using the best protocol the terminal offers, or exports it.
 //!
 //! ```text
-//! cargo run --example logo          # detect and draw
-//! cargo run --example logo -- text  # plain braille, copy-paste friendly
-//! cargo run --example logo -- svg   # SVG on stdout (used for the README logo)
+//! cargo run --example logo                  # detect and draw
+//! cargo run --example logo -- text          # plain braille, copy-paste friendly
+//! cargo run --example logo -- svg  [file]   # transparent SVG (README logo)
+//! cargo run --example logo -- png  [file]   # transparent PNG, 3× scale
+//! cargo run --example logo -- theme         # draw with the terminal's own colours
 //! ```
 
 #[path = "common/mod.rs"]
@@ -11,37 +13,37 @@ mod common;
 
 use std::io::{self, Write};
 
-use cobra::{Canvas, Options, Renderer, Terminal};
+use cobra::{export, Canvas, Options, Renderer, Terminal};
 
 fn main() -> io::Result<()> {
     let mut canvas = Canvas::new(common::COLS, common::ROWS);
     common::draw(&mut canvas, 0.6);
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let mut out = io::stdout().lock();
-    match std::env::args().nth(1).as_deref() {
+    match args.first().map(String::as_str) {
         Some("text") => out.write_all(canvas.to_text().as_bytes()),
-        Some("svg") => svg(&canvas, &mut out),
-        _ => {
+        Some("svg") => write_or_print(args.get(1), export::svg(&canvas, &export::Style::default()).into_bytes()),
+        Some("png") => write_or_print(args.get(1), export::png(&canvas, &export::Style::default().scale(3))),
+        mode => {
+            if mode == Some("theme") {
+                common::draw_themed(&mut canvas, 0.6);
+            }
             let term = Terminal::detect();
-            eprintln!("{term:?}");
-            Renderer::with_options(term, Options { copy_text: true, ..Options::default() }).render(&canvas, &mut out)
+            eprintln!(
+                "{:?}, cell {}x{} px, palette {}",
+                term.protocol,
+                term.cell.width,
+                term.cell.height,
+                if term.palette_queried { "from terminal" } else { "xterm default" }
+            );
+            Renderer::with_options(term, Options { copy_text: true, ..Options::from_env() }).render(&canvas, &mut out)
         }
     }
 }
 
-/// Emits the canvas as an SVG of cell-aligned discs, the same geometry the image
-/// protocols use.
-fn svg(canvas: &Canvas, out: &mut impl Write) -> io::Result<()> {
-    let (cw, ch, r) = (10.0, 20.0, 1.9);
-    let (w, h) = (canvas.width() as f32 / 2.0 * cw, canvas.height() as f32 / 4.0 * ch);
-    writeln!(out, r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">"#)?;
-    writeln!(out, r##"<rect width="100%" height="100%" rx="12" fill="#101418"/>"##)?;
-    for y in 0..canvas.height() {
-        for x in 0..canvas.width() {
-            if let Some(c) = canvas.get(x, y) {
-                let (cx, cy) = ((x as f32 + 0.5) * cw / 2.0, (y as f32 + 0.5) * ch / 4.0);
-                writeln!(out, r##"<circle cx="{cx}" cy="{cy}" r="{r}" fill="#{:02x}{:02x}{:02x}"/>"##, c.r, c.g, c.b)?;
-            }
-        }
+fn write_or_print(path: Option<&String>, bytes: Vec<u8>) -> io::Result<()> {
+    match path {
+        Some(p) => std::fs::write(p, bytes),
+        None => io::stdout().lock().write_all(&bytes),
     }
-    writeln!(out, "</svg>")
 }

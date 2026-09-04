@@ -384,7 +384,11 @@ impl Widget for Braille<'_> {
                 } else {
                     let c = self.canvas.cell(col, row);
                     cell.set_char(c.glyph());
-                    cell.set_fg(c.color.map_or(Color::Reset, |c| Color::Rgb(c.r, c.g, c.b)));
+                    cell.set_fg(match c.color {
+                        Some(crate::Color::Rgb(c)) => Color::Rgb(c.r, c.g, c.b),
+                        Some(crate::Color::Indexed(i)) => Color::Indexed(i),
+                        Some(crate::Color::Foreground) | None => Color::Reset,
+                    });
                 }
             }
         }
@@ -420,6 +424,11 @@ mod tests {
         assert_eq!(buf[(0, 0)].symbol(), "⠁");
         assert_eq!(buf[(0, 0)].fg, Color::Rgb(0x10, 0x20, 0x30));
         assert_eq!(buf[(1, 0)].symbol(), "⠀");
+        let mut c = Canvas::new(1, 1);
+        c.set(0, 0, crate::Color::Indexed(3));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 1, 1));
+        Braille::new(&c, &r).render(buf.area, &mut buf);
+        assert_eq!(buf[(0, 0)].fg, Color::Indexed(3));
     }
 
     #[test]

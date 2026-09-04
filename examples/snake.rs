@@ -1,7 +1,8 @@
 //! Animates the cobra in place and reports frame cost.
 //!
 //! ```text
-//! cargo run --release --example snake
+//! cargo run --release --example snake            # RGB colours
+//! cargo run --release --example snake -- theme   # the terminal's own palette
 //! ```
 
 #[path = "common/mod.rs"]
@@ -13,6 +14,7 @@ use std::time::{Duration, Instant};
 use cobra::{Canvas, Placement, Renderer, Terminal};
 
 fn main() -> io::Result<()> {
+    let themed = std::env::args().nth(1).as_deref() == Some("theme");
     let term = Terminal::detect();
     let mut renderer = Renderer::new(term);
     let mut canvas = Canvas::new(common::COLS, common::ROWS);
@@ -22,9 +24,8 @@ fn main() -> io::Result<()> {
     for _ in 0..common::ROWS {
         out.write_all(b"\r\n")?;
     }
-    write!(out, "\x1b[{}A\x1b[6n", common::ROWS)?;
+    write!(out, "\x1b[{}A", common::ROWS)?;
     out.flush()?;
-    // Fall back to drawing in flow mode if we cannot learn the cursor row.
     let start = Instant::now();
     let frame_time = Duration::from_millis(33);
     let mut encoded = 0usize;
@@ -33,7 +34,11 @@ fn main() -> io::Result<()> {
     write!(out, "\x1b[?25l")?;
     for i in 0..frames {
         let t = Instant::now();
-        common::draw(&mut canvas, i as f32 * 0.15);
+        if themed {
+            common::draw_themed(&mut canvas, i as f32 * 0.15);
+        } else {
+            common::draw(&mut canvas, i as f32 * 0.15);
+        }
         let bytes = renderer.encode(&canvas, Placement::Flow);
         encoded += bytes.len();
         out.write_all(bytes)?;

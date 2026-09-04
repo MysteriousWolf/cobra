@@ -1,6 +1,6 @@
 //! Canvas → RGBA raster, aligned to the terminal's cell grid.
 
-use crate::{Canvas, CellSize};
+use crate::{Canvas, CellSize, Color, Palette};
 
 /// Reusable rasteriser. Holds a per-cell lookup mask so a frame is one table lookup
 /// per pixel and no per-dot geometry.
@@ -42,7 +42,15 @@ impl Raster {
 
     /// Rasterises the top-left `cols × rows` cells of `canvas` into `self.rgba`.
     /// Returns the image size in pixels.
-    pub fn draw(&mut self, canvas: &Canvas, cell: CellSize, radius: f32, cols: u16, rows: u16) -> (u32, u32) {
+    pub fn draw(
+        &mut self,
+        canvas: &Canvas,
+        cell: CellSize,
+        radius: f32,
+        palette: &Palette,
+        cols: u16,
+        rows: u16,
+    ) -> (u32, u32) {
         self.prepare(cell, radius);
         let (cw, ch) = (cell.width as usize, cell.height as usize);
         let (w, h) = (cols as usize * cw, rows as usize * ch);
@@ -59,7 +67,8 @@ impl Raster {
                 let mut lut = [[0u8; 4]; 9];
                 for (i, &d) in dots.iter().enumerate() {
                     if d != 0 {
-                        lut[i] = [(d >> 16) as u8, (d >> 8) as u8, d as u8, 255];
+                        let c = Color::resolve_packed(d, palette);
+                        lut[i] = [c.r, c.g, c.b, 255];
                     }
                 }
                 let x0 = col as usize * cw * 4;
@@ -86,11 +95,26 @@ mod tests {
         let mut c = Canvas::new(2, 1);
         c.set(3, 3, Rgb::hex(0x0000ff)); // bottom-right dot of cell 1
         let mut r = Raster::default();
-        let (w, h) = r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, 2, 1);
+        let (w, h) = r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &Palette::default(), 2, 1);
         assert_eq!((w, h), (16, 16));
         let px = |x: usize, y: usize| &r.rgba[(y * 16 + x) * 4..][..4];
         assert_eq!(px(14, 14), &[0, 0, 255, 255]); // slot centre
         assert_eq!(px(1, 1), &[0, 0, 0, 0]); // other cell stays clear
         assert_eq!(px(12, 3), &[0, 0, 0, 0]); // same cell, different slot
+    }
+
+    #[test]
+    fn palette_colours_resolve_through_palette() {
+        let mut c = Canvas::new(1, 1);
+        c.set(0, 0, Color::Indexed(1));
+        c.set(1, 0, Color::Foreground);
+        let mut p = Palette::default();
+        p.colors[1] = Rgb::hex(0x123456);
+        p.foreground = Rgb::hex(0xabcdef);
+        let mut r = Raster::default();
+        r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &p, 1, 1);
+        let px = |x: usize, y: usize| &r.rgba[(y * 8 + x) * 4..][..4];
+        assert_eq!(px(2, 2), &[0x12, 0x34, 0x56, 255]);
+        assert_eq!(px(6, 2), &[0xab, 0xcd, 0xef, 255]);
     }
 }

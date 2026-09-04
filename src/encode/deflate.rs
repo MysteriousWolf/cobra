@@ -71,32 +71,57 @@ impl Bits<'_> {
     }
 }
 
+/// Length of the match between `data[pos..]` and `data[pos - dist..]`, eight bytes at
+/// a time: flat rasters match in long runs and this is where the encoder spends
+/// its time.
 #[inline]
 fn match_len(data: &[u8], pos: usize, dist: usize) -> usize {
     let max = MAX_MATCH.min(data.len() - pos);
     let (a, b) = (&data[pos - dist..pos - dist + max], &data[pos..pos + max]);
-    a.iter().zip(b).take_while(|(x, y)| x == y).count()
+    let mut n = 0;
+    let mut wa = a.chunks_exact(8);
+    let mut wb = b.chunks_exact(8);
+    for (x, y) in (&mut wa).zip(&mut wb) {
+        let (x, y) = (u64::from_ne_bytes(x.try_into().unwrap()), u64::from_ne_bytes(y.try_into().unwrap()));
+        if x != y {
+            return n + ((x ^ y).to_le().trailing_zeros() / 8) as usize;
+        }
+        n += 8;
+    }
+    n + wa.remainder().iter().zip(wb.remainder()).take_while(|(x, y)| x == y).count()
 }
 
-/// Appends a zlib stream for `data` to `out`. `pixel` is the byte stride of one pixel
-/// and `stride` the byte stride of one row; both are match distances to try.
-pub(crate) fn zlib(data: &[u8], pixel: usize, stride: usize, out: &mut Vec<u8>) {
+/// Appends a zlib stream for `data` to `out`, trying only the match distances in
+/// `dists` (in bytes). For a raster that is one pixel back, one cell back, one row
+/// back and one dot row back: flat runs, dither patterns and vertical repetition.
+pub(crate) fn zlib(data: &[u8], dists: &[usize], out: &mut Vec<u8>) {
     out.extend_from_slice(&[0x78, 0x01]);
     let mut w = Bits { out, acc: 0, n: 0 };
     w.put(1, 1); // BFINAL
     w.put(1, 2); // BTYPE = fixed Huffman
-    let dists = [pixel, stride];
     let mut i = 0;
+    let mut last = dists.first().copied().unwrap_or(0);
     while i < data.len() {
+        // The distance that matched last time usually matches again (a run continues,
+        // a pattern repeats); when it gives a maximal match there is nothing to beat.
         let (mut best, mut best_dist) = (0, 0);
-        for &d in &dists {
-            if d > 0 && d <= i && d <= MAX_DIST {
-                let l = match_len(data, i, d);
-                if l > best {
-                    best = l;
-                    best_dist = d;
+        if last > 0 && last <= i {
+            best = match_len(data, i, last);
+            best_dist = last;
+        }
+        if best < MAX_MATCH {
+            for &d in dists {
+                if d != last && d > 0 && d <= i && d <= MAX_DIST {
+                    let l = match_len(data, i, d);
+                    if l > best {
+                        best = l;
+                        best_dist = d;
+                    }
                 }
             }
+        }
+        if best >= 3 {
+            last = best_dist;
         }
         if best >= 3 {
             w.pair(best, best_dist);
@@ -200,7 +225,7 @@ mod tests {
             vec![vec![], b"a".to_vec(), b"abcabcabcabcabc".to_vec(), img, (0..=255u8).cycle().take(1000).collect()];
         for data in cases {
             let mut z = Vec::new();
-            zlib(&data, 4, 160, &mut z);
+            zlib(&data, &[4, 160], &mut z);
             assert_eq!(inflate_fixed(&z), data);
             assert_eq!(&z[z.len() - 4..], adler32(&data).to_be_bytes());
         }
@@ -210,7 +235,7 @@ mod tests {
     fn compresses_flat_images() {
         let data = vec![0u8; 100_000];
         let mut z = Vec::new();
-        zlib(&data, 4, 400, &mut z);
+        zlib(&data, &[4, 400], &mut z);
         assert!(z.len() < 1000, "{}", z.len());
     }
 }

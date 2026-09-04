@@ -30,8 +30,24 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 crossterm = "0.29"
 
 [[example]]
+name = "logo"
+required-features = ["detect"]
+
+[[example]]
+name = "snake"
+required-features = ["detect"]
+
+[[example]]
+name = "calibrate"
+required-features = ["detect"]
+
+[[example]]
 name = "tui"
-required-features = ["ratatui"]
+required-features = ["ratatui", "detect"]
+
+[[bench]]
+name = "fps"
+harness = false
 
 [profile.release]
 opt-level = 3

@@ -22,9 +22,11 @@ fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], body: &[u8]) {
     out.extend_from_slice(&crc.to_be_bytes());
 }
 
-/// Appends a PNG for the `width × height` RGBA buffer `rgba` to `out`.
+/// Appends a PNG for the `width × height` RGBA buffer `rgba` to `out`. `dists` are
+/// the LZ77 distances in *pixels* worth trying (see [`deflate::zlib`]); rows are one
+/// filter byte longer than the raster, which is accounted for here.
 /// `scratch` is reused for the filtered scanlines and the zlib stream.
-pub(crate) fn encode(rgba: &[u8], width: u32, height: u32, scratch: &mut Vec<u8>, out: &mut Vec<u8>) {
+pub(crate) fn encode(rgba: &[u8], width: u32, height: u32, dists: &[usize], scratch: &mut Vec<u8>, out: &mut Vec<u8>) {
     let stride = width as usize * 4;
     scratch.clear();
     scratch.reserve(height as usize * (stride + 1));
@@ -33,7 +35,13 @@ pub(crate) fn encode(rgba: &[u8], width: u32, height: u32, scratch: &mut Vec<u8>
         scratch.extend_from_slice(row);
     }
     let filtered = std::mem::take(scratch);
-    deflate::zlib(&filtered, 4, stride + 1, scratch);
+    let mut byte_dists = [0usize; 8];
+    for (slot, &d) in byte_dists.iter_mut().zip(dists) {
+        // A distance of `d` pixels: within a row it is `4·d` bytes, and every row
+        // boundary crossed adds a filter byte.
+        *slot = d * 4 + d / width as usize;
+    }
+    deflate::zlib(&filtered, &byte_dists[..dists.len().min(8)], scratch);
     let idat = std::mem::replace(scratch, filtered);
 
     out.extend_from_slice(b"\x89PNG\r\n\x1a\n");
@@ -58,7 +66,7 @@ mod tests {
     fn structure() {
         let mut out = Vec::new();
         let mut scratch = Vec::new();
-        super::encode(&[255, 0, 0, 255, 0, 255, 0, 255], 2, 1, &mut scratch, &mut out);
+        super::encode(&[255, 0, 0, 255, 0, 255, 0, 255], 2, 1, &[1, 2], &mut scratch, &mut out);
         assert_eq!(&out[..8], b"\x89PNG\r\n\x1a\n");
         assert_eq!(&out[12..16], b"IHDR");
         assert_eq!(&out[out.len() - 8..out.len() - 4], b"IEND");
