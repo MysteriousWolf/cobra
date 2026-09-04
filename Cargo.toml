@@ -1,0 +1,40 @@
+[package]
+name = "cobra"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Per-dot coloured braille canvases for the terminal, drawn with the best graphics protocol the terminal supports."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/MysteriousWolf/cobra"
+readme = "README.md"
+keywords = ["terminal", "braille", "canvas", "kitty", "sixel"]
+categories = ["command-line-interface", "graphics", "visualization"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["detect"]
+# Terminal detection: `isatty`, `TIOCGWINSZ` and escape-sequence queries (needs `libc` on unix).
+detect = ["dep:libc"]
+# `cobra::ratatui::Braille` widget and `overlay` helper.
+ratatui = ["dep:ratatui"]
+
+[dependencies]
+libc = { version = "0.2", optional = true }
+ratatui = { version = "0.30", optional = true, default-features = false }
+
+[dev-dependencies]
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
+
+[[example]]
+name = "tui"
+required-features = ["ratatui"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

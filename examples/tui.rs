@@ -1,0 +1,55 @@
+//! ratatui integration: the snake inside a bordered block, animated.
+//!
+//! ```text
+//! cargo run --release --features ratatui --example tui
+//! ```
+
+#[path = "common/mod.rs"]
+mod common;
+
+use std::io;
+use std::time::Duration;
+
+use cobra::ratatui::{overlay, Braille};
+use cobra::{Canvas, Renderer, Terminal};
+use crossterm::event::{self, Event, KeyCode};
+use ratatui::layout::Rect;
+use ratatui::widgets::{Block, Borders, Paragraph};
+
+fn main() -> io::Result<()> {
+    let term = Terminal::detect();
+    let mut renderer = Renderer::new(term);
+    let mut canvas = Canvas::new(common::COLS, common::ROWS);
+    let mut tui = ratatui::init();
+    let mut phase = 0.0f32;
+    let result = loop {
+        common::draw(&mut canvas, phase);
+        phase += 0.15;
+        let mut inner = Rect::default();
+        let frame = tui.draw(|f| {
+            let block =
+                Block::default().borders(Borders::ALL).title(format!(" cobra · {:?} · q quits ", term.protocol));
+            let area = Rect::new(2, 1, common::COLS + 2, common::ROWS + 2).intersection(f.area());
+            inner = block.inner(area);
+            f.render_widget(block, area);
+            f.render_widget(Braille::new(&canvas, &renderer), inner);
+            let below = Rect::new(area.x, area.bottom(), 40, 1).intersection(f.area());
+            f.render_widget(Paragraph::new("Text around the canvas stays aligned."), below);
+        });
+        if let Err(e) = frame {
+            break Err(e);
+        }
+        if let Err(e) = overlay(&mut renderer, &canvas, inner, tui.backend_mut()) {
+            break Err(e);
+        }
+        if event::poll(Duration::from_millis(33))? {
+            if let Event::Key(k) = event::read()? {
+                if matches!(k.code, KeyCode::Char('q') | KeyCode::Esc) {
+                    break Ok(());
+                }
+            }
+        }
+    };
+    ratatui::restore();
+    result
+}
