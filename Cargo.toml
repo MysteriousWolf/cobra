@@ -42,6 +42,10 @@ name = "calibrate"
 required-features = ["detect"]
 
 [[example]]
+name = "shapes"
+required-features = ["detect"]
+
+[[example]]
 name = "tui"
 required-features = ["ratatui", "detect"]
 

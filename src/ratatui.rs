@@ -36,8 +36,8 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::Color;
 use ratatui::widgets::Widget;
 
-use crate::render::Placement;
-use crate::{Canvas, Protocol, Renderer};
+use crate::render::{Placement, Quantizer};
+use crate::{Canvas, Depth, Palette, Protocol, Renderer};
 
 /// Kitty placeholder character.
 const PLACEHOLDER: char = '\u{10EEEE}';
@@ -348,13 +348,17 @@ const DIACRITICS: [char; 297] = [
 pub struct Braille<'a> {
     canvas: &'a Canvas,
     protocol: Protocol,
+    depth: Depth,
+    palette: &'a Palette,
     id: u32,
 }
 
 impl<'a> Braille<'a> {
-    /// Draws `canvas` the way `renderer` will overlay it.
-    pub fn new(canvas: &'a Canvas, renderer: &Renderer) -> Self {
-        Self { canvas, protocol: renderer.terminal().protocol, id: renderer.image_id() }
+    /// Draws `canvas` the way `renderer` will overlay it. Text cells are quantised to
+    /// the terminal's [`Depth`], like the text protocol does.
+    pub fn new(canvas: &'a Canvas, renderer: &'a Renderer) -> Self {
+        let term = renderer.terminal();
+        Self { canvas, protocol: term.protocol, depth: term.depth, palette: &term.palette, id: renderer.image_id() }
     }
 }
 
@@ -365,6 +369,7 @@ impl Widget for Braille<'_> {
         let kitty = self.protocol == Protocol::Kitty;
         let id = Color::Rgb((self.id >> 16) as u8, (self.id >> 8) as u8, self.id as u8);
         let mut first = String::with_capacity(12);
+        let mut q = Quantizer::new(self.depth, self.palette);
         for row in 0..rows {
             for col in 0..cols {
                 let Some(cell) = buf.cell_mut(Position::new(area.x + col, area.y + row)) else { continue };
@@ -382,7 +387,7 @@ impl Widget for Braille<'_> {
                     }
                     cell.set_fg(id);
                 } else {
-                    let c = self.canvas.cell(col, row);
+                    let c = q.cell(self.canvas, col, row);
                     cell.set_char(c.glyph());
                     cell.set_fg(match c.color {
                         Some(crate::Color::Rgb(c)) => Color::Rgb(c.r, c.g, c.b),
@@ -429,6 +434,11 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 1, 1));
         Braille::new(&c, &r).render(buf.area, &mut buf);
         assert_eq!(buf[(0, 0)].fg, Color::Indexed(3));
+        let r = Renderer::new(Terminal::text().with_depth(crate::Depth::Ansi16));
+        let mut c = Canvas::new(1, 1);
+        c.set(0, 0, Rgb::hex(0x00ff00));
+        Braille::new(&c, &r).render(buf.area, &mut buf);
+        assert_eq!(buf[(0, 0)].fg, Color::Indexed(10));
     }
 
     #[test]

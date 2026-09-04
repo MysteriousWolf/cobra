@@ -4,6 +4,9 @@ mod iterm2;
 mod kitty;
 mod text;
 
+#[cfg_attr(not(feature = "ratatui"), allow(unused_imports))]
+pub(crate) use text::Quantizer;
+
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -133,12 +136,13 @@ impl Renderer {
         if cols == 0 || rows == 0 {
             return &self.out;
         }
+        let (depth, palette) = (self.term.depth, &self.term.palette);
         if self.term.protocol == Protocol::Text {
             match placement {
-                Placement::Flow => text::frame(canvas, cols, rows, placement, &mut self.out),
+                Placement::Flow => text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out),
                 Placement::At(..) => {
                     self.out.extend_from_slice(b"\x1b7");
-                    text::frame(canvas, cols, rows, placement, &mut self.out);
+                    text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out);
                     self.out.extend_from_slice(b"\x1b8");
                 }
                 Placement::Virtual => {}
@@ -163,14 +167,14 @@ impl Renderer {
                 }
                 self.out.extend_from_slice(format!("\x1b[{rows}A").as_bytes());
                 if self.opts.copy_text {
-                    text::frame(canvas, cols, rows, Placement::Flow, &mut self.out);
+                    text::frame(canvas, cols, rows, Placement::Flow, depth, palette, &mut self.out);
                     self.out.extend_from_slice(format!("\x1b[{rows}A").as_bytes());
                 }
             }
             Placement::At(col, row) => {
                 self.out.extend_from_slice(b"\x1b7");
                 if self.opts.copy_text {
-                    text::frame(canvas, cols, rows, placement, &mut self.out);
+                    text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out);
                 }
                 self.out.extend_from_slice(format!("\x1b[{};{}H", row + 1, col + 1).as_bytes());
             }
@@ -235,7 +239,30 @@ mod tests {
         c.set(2, 0, crate::Color::Foreground);
         let mut r = Renderer::new(Terminal::text());
         let s = String::from_utf8(r.encode(&c, Placement::Flow).to_vec()).unwrap();
-        assert_eq!(s, "\x1b[38;5;12m⠁\x1b[39m⠁\x1b[0m\r\n");
+        assert_eq!(s, "\x1b[94m⠁\x1b[39m⠁\x1b[0m\r\n");
+    }
+
+    #[test]
+    fn text_frames_quantise_to_depth() {
+        use crate::{Color, Depth};
+        let mut c = Canvas::new(2, 1);
+        // Two reds that both round to ANSI bright red outvote three dots of one blue.
+        c.set(0, 0, Rgb::hex(0xff0000));
+        c.set(1, 0, Rgb::hex(0xfe0000));
+        c.set(0, 1, Rgb::hex(0xfd0000));
+        c.set(1, 1, Rgb::hex(0xfc0000));
+        for y in 0..3 {
+            c.set(0, y + 1, Rgb::hex(0x0000ff));
+        }
+        c.set(2, 0, Color::Indexed(200));
+        let frame = |d: Depth| {
+            let mut r = Renderer::new(Terminal::text().with_depth(d));
+            String::from_utf8(r.encode(&c, Placement::Flow).to_vec()).unwrap()
+        };
+        assert_eq!(frame(Depth::Ansi16), "\x1b[91m⡟\x1b[95m⠁\x1b[0m\r\n");
+        assert_eq!(frame(Depth::Ansi256), "\x1b[38;5;196m⡟\x1b[38;5;200m⠁\x1b[0m\r\n");
+        assert_eq!(frame(Depth::Mono), "\x1b[39m⡟⠁\x1b[0m\r\n");
+        assert!(frame(Depth::TrueColor).starts_with("\x1b[38;2;0;0;255m⡟"));
     }
 
     #[test]

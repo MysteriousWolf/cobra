@@ -166,6 +166,132 @@ impl From<u32> for Color {
     }
 }
 
+/// How many colours the terminal can show in text: what the braille fallback
+/// quantises [`Color::Rgb`] dots to.
+///
+/// Image protocols always get full RGB; the depth only matters for
+/// [`Protocol::Text`](crate::Protocol::Text) and the ratatui widget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Depth {
+    /// No colour: every dot is drawn in the default foreground.
+    Mono,
+    /// The 16 ANSI colours (`SGR 30–37`, `90–97`), matched against the terminal's
+    /// real palette when it was queried.
+    Ansi16,
+    /// The xterm 256-colour palette: a 6×6×6 cube and a 24-step grey ramp.
+    Ansi256,
+    /// 24-bit `SGR 38;2;r;g;b`.
+    TrueColor,
+}
+
+impl Depth {
+    /// Parses `mono` / `16` / `256` / `true` (also `truecolor`, `24bit`, `ansi`).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "mono" | "none" | "0" | "1" | "2" => Some(Self::Mono),
+            "16" | "ansi" | "ansi16" => Some(Self::Ansi16),
+            "256" | "ansi256" => Some(Self::Ansi256),
+            "true" | "truecolor" | "24bit" | "rgb" | "16m" => Some(Self::TrueColor),
+            _ => None,
+        }
+    }
+
+    /// Guesses the depth from the environment, without touching the tty.
+    ///
+    /// `NO_COLOR` wins, then `COLORTERM`, then well-known terminal programs, then
+    /// `TERM`. An unknown but non-empty `TERM` is assumed to be 256-colour capable,
+    /// which every terminal of the last two decades is; `dumb`, `vt*` and `ansi`
+    /// are not.
+    pub fn from_env() -> Self {
+        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        if var("NO_COLOR").is_some() {
+            return Self::Mono;
+        }
+        let term = var("TERM").unwrap_or_default().to_ascii_lowercase();
+        if term == "dumb" {
+            return Self::Mono;
+        }
+        if matches!(var("COLORTERM").as_deref().map(str::to_ascii_lowercase).as_deref(), Some("truecolor" | "24bit")) {
+            return Self::TrueColor;
+        }
+        if term.contains("direct") || term.contains("truecolor") {
+            return Self::TrueColor;
+        }
+        match var("TERM_PROGRAM").as_deref() {
+            Some("Apple_Terminal") => return Self::Ansi256,
+            Some("iTerm.app" | "WezTerm" | "ghostty" | "vscode" | "Hyper" | "rio" | "Tabby") => return Self::TrueColor,
+            _ => {}
+        }
+        if var("WT_SESSION").is_some() || var("KONSOLE_VERSION").is_some() || var("KITTY_WINDOW_ID").is_some() {
+            return Self::TrueColor;
+        }
+        if var("VTE_VERSION").and_then(|v| v.parse::<u32>().ok()).is_some_and(|v| v >= 3600) {
+            return Self::TrueColor;
+        }
+        for t in ["xterm-kitty", "xterm-ghostty", "wezterm", "foot", "alacritty", "contour", "st-256color", "rio"] {
+            if term.starts_with(t) {
+                return Self::TrueColor;
+            }
+        }
+        if term.contains("256") {
+            return Self::Ansi256;
+        }
+        if term.is_empty() || term.starts_with("vt") || term == "ansi" || term == "linux" {
+            return Self::Ansi16;
+        }
+        Self::Ansi256
+    }
+}
+
+/// Squared perceptual distance between two colours ("redmean": a cheap, well-tested
+/// weighting of the RGB channels that tracks how the eye sees differences).
+#[inline]
+fn distance(a: Rgb, b: Rgb) -> u32 {
+    let rm = (a.r as i32 + b.r as i32) / 2;
+    let (dr, dg, db) = (a.r as i32 - b.r as i32, a.g as i32 - b.g as i32, a.b as i32 - b.b as i32);
+    (((512 + rm) * dr * dr) >> 8) as u32 + (4 * dg * dg) as u32 + (((767 - rm) * db * db) >> 8) as u32
+}
+
+impl Color {
+    /// The closest colour the terminal can show at `depth`; a no-op at
+    /// [`Depth::TrueColor`]. Palette indices are kept where the depth has them and
+    /// resolved through `palette` where it does not.
+    pub fn quantize(self, depth: Depth, palette: &Palette) -> Color {
+        match (depth, self) {
+            (Depth::TrueColor, c) | (_, c @ Color::Foreground) => c,
+            (Depth::Mono, _) => Color::Foreground,
+            (Depth::Ansi256, c @ Color::Indexed(_)) | (Depth::Ansi16, c @ Color::Indexed(0..=15)) => c,
+            (Depth::Ansi256, Color::Rgb(c)) => Color::Indexed(nearest_256(c)),
+            (Depth::Ansi16, c) => Color::Indexed(palette.nearest_ansi(c.resolve(palette))),
+        }
+    }
+}
+
+/// Nearest entry of the fixed part of the xterm palette (`16..=255`): the closest
+/// cube corner and the closest grey are each found analytically and the better one wins.
+fn nearest_256(c: Rgb) -> u8 {
+    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    let level = |v: u8| -> usize {
+        if v < 48 {
+            0
+        } else if v < 115 {
+            1
+        } else {
+            (v as usize - 35) / 40
+        }
+    };
+    let (ri, gi, bi) = (level(c.r), level(c.g), level(c.b));
+    let cube = Rgb::new(LEVELS[ri], LEVELS[gi], LEVELS[bi]);
+    let avg = (c.r as u32 + c.g as u32 + c.b as u32) / 3;
+    let gi = if avg < 8 { 0 } else { ((avg - 8 + 5) / 10).min(23) } as u8;
+    let grey = Rgb::new(8 + 10 * gi, 8 + 10 * gi, 8 + 10 * gi);
+    if distance(c, grey) < distance(c, cube) {
+        232 + gi
+    } else {
+        16 + (ri * 36 + level(c.g) * 6 + bi) as u8
+    }
+}
+
 /// The terminal's colour scheme: 256 palette entries plus default foreground and
 /// background. Used to turn [`Color::Indexed`] and [`Color::Foreground`] dots into
 /// pixels for the image protocols.
@@ -210,6 +336,18 @@ impl Palette {
     pub fn is_light(&self) -> bool {
         self.background.luminance() > 0.5
     }
+
+    /// Index of the ANSI colour (`0..=15`) closest to `c` in this palette.
+    pub fn nearest_ansi(&self, c: Rgb) -> u8 {
+        let mut best = (u32::MAX, 0u8);
+        for (i, &p) in self.colors[..16].iter().enumerate() {
+            let d = distance(c, p);
+            if d < best.0 {
+                best = (d, i as u8);
+            }
+        }
+        best.1
+    }
 }
 
 #[cfg(test)]
@@ -238,6 +376,37 @@ mod tests {
         assert_eq!(p.colors[232], Rgb::hex(0x080808));
         assert_eq!(p.colors[255], Rgb::hex(0xeeeeee));
         assert!(!p.is_light());
+    }
+
+    #[test]
+    fn quantise_to_256() {
+        let p = Palette::default();
+        let q = |rgb: u32| Color::Rgb(Rgb::hex(rgb)).quantize(Depth::Ansi256, &p);
+        assert_eq!(q(0xff0000), Color::Indexed(196));
+        assert_eq!(q(0x000000), Color::Indexed(16));
+        assert_eq!(q(0xffffff), Color::Indexed(231));
+        assert_eq!(q(0x808080), Color::Indexed(244));
+        assert_eq!(q(0x5f87d7), Color::Indexed(68));
+        // Every fixed entry maps onto itself.
+        for i in 16..=255u8 {
+            assert_eq!(Color::Rgb(p.colors[i as usize]).quantize(Depth::Ansi256, &p), Color::Indexed(i), "{i}");
+        }
+        assert_eq!(Color::Indexed(3).quantize(Depth::Ansi256, &p), Color::Indexed(3));
+        assert_eq!(Color::Foreground.quantize(Depth::Ansi256, &p), Color::Foreground);
+    }
+
+    #[test]
+    fn quantise_to_16_and_mono() {
+        let p = Palette::default();
+        assert_eq!(Color::Rgb(Rgb::hex(0xff2010)).quantize(Depth::Ansi16, &p), Color::Indexed(9));
+        assert_eq!(Color::Rgb(Rgb::hex(0x0000aa)).quantize(Depth::Ansi16, &p), Color::Indexed(4));
+        assert_eq!(Color::Indexed(196).quantize(Depth::Ansi16, &p), Color::Indexed(9));
+        assert_eq!(Color::Indexed(12).quantize(Depth::Ansi16, &p), Color::Indexed(12));
+        assert_eq!(Color::Rgb(Rgb::hex(0x123456)).quantize(Depth::Mono, &p), Color::Foreground);
+        assert_eq!(Color::Rgb(Rgb::hex(0x123456)).quantize(Depth::TrueColor, &p), Color::Rgb(Rgb::hex(0x123456)));
+        assert_eq!(Depth::parse("TRUECOLOR"), Some(Depth::TrueColor));
+        assert_eq!(Depth::parse("16"), Some(Depth::Ansi16));
+        assert_eq!(Depth::parse("x"), None);
     }
 
     #[test]

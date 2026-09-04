@@ -33,7 +33,7 @@ solid neck and head, and a dark outline keeps the shape readable on any backgrou
 | Kitty  | kitty, WezTerm, Ghostty, Konsole ≥ 22.04 | zlib RGBA in chunked APC, one image id reused per canvas | with `copy_text` |
 | iTerm2 | iTerm2, WezTerm, mintty, Konsole | PNG in OSC 1337 | with `copy_text` |
 | Sixel  | foot, xterm, mlterm, Windows Terminal ≥ 1.22 | palettised DCS, transparent background | with `copy_text` |
-| Text   | everything, tmux, pipes | braille glyphs, dominant colour per cell | yes |
+| Text   | everything, tmux, pipes | braille glyphs, dominant colour per cell, quantised to the terminal's colour depth | yes |
 
 1. **Detect once.** `Terminal::detect()` reads the `COBRA_PROTOCOL` and `COBRA_CELL`
    overrides, checks well-known environment variables, then spends one short
@@ -79,6 +79,66 @@ the dots in an ordered 4×4 Bayer pattern. Dots are on or off, so this is what s
 and depth look like on a dot matrix; `bayer(x, y)` exposes the threshold for custom
 patterns.
 
+### Shapes
+
+Vector primitives draw straight into the dot buffer as horizontal spans, one clipped
+`fill` per dot row instead of a bounds check per dot. Coordinates are `f32` dots; a
+fill covers every dot whose centre is inside, so integer boxes are exact.
+
+```rust
+use cobra::{Paint, Point};
+
+canvas.fill_rect(2.0, 3.0, 20.0, 8.0, 0x3aa0ff);             // dots 2..22 × 3..11
+canvas.rect(2.0, 3.0, 20.0, 8.0, 1.0, Paint::dithered(ink, 0.5)); // 1-dot border, half the dots
+canvas.fill_polygon(&[(0.0, 0.0), (30.0, 4.0), (10.0, 20.0)], green);
+canvas.polygon(&tri, 2.0, ink);                              // closed stroke, 2 dots wide
+canvas.fill_ellipse(cx, cy, 12.0, 6.0, Paint::erase());     // clear a margin, then outline it
+canvas.ellipse(cx, cy, 12.0, 6.0, 1.0, red);
+canvas.arc(cx, cy, r, r, 0.0, 3.14, 1.5, red);
+canvas.bezier(&[p0, c0, c1, p1], 1.0, ink);                  // 3 points = quadratic, 4 = cubic
+canvas.spline(&points, false, 2.0, ink);                     // Catmull–Rom through every point
+canvas.polyline(&points, 1.0, ink);
+```
+
+Every shape takes a `Paint`: anything that converts to a `Color`, `Paint::dithered(color,
+coverage)` for the Bayer pattern, or `Paint::erase()` to unset dots. Strokes of width
+≤ 1 are Bresenham lines; wider ones are a convex quad per segment with round joins and
+caps. Curves are flattened one segment at a time, so nothing allocates except
+`fill_polygon` (it sorts its edge crossings). `span(y, x0, x1, paint)` is the primitive
+underneath, for shapes of your own.
+
+### Text and fonts
+
+```rust
+use cobra::Font;
+
+canvas.text(2, 2, "cobra", &Font::tiny().scale(2), ink);
+canvas.text(2, 14, "3×5 dots", Font::tiny(), Paint::dithered(ink, 0.75));
+let (w, h) = Font::tiny().measure("right aligned");
+```
+
+`Font::tiny()` is a built-in proportional 3×5 font (printable ASCII); `scale(n)` makes an
+`n`× copy once, so one small master gives every size. Fonts are a plain text format,
+parsed at compile time with `include_str!` or at run time with `Font::parse`, so a script
+in any language can generate one; `Font::add` defines glyphs from code:
+
+```text
+// comment
+height 5      // line advance (defaults to the tallest glyph)
+spacing 1     // dots between glyphs
+line 1        // dots between lines
+
+A             // one character, or U+0041; a blank line ends the glyph
+.#.           // '#' is a dot, '.' is not
+#.#
+###
+#.#
+#.#
+```
+
+Glyphs may have any width and height (up to 64 dots wide), so a font can mix narrow
+punctuation with wide capitals or hold a few large symbols.
+
 ### Terminal colours
 
 Dot colours are `Color`s: an explicit `Rgb`, one of the terminal's 256 palette entries,
@@ -98,6 +158,25 @@ colours, foreground and background (`OSC 4`, `OSC 10`, `OSC 11`) in the same rou
 trip it already makes, and the renderer resolves each dot through that `Palette` with
 one table lookup. No measurable cost either way; see the benchmarks below. Without a
 reply the xterm defaults are used, and `Terminal::with_palette` sets one by hand.
+
+### Fewer colours
+
+Not every terminal that gets the text fallback can show 24-bit colour. `Terminal::detect`
+also learns the colour `Depth` (`COBRA_COLORS`, `NO_COLOR`, `COLORTERM`, the terminal
+program, `TERM`), and the text renderer and the ratatui widget quantise to it:
+
+| Depth | Cells are | Nearest colour by |
+|---|---|---|
+| `TrueColor` | `38;2;r;g;b` | nothing to do |
+| `Ansi256` | `38;5;n` | closest cube corner vs. closest grey, analytically |
+| `Ansi16` | `30–37` / `90–97` | the terminal's own ANSI palette, when it was queried |
+| `Mono` | default foreground | every dot |
+
+Distances are "redmean" weighted RGB, a cheap approximation of perceptual difference.
+Each dot is quantised *before* the cell's dominant colour is picked, so two shades that
+land on the same palette entry vote together instead of splitting; a per-frame cache
+makes that one multiply and a compare per dot. `Color::quantize` and
+`Palette::nearest_ansi` are public for callers that pick colours themselves.
 
 ### Export
 
@@ -171,7 +250,10 @@ Medians on one core, 9×18 px cells (`cargo bench --features ratatui` adds the w
 | plot 200×50  | Sixel  | 6.5 ms  | 6.5 ms  | 150  | 94 KB   |
 
 The logo's "whole frame" is dominated by drawing it (240 discs); the plot is three sine
-traces over a dithered fill. Palette colours instead of RGB change nothing measurable
+traces over a dithered fill. `cargo bench` also has a `Text/16` row (quantising every
+dot to the ANSI palette adds about 5 % to the text encode) and a `shapes 80×24` case
+(dithered fill, stroked spline, Bézier, filled polygon, ellipse and text) that draws in
+under 100 µs through the span primitives. Palette colours instead of RGB change nothing measurable
 (within 5 %, frames a little smaller). Through the ratatui widget (render into a
 `Buffer`, diff, overlay) an 80×24 plot runs at about 980 fps on kitty, 790 on iTerm2,
 700 on sixel and 7500 as text. In practice the terminal's decoder, not this crate, sets
@@ -195,6 +277,8 @@ cargo run --example logo -- theme           # in the terminal's palette colours
 cargo run --example logo -- text            # plain braille
 cargo run --example logo -- svg logo.svg    # transparent SVG (or png)
 cargo run --example calibrate               # match dot size to your font
+cargo run --example shapes                  # polygons, splines, arcs, fonts
+COBRA_COLORS=16 cargo run --example shapes  # the same on a 16-colour terminal
 cargo run --release --example snake         # animation with timing (add `theme`)
 cargo run --release --features ratatui --example tui   # `t` toggles palette colours
 cargo bench                                 # the table above
@@ -208,6 +292,7 @@ cargo bench                                 # the table above
 | `COBRA_CELL` | cell size in pixels, e.g. `9x18` |
 | `COBRA_DOT` | dot diameter as a fraction of its slot, e.g. `0.8` |
 | `COBRA_PALETTE` | `0` skips the colour-scheme queries |
+| `COBRA_COLORS` | text colour depth: `mono`, `16`, `256` or `true` |
 
 ## Limits
 

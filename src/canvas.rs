@@ -1,6 +1,6 @@
 //! The dot grid.
 
-use crate::Color;
+use crate::{Color, Paint};
 
 /// Braille bit for dot `(dx, dy)` inside a cell, indexed `[dy][dx]`.
 ///
@@ -59,7 +59,7 @@ pub fn bayer(x: i32, y: i32) -> f32 {
 pub struct Canvas {
     cols: u16,
     rows: u16,
-    dots: Vec<u32>,
+    pub(crate) dots: Vec<u32>,
 }
 
 impl Canvas {
@@ -165,36 +165,19 @@ impl Canvas {
 
     /// Fills a disc of radius `r` (in dots) centred on `(cx, cy)`.
     pub fn disc(&mut self, cx: f32, cy: f32, r: f32, color: impl Into<Color>) {
-        self.disc_dithered(cx, cy, r, color, 1.0);
+        self.fill_ellipse(cx, cy, r, r, color.into());
     }
 
     /// Fills a disc like [`disc`](Self::disc) but only `coverage` (`0..=1`) of its
     /// dots, in an ordered pattern; see [`set_dithered`](Self::set_dithered).
     pub fn disc_dithered(&mut self, cx: f32, cy: f32, r: f32, color: impl Into<Color>, coverage: f32) {
-        let color = color.into();
-        let r2 = r * r;
-        for y in (cy - r).floor() as i32..=(cy + r).ceil() as i32 {
-            for x in (cx - r).floor() as i32..=(cx + r).ceil() as i32 {
-                let (ex, ey) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
-                if ex * ex + ey * ey <= r2 {
-                    self.set_dithered(x, y, color, coverage);
-                }
-            }
-        }
+        self.fill_ellipse(cx, cy, r, r, Paint::dithered(color, coverage));
     }
 
     /// Unsets every dot inside a disc of radius `r` centred on `(cx, cy)`; a cleared
     /// ring around a shape separates it from what is behind it on any background.
     pub fn clear_disc(&mut self, cx: f32, cy: f32, r: f32) {
-        let r2 = r * r;
-        for y in (cy - r).floor() as i32..=(cy + r).ceil() as i32 {
-            for x in (cx - r).floor() as i32..=(cx + r).ceil() as i32 {
-                let (ex, ey) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
-                if ex * ex + ey * ey <= r2 {
-                    self.unset(x, y);
-                }
-            }
-        }
+        self.fill_ellipse(cx, cy, r, r, Paint::erase());
     }
 
     /// Packed colours of the eight dots of cell `(col, row)`, row-major (`0` = unset).
@@ -212,8 +195,13 @@ impl Canvas {
     }
 
     /// Cell `(col, row)` as a glyph plus its dominant colour.
+    #[inline]
     pub fn cell(&self, col: u16, row: u16) -> Cell {
-        let dots = self.cell_dots(col, row);
+        Self::cell_of(self.cell_dots(col, row))
+    }
+
+    /// Glyph and dominant colour of eight packed dots (row-major).
+    pub(crate) fn cell_of(dots: [u32; 8]) -> Cell {
         let mut bits = 0u8;
         let (mut best, mut best_n) = (0u32, 0u8);
         for (i, &v) in dots.iter().enumerate() {

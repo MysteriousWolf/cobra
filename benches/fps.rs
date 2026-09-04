@@ -16,10 +16,21 @@ mod common;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use cobra::{Canvas, CellSize, Color, Options, Placement, Protocol, Renderer, Rgb, Terminal};
+use cobra::{Canvas, CellSize, Color, Depth, Font, Options, Paint, Placement, Protocol, Renderer, Rgb, Terminal};
 
 const CELL: CellSize = CellSize { width: 9, height: 18 };
 const PROTOCOLS: [Protocol; 4] = [Protocol::Text, Protocol::Kitty, Protocol::Iterm2, Protocol::Sixel];
+
+/// Every protocol, plus the text protocol quantised to 16 colours.
+fn terminals() -> [(&'static str, Terminal); 5] {
+    [
+        ("Text", Terminal::new(Protocol::Text, CELL)),
+        ("Text/16", Terminal::new(Protocol::Text, CELL).with_depth(Depth::Ansi16)),
+        ("Kitty", Terminal::new(Protocol::Kitty, CELL)),
+        ("Iterm2", Terminal::new(Protocol::Iterm2, CELL)),
+        ("Sixel", Terminal::new(Protocol::Sixel, CELL)),
+    ]
+}
 
 struct Case {
     name: &'static str,
@@ -51,6 +62,29 @@ fn plot(c: &mut Canvas, phase: f32, themed: bool) {
     }
 }
 
+/// Vector content: filled and stroked shapes, a spline, a curve and labels, all
+/// through the span-based primitives rather than per-dot loops.
+fn shapes(c: &mut Canvas, phase: f32, themed: bool) {
+    c.clear();
+    let (w, h) = (c.width() as f32, c.height() as f32);
+    let colours: [Color; 3] = if themed {
+        [Color::Indexed(2), Color::Indexed(4), Color::Indexed(1)]
+    } else {
+        [Rgb::hex(0x5ec33a).into(), Rgb::hex(0x3aa0ff).into(), Rgb::hex(0xff3355).into()]
+    };
+    c.fill_rect(0.0, h * 0.6, w, h * 0.4, Paint::dithered(colours[0], 0.4));
+    c.rect(1.0, 1.0, w - 2.0, h - 2.0, 1.0, colours[1]);
+    let pts: Vec<(f32, f32)> =
+        (0..8).map(|i| (w * (0.1 + 0.8 * i as f32 / 7.0), h * (0.3 + 0.25 * (i as f32 + phase).sin()))).collect();
+    c.spline(&pts, false, 2.0, colours[2]);
+    c.bezier(&[(0.0, h), (w * 0.3, 0.0), (w * 0.7, h), (w, 0.0)], 1.0, colours[1]);
+    let (cx, cy) = (w * 0.5 + w * 0.2 * phase.cos(), h * 0.5);
+    c.fill_polygon(&[(cx, cy - 8.0), (cx + 7.0, cy + 5.0), (cx - 7.0, cy + 5.0)], colours[0]);
+    c.fill_ellipse(w * 0.8, h * 0.5, 9.0, 5.0, Paint::erase());
+    c.ellipse(w * 0.8, h * 0.5, 9.0, 5.0, 1.5, colours[2]);
+    c.text(2, 2, "shapes", Font::tiny(), colours[1]);
+}
+
 fn snake(c: &mut Canvas, phase: f32, themed: bool) {
     common::draw_with(c, phase, if themed { &common::Theme::ANSI } else { &common::Theme::RGB });
 }
@@ -74,6 +108,7 @@ fn main() {
         Case { name: "logo 32×8", cols: common::COLS, rows: common::ROWS, draw: snake },
         Case { name: "plot 80×24", cols: 80, rows: 24, draw: plot },
         Case { name: "plot 200×50", cols: 200, rows: 50, draw: plot },
+        Case { name: "shapes 80×24", cols: 80, rows: 24, draw: shapes },
     ];
     let quick = std::env::args().any(|a| a == "--quick");
     let (runs, iters) = if quick { (3, 5) } else { (9, 20) };
@@ -93,8 +128,7 @@ fn main() {
                 runs,
                 iters,
             );
-            for protocol in PROTOCOLS {
-                let term = Terminal::new(protocol, CELL);
+            for (protocol, term) in terminals() {
                 let mut renderer = Renderer::with_options(term, Options::default());
                 let mut sink = std::io::sink();
                 let mut bytes = 0usize;
@@ -114,7 +148,7 @@ fn main() {
                 let encode = encode.saturating_sub(draw);
                 let frame = draw + encode;
                 println!(
-                    "| {} | {} | {:?} | {} | {} | {} | {:.0} | {} |",
+                    "| {} | {} | {} | {} | {} | {} | {:.0} | {} |",
                     case.name,
                     if themed { "palette" } else { "rgb" },
                     protocol,

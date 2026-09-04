@@ -19,7 +19,7 @@
 #[cfg(all(feature = "detect", unix))]
 mod query;
 
-use crate::Palette;
+use crate::{Depth, Palette};
 
 /// How the canvas gets onto the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -113,6 +113,9 @@ pub struct Terminal {
     pub palette: Palette,
     /// Whether `palette` was reported by the terminal rather than assumed.
     pub palette_queried: bool,
+    /// Colour depth of the text fallback: what [`Color::Rgb`](crate::Color::Rgb) dots
+    /// are quantised to when the frame is braille glyphs. Ignored by image protocols.
+    pub depth: Depth,
 }
 
 impl Terminal {
@@ -125,7 +128,21 @@ impl Terminal {
     /// Image protocols with an unknown cell size are demoted to text.
     pub fn new(protocol: Protocol, cell: CellSize) -> Self {
         let protocol = if cell.is_known() { protocol } else { Protocol::Text };
-        Self { protocol, cell, cols: 0, rows: 0, palette: Palette::default(), palette_queried: false }
+        Self {
+            protocol,
+            cell,
+            cols: 0,
+            rows: 0,
+            palette: Palette::default(),
+            palette_queried: false,
+            depth: Depth::TrueColor,
+        }
+    }
+
+    /// Sets the text colour depth (builder style).
+    pub fn with_depth(mut self, depth: Depth) -> Self {
+        self.depth = depth;
+        self
     }
 
     /// Replaces the palette (builder style).
@@ -153,11 +170,21 @@ impl Terminal {
     /// timeout and normally ending as soon as the terminal answers `DA1` (a few
     /// milliseconds). Call it once at start-up and keep the result. Set
     /// `COBRA_PALETTE=0` to skip the colour queries.
+    ///
+    /// The text colour depth comes from `COBRA_COLORS` (`mono|16|256|true`) or
+    /// [`Depth::from_env`]; a terminal with a graphics protocol is assumed to have
+    /// true colour.
     #[cfg(feature = "detect")]
     pub fn detect() -> Self {
         let override_protocol = std::env::var("COBRA_PROTOCOL").ok().and_then(|s| Protocol::parse(&s));
         let override_cell = std::env::var("COBRA_CELL").ok().and_then(|s| CellSize::parse(&s));
-        Self::detect_inner(override_protocol, override_cell)
+        let mut t = Self::detect_inner(override_protocol, override_cell);
+        t.depth = match std::env::var("COBRA_COLORS").ok().and_then(|s| Depth::parse(&s)) {
+            Some(d) => d,
+            None if t.is_graphical() => Depth::TrueColor,
+            None => Depth::from_env(),
+        };
+        t
     }
 
     #[cfg(all(feature = "detect", unix))]
@@ -225,5 +252,7 @@ mod tests {
     fn unknown_cell_demotes_to_text() {
         assert_eq!(Terminal::new(Protocol::Kitty, CellSize::default()).protocol, Protocol::Text);
         assert_eq!(Terminal::new(Protocol::Kitty, CellSize { width: 8, height: 16 }).protocol, Protocol::Kitty);
+        assert_eq!(Terminal::text().depth, Depth::TrueColor);
+        assert_eq!(Terminal::text().with_depth(Depth::Ansi16).depth, Depth::Ansi16);
     }
 }

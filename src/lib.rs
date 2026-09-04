@@ -11,7 +11,7 @@
 //! | `Kitty`  | zlib RGBA, chunked APC, one image id reused per canvas | with `copy_text` |
 //! | `Iterm2` | PNG in OSC 1337                                         | with `copy_text` |
 //! | `Sixel`  | palettised DCS with transparent background              | with `copy_text` |
-//! | `Text`   | braille glyphs, dominant colour per cell                | yes |
+//! | `Text`   | braille glyphs, dominant colour per cell, quantised to the terminal's [`Depth`] | yes |
 //!
 //! Image frames are rasterised on the terminal's real cell grid (queried once from the
 //! terminal), so every dot lands exactly where the font would draw it and the picture
@@ -35,8 +35,8 @@
 //!
 //! ## Detection
 //!
-//! [`Terminal::detect`] reads `COBRA_PROTOCOL` (`text|kitty|iterm2|sixel`) and
-//! `COBRA_CELL` (`WxH` pixels) overrides, checks environment variables, and then
+//! [`Terminal::detect`] reads `COBRA_PROTOCOL` (`text|kitty|iterm2|sixel`),
+//! `COBRA_CELL` (`WxH` pixels) and `COBRA_COLORS` (`mono|16|256|true`) overrides, checks environment variables, and then
 //! spends one short escape-sequence round trip on `/dev/tty` for what is still unknown
 //! and for the colour scheme. Terminals do not expose font names or point sizes; the
 //! cell box in pixels is what they publish and what alignment needs. The dot diameter
@@ -44,12 +44,22 @@
 //! Inside tmux/screen, or when the cell size cannot be learned, the text protocol is
 //! used.
 //!
+//! ## Drawing
+//!
+//! Besides single dots and Bresenham lines, [`Canvas`] has span-based vector
+//! primitives (`fill_rect`, `fill_polygon`, `fill_ellipse`, stroked `rect`, `polygon`,
+//! `polyline`, `ellipse`, `arc`, `bezier`, `spline`) that take a [`Paint`]: a colour,
+//! a dithered coverage, or [`Paint::erase`]. [`Canvas::text`] draws with a [`Font`], a
+//! tiny text-format bitmap font that scales; [`Font::tiny`] is built in.
+//!
 //! ## Colours
 //!
 //! Dots take a [`Color`]: an explicit [`Rgb`], a terminal palette index or the default
 //! foreground. Palette colours follow the user's theme in every protocol: the text
 //! fallback emits SGR indices, and the image protocols resolve them through the
-//! [`Palette`] that detection reads from the terminal.
+//! [`Palette`] that detection reads from the terminal. On terminals without true
+//! colour the text fallback quantises each dot to the nearest colour of the detected
+//! [`Depth`] (256, 16 or none) before choosing a cell's dominant colour.
 //!
 //! ## Export
 //!
@@ -78,8 +88,10 @@
 
 mod canvas;
 mod color;
+mod draw;
 mod encode;
 pub mod export;
+mod font;
 mod raster;
 mod render;
 mod term;
@@ -89,6 +101,8 @@ mod term;
 pub mod ratatui;
 
 pub use canvas::{bayer, braille, Canvas, Cell, DOTS_X, DOTS_Y};
-pub use color::{Color, Palette, Rgb};
+pub use color::{Color, Depth, Palette, Rgb};
+pub use draw::{Paint, Point};
+pub use font::{Font, FontError, Glyph};
 pub use render::{Options, Placement, Renderer};
 pub use term::{CellSize, Protocol, Terminal};
