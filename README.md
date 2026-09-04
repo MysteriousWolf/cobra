@@ -2,129 +2,156 @@
 
 # cobra
 
-Per-dot coloured braille canvases for the terminal.
+Draw with individually coloured dots in the terminal.
 
-A braille glyph packs a 2×4 grid of dots into one character cell, but text can only
-give the whole cell one colour. `cobra` keeps the braille model (a canvas of
-individually coloured dots) and shows it the best way the current terminal can:
-as an image aligned to the cell grid when the terminal has a graphics protocol, and
-as plain coloured braille everywhere else.
+A braille character packs a 2×4 grid of dots into one cell, which gives you a cheap
+pixel grid four times taller and twice as wide as the text grid. The catch is that a
+character can only have one colour, so every dot in a cell has to share it.
 
-```text
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠔⢄⢰⣿⣿⣿⣿⣷⡆⢄⢀⡀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢔⢕⢽⣵⣌⠻⣿⣿⡿⠿⢋⢽⢕⠇⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢝⢽⣿⣿⡟⣷⣶⣶⣶⣿⣿⣿⢝⠅⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠝⢝⢽⢽⠅⣿⣿⣿⢸⢽⢽⢝⠝⠅⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣤⣤⣤⣀⣀⣁⡁⠅⠅⣿⣿⣿⠐⠅⠅⠁⠁⠀⠀⠀
-⣠⣤⣀⣀⣠⣤⣴⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀
-⠈⠛⠛⠛⠛⠛⠛⠋⠉⠁⠀⠀⠀⠀⠀⠈⠉⠙⠛⠛⠿⠮⠭⠁⠀⠀⠀⠀⠀⠀⠀⠀
+cobra keeps the braille model but drops that limit. You draw on a canvas where every
+dot has its own colour, and it picks the best way to show it:
+
+* On kitty, WezTerm, Ghostty, iTerm2, foot, xterm and Windows Terminal it sends a small
+  image aligned to the character grid, so each dot keeps its colour.
+* Everywhere else, including tmux and pipes, it prints real braille glyphs with one
+  colour per cell, quantised to however many colours the terminal has.
+
+Same code either way. Nothing to configure.
+
+```sh
+cargo add cobra
 ```
-
-The mascot above is drawn with the library (`cargo run --example logo`) and exported
-as a transparent SVG with the same cell-aligned geometry the image protocols use. Every
-dot has its own colour; the hood flaps are ordered-dithered so they sit behind the
-solid neck and head, and a dark outline keeps the shape readable on any background.
-
-## How it works
-
-| Protocol | Terminals | Frame on the wire | Copyable braille |
-|---|---|---|---|
-| Kitty  | kitty, WezTerm, Ghostty, Konsole ≥ 22.04 | zlib RGBA in chunked APC, one image id reused per canvas | with `copy_text` |
-| iTerm2 | iTerm2, WezTerm, mintty, Konsole | PNG in OSC 1337 | with `copy_text` |
-| Sixel  | foot, xterm, mlterm, Windows Terminal ≥ 1.22 | palettised DCS, transparent background | with `copy_text` |
-| Text   | everything, tmux, pipes | braille glyphs, dominant colour per cell, quantised to the terminal's colour depth | yes |
-
-1. **Detect once.** `Terminal::detect()` reads the `COBRA_PROTOCOL` and `COBRA_CELL`
-   overrides, checks well-known environment variables, then spends one short
-   escape-sequence round trip on `/dev/tty` for whatever is still unknown (kitty probe,
-   `CSI 16 t` cell size, `DA1` for sixel) plus the colour scheme (`OSC 4/10/11`). The
-   round trip ends as soon as the terminal answers `DA1`. The cell size comes from
-   `TIOCGWINSZ` when the terminal fills in the pixel fields, which costs a single `ioctl`.
-2. **Rasterise on the real grid.** Terminals do not publish font names or point
-   sizes, only the pixel box of one cell. That is all alignment needs: each dot is
-   drawn in its 2×4 slot of a cell of exactly that size, so the image lines up with
-   surrounding text and with the braille glyphs the text fallback would print.
-3. **Ship a small frame.** Frames are transparent apart from the dots (alpha for kitty
-   and iTerm2, `P2=1` for sixel), so they never paint over the terminal's background.
-   The built-in zlib encoder only looks for runs, cell-periodic patterns and repeated
-   scanlines, which is cheap and turns the 288×144 RGBA logo frame (166 KB) into 7 KB.
-
-## Usage
 
 ```rust
 use cobra::{Canvas, Renderer, Rgb, Terminal};
 
-let term = Terminal::detect();          // once, at start-up
-let mut renderer = Renderer::new(term); // owns every scratch buffer
-let mut canvas = Canvas::new(20, 5);    // 20×5 cells = 40×20 dots
+let mut renderer = Renderer::new(Terminal::detect());  // detect once, at start-up
+let mut canvas = Canvas::new(20, 5);                   // 20×5 cells = 40×20 dots
 
 for x in 0..canvas.width() {
     let t = x as f32 / canvas.width() as f32;
     canvas.set(x, 10, Rgb::hex(0xff0055).lerp(Rgb::hex(0x00ccff), t));
 }
+
 renderer.render(&canvas, &mut std::io::stdout())?;
 ```
 
-`render` draws at the cursor and leaves it on the line below. `render_at(col, row)`
-draws at an absolute position and preserves the cursor. `encode` returns the frame
-bytes without writing, for callers that manage their own output.
+`render` draws at the cursor and leaves it on the next line. `render_at(col, row)` draws
+at an absolute position and puts the cursor back. `encode` returns the bytes if you want
+to write them yourself.
 
-`Canvas` offers `set`, `unset`, `get`, `line`, `disc`, `clear_disc`, `clear`, per-cell
-inspection and `to_text()` for plain copyable braille. Coordinates are `i32`; off-canvas
-dots are ignored, so shapes can be drawn partially outside without clamping.
+## Shapes
 
-`set_dithered` and `disc_dithered` take a coverage in `0..=1` and draw that fraction of
-the dots in an ordered 4×4 Bayer pattern. Dots are on or off, so this is what shading
-and depth look like on a dot matrix; `bayer(x, y)` exposes the threshold for custom
-patterns.
+<p align="center"><img src="assets/gallery.svg" alt="every primitive, one per panel" width="720"></p>
 
-### Shapes
-
-Vector primitives draw straight into the dot buffer as horizontal spans, one clipped
-`fill` per dot row instead of a bounds check per dot. Coordinates are `f32` dots; a
-fill covers every dot whose centre is inside, so integer boxes are exact.
+That image is `cargo run --example gallery`, one panel per primitive. Coordinates are
+`f32` dots, `(0, 0)` is the top left, and anything off-canvas is clipped, so you can draw
+partly outside without checking bounds.
 
 ```rust
-use cobra::{Paint, Point};
+use cobra::{Canvas, Font, Paint, Rgb};
 
-canvas.fill_rect(2.0, 3.0, 20.0, 8.0, 0x3aa0ff);             // dots 2..22 × 3..11
-canvas.rect(2.0, 3.0, 20.0, 8.0, 1.0, Paint::dithered(ink, 0.5)); // 1-dot border, half the dots
-canvas.fill_polygon(&[(0.0, 0.0), (30.0, 4.0), (10.0, 20.0)], green);
-canvas.polygon(&tri, 2.0, ink);                              // closed stroke, 2 dots wide
-canvas.fill_ellipse(cx, cy, 12.0, 6.0, Paint::erase());     // clear a margin, then outline it
-canvas.ellipse(cx, cy, 12.0, 6.0, 1.0, red);
-canvas.arc(cx, cy, r, r, 0.0, 3.14, 1.5, red);
-canvas.bezier(&[p0, c0, c1, p1], 1.0, ink);                  // 3 points = quadratic, 4 = cubic
-canvas.spline(&points, false, 2.0, ink);                     // Catmull–Rom through every point
-canvas.polyline(&points, 1.0, ink);
+let mut c = Canvas::new(72, 24);
+
+// Dots and lines take integer coordinates.
+c.set(4, 6, Rgb::hex(0xff3355));                          // one dot
+c.line(0, 20, 30, 4, Rgb::hex(0xff8c1a));                 // Bresenham
+c.disc(10.0, 12.0, 8.0, Rgb::hex(0xffd21e));              // filled circle
+
+// Rectangles: fill, then a 2-dot border.
+c.fill_rect(2.0, 2.0, 14.0, 14.0, Rgb::hex(0x5ec33a));
+c.rect(20.0, 2.0, 14.0, 14.0, 2.0, Rgb::hex(0x5ec33a));
+
+// Ellipses and arcs. `arc` takes start and end angles in radians.
+c.fill_ellipse(8.0, 9.0, 8.0, 6.0, Rgb::hex(0x2ec4a6));
+c.ellipse(24.0, 9.0, 8.0, 6.0, 1.0, Rgb::hex(0x2ec4a6));
+c.arc(16.0, 20.0, 10.0, 10.0, 3.34, 5.34, 1.0, Rgb::hex(0x3aa0ff));
+
+// Paths. Points are plain (f32, f32) tuples.
+let pts = [(0.0, 8.0), (8.0, 0.0), (16.0, 12.0), (24.0, 4.0)];
+c.polyline(&pts, 2.0, Rgb::hex(0x6c7bff));                // open
+c.polygon(&pts, 1.0, Rgb::hex(0xa96cff));                 // closed
+c.fill_polygon(&pts, Rgb::hex(0xa96cff));
+
+// Curves. 3 control points is quadratic, 4 is cubic.
+c.bezier(&[(0.0, 18.0), (16.0, 1.0), (32.0, 18.0)], 1.0, Rgb::hex(0xe45cc4));
+c.spline(&pts, false, 2.0, Rgb::hex(0xff6f91));           // Catmull-Rom through every point
+
+// Text, in a built-in 3×5 font.
+c.text(2, 2, "cobra", &Font::tiny().scale(2), Rgb::hex(0xc9d1d9));
 ```
 
-Every shape takes a `Paint`: anything that converts to a `Color`, `Paint::dithered(color,
-coverage)` for the Bayer pattern, or `Paint::erase()` to unset dots. Strokes of width
-≤ 1 are Bresenham lines; wider ones are a convex quad per segment with round joins and
-caps. Curves are flattened one segment at a time, so nothing allocates except
-`fill_polygon` (it sorts its edge crossings). `span(y, x0, x1, paint)` is the primitive
-underneath, for shapes of your own.
+### Paint
 
-### Text and fonts
+Every shape takes a `Paint`. A bare colour works, and two constructors cover the rest:
 
 ```rust
-use cobra::Font;
+let teal = Rgb::hex(0x4fd1c5);
 
+c.fill_rect(0.0, 0.0, 20.0, 8.0, teal);                             // solid
+c.fill_rect(0.0, 0.0, 20.0, 8.0, Paint::dithered(teal, 0.35));      // 35% of the dots
+c.fill_ellipse(10.0, 4.0, 6.0, 4.0, Paint::erase());                // unset dots
+```
+
+Dots are on or off, so `Paint::dithered` is how you get shading. It fills a fraction of
+the dots in an ordered 4×4 Bayer pattern. Erasing first is the usual trick for making
+something readable on top of a busy background: clear a margin, then draw.
+
+Strokes narrower than one dot are Bresenham lines. Wider ones are a quad per segment
+with round joins and caps. Everything fills through `span(y, x0, x1, paint)`, one clipped
+horizontal run per dot row, which is public if you want to write your own primitive.
+Only `fill_polygon` allocates, and only to sort edge crossings.
+
+## Colours
+
+A dot colour is an `Rgb`, one of the terminal's 256 palette entries, or the default
+foreground:
+
+```rust
+use cobra::Color;
+
+canvas.set(x, y, 0x5ec33a);            // anything Into<Color>
+canvas.set(x, y, Color::Indexed(2));   // ANSI green, whatever the user's theme makes it
+canvas.set(x, y, Color::Foreground);   // the text colour
+```
+
+Palette colours follow the user's theme. In the text fallback they become plain SGR
+indices and the terminal resolves them. For the image protocols, detection asks the
+terminal for its actual ANSI colours (`OSC 4`, `OSC 10`, `OSC 11`) and the renderer looks
+each one up. If the terminal does not answer, xterm's defaults are used.
+
+Not every terminal has 24-bit colour, so detection also works out the colour depth from
+`NO_COLOR`, `COLORTERM`, `TERM` and the terminal program, and the text renderer quantises
+to it:
+
+| Depth | Cells become | Nearest colour picked by |
+|---|---|---|
+| `TrueColor` | `38;2;r;g;b` | nothing to do |
+| `Ansi256` | `38;5;n` | closest cube corner vs. closest grey |
+| `Ansi16` | `30-37` / `90-97` | the terminal's own ANSI palette |
+| `Mono` | default foreground | everything |
+
+Quantisation happens per dot, before the cell picks its dominant colour, so two shades
+that land on the same palette entry vote together instead of splitting the cell. Set
+`COBRA_COLORS=16` to see it without hunting for an old terminal.
+
+## Fonts
+
+```rust
 canvas.text(2, 2, "cobra", &Font::tiny().scale(2), ink);
 canvas.text(2, 14, "3×5 dots", Font::tiny(), Paint::dithered(ink, 0.75));
 let (w, h) = Font::tiny().measure("right aligned");
 ```
 
-`Font::tiny()` is a built-in proportional 3×5 font (printable ASCII); `scale(n)` makes an
-`n`× copy once, so one small master gives every size. Fonts are a plain text format,
-parsed at compile time with `include_str!` or at run time with `Font::parse`, so a script
-in any language can generate one; `Font::add` defines glyphs from code:
+`Font::tiny()` is a proportional 3×5 font covering printable ASCII. `scale(n)` builds an
+`n`× copy once, so one master gives you every size.
+
+Fonts are a plain text format. Parse one at compile time with `include_str!`, at run time
+with `Font::parse`, or build glyphs from code with `Font::add`:
 
 ```text
 // comment
-height 5      // line advance (defaults to the tallest glyph)
+height 5      // line advance, defaults to the tallest glyph
 spacing 1     // dots between glyphs
 line 1        // dots between lines
 
@@ -136,78 +163,39 @@ A             // one character, or U+0041; a blank line ends the glyph
 #.#
 ```
 
-Glyphs may have any width and height (up to 64 dots wide), so a font can mix narrow
-punctuation with wide capitals or hold a few large symbols.
+Glyphs can be any size up to 64 dots wide, so one font can mix narrow punctuation with
+wide capitals, or hold a handful of large symbols. Any script can generate one.
 
-### Terminal colours
+## Terminals
 
-Dot colours are `Color`s: an explicit `Rgb`, one of the terminal's 256 palette entries,
-or its default foreground. Palette colours follow the user's theme:
-
-```rust
-use cobra::Color;
-
-canvas.set(x, y, Color::Indexed(2));   // ANSI green, whatever the theme makes it
-canvas.set(x, y, Color::Foreground);   // the text colour
-canvas.set(x, y, 0x5ec33a);            // still fine: anything Into<Color>
-```
-
-The text fallback emits them as plain SGR indices, so the terminal applies its own
-palette. For the image protocols `Terminal::detect()` asks the terminal for its ANSI
-colours, foreground and background (`OSC 4`, `OSC 10`, `OSC 11`) in the same round
-trip it already makes, and the renderer resolves each dot through that `Palette` with
-one table lookup. No measurable cost either way; see the benchmarks below. Without a
-reply the xterm defaults are used, and `Terminal::with_palette` sets one by hand.
-
-### Fewer colours
-
-Not every terminal that gets the text fallback can show 24-bit colour. `Terminal::detect`
-also learns the colour `Depth` (`COBRA_COLORS`, `NO_COLOR`, `COLORTERM`, the terminal
-program, `TERM`), and the text renderer and the ratatui widget quantise to it:
-
-| Depth | Cells are | Nearest colour by |
+| Protocol | Terminals | What goes over the wire |
 |---|---|---|
-| `TrueColor` | `38;2;r;g;b` | nothing to do |
-| `Ansi256` | `38;5;n` | closest cube corner vs. closest grey, analytically |
-| `Ansi16` | `30–37` / `90–97` | the terminal's own ANSI palette, when it was queried |
-| `Mono` | default foreground | every dot |
+| Kitty  | kitty, WezTerm, Ghostty, Konsole ≥ 22.04 | zlib RGBA in chunked APC, one image id per canvas |
+| iTerm2 | iTerm2, WezTerm, mintty, Konsole | PNG in OSC 1337 |
+| Sixel  | foot, xterm, mlterm, Windows Terminal ≥ 1.22 | palettised DCS, transparent background |
+| Text   | everything, tmux, pipes | braille glyphs, one colour per cell |
 
-Distances are "redmean" weighted RGB, a cheap approximation of perceptual difference.
-Each dot is quantised *before* the cell's dominant colour is picked, so two shades that
-land on the same palette entry vote together instead of splitting; a per-frame cache
-makes that one multiply and a compare per dot. `Color::quantize` and
-`Palette::nearest_ansi` are public for callers that pick colours themselves.
+`Terminal::detect()` runs once. It reads the `COBRA_*` overrides, checks the usual
+environment variables, then spends a single escape-sequence round trip on `/dev/tty` for
+whatever is left: the kitty probe, `CSI 16 t` for cell size, `DA1` for sixel, and the
+colour scheme. The round trip ends as soon as `DA1` comes back. Cell size comes from one
+`ioctl` when the terminal fills in the pixel fields.
 
-### Export
+Frames are transparent apart from the dots, so they never paint over the background.
 
-```rust
-use cobra::export::{png, svg, Style};
-
-std::fs::write("plot.png", png(&canvas, &Style::default().scale(2)))?;
-std::fs::write("plot.svg", svg(&canvas, &Style::default()))?;
-```
-
-Both use the renderer's geometry (cell box, dot diameter) so a file looks like the
-terminal did. The background is transparent unless `Style::background` is set;
-`Style::palette` resolves terminal colours for the file.
-
-### Dot style and fonts
-
-Terminals publish the pixel size of a cell (`TIOCGWINSZ`, `CSI 16 t`) but not the
-font, and no protocol exposes glyph outlines, so the *position* of every dot is exact
-while its *diameter* is a style choice. The default (`0.7` of a 2×4 slot) is close to
-what most monospace fonts draw for braille. To match yours exactly run
+Terminals publish the pixel size of a cell but not the font, and no protocol exposes glyph
+outlines. So the *position* of every dot is exact, while its *diameter* is a guess. The
+default of 0.7 of a slot matches what most monospace fonts draw. To match yours exactly:
 
 ```sh
 cargo run --example calibrate
 ```
 
-which prints the font's glyphs above image dots at six sizes; export `COBRA_DOT=0.8`
-(or whichever row matches) and every renderer picks it up through `Options::from_env`.
-Kitty and Ghostty draw braille themselves rather than from the font, so their glyphs
-and cobra's dots are consistent across fonts on those terminals.
+It prints your font's braille above image dots at six sizes. Export `COBRA_DOT` to
+whichever row lines up and every renderer picks it up. Kitty and Ghostty draw braille
+themselves rather than from the font, so on those the two always agree.
 
-### ratatui
+## ratatui
 
 ```toml
 cobra = { version = "0.1", features = ["ratatui"] }
@@ -216,23 +204,32 @@ cobra = { version = "0.1", features = ["ratatui"] }
 ```rust
 use cobra::ratatui::{Braille, overlay};
 
-let area = terminal.draw(|f| {
-    let area = f.area();
-    f.render_widget(Braille::new(&canvas, &renderer), area);
-})?.area;
+let area = terminal.draw(|f| f.render_widget(Braille::new(&canvas, &renderer), f.area()))?.area;
 overlay(&mut renderer, &canvas, area, terminal.backend_mut())?;
 ```
 
-On kitty the widget writes Unicode placeholder cells that never change between frames,
-so ratatui's diff leaves them alone and `overlay` only transmits the compressed image.
-On iTerm2 and sixel, which have no in-buffer placement, the widget writes the text
-fallback and `overlay` paints the image over it. On text terminals `overlay` is a no-op.
+On kitty the widget writes Unicode placeholder cells that never change between frames, so
+ratatui's diff leaves them alone and `overlay` only sends the compressed image. On iTerm2
+and sixel, which cannot place an image in the buffer, the widget writes the text fallback
+and `overlay` paints over it. On text terminals `overlay` does nothing.
+
+## Export
+
+```rust
+use cobra::export::{png, svg, Style};
+
+std::fs::write("plot.png", png(&canvas, &Style::default().scale(2)))?;
+std::fs::write("plot.svg", svg(&canvas, &Style::default()))?;
+```
+
+Both reuse the renderer's geometry, so a file looks like the terminal did. The background
+is transparent unless you set `Style::background`. The logo and the shape gallery at the
+top of this file were made this way.
 
 ## Performance
 
-`cargo bench` measures, per frame, drawing a fresh animated canvas, encoding it and
-writing it to a sink: everything a program pays apart from the terminal's own decoding.
-Medians on one core, 9×18 px cells (`cargo bench --features ratatui` adds the widget path):
+`cargo bench` measures a whole frame: drawing a fresh animated canvas, encoding it and
+writing it to a sink. Medians on one core, 9×18 px cells.
 
 | Canvas | Protocol | Encode + write | Whole frame | FPS | Bytes/frame |
 |---|---|---|---|---|---|
@@ -249,38 +246,34 @@ Medians on one core, 9×18 px cells (`cargo bench --features ratatui` adds the w
 | plot 200×50  | iTerm2 | 5.4 ms  | 5.5 ms  | 180  | 94 KB   |
 | plot 200×50  | Sixel  | 6.5 ms  | 6.5 ms  | 150  | 94 KB   |
 
-The logo's "whole frame" is dominated by drawing it (240 discs); the plot is three sine
-traces over a dithered fill. `cargo bench` also has a `Text/16` row (quantising every
-dot to the ANSI palette adds about 5 % to the text encode) and a `shapes 80×24` case
-(dithered fill, stroked spline, Bézier, filled polygon, ellipse and text) that draws in
-under 100 µs through the span primitives. Palette colours instead of RGB change nothing measurable
-(within 5 %, frames a little smaller). Through the ratatui widget (render into a
-`Buffer`, diff, overlay) an 80×24 plot runs at about 980 fps on kitty, 790 on iTerm2,
-700 on sixel and 7500 as text. In practice the terminal's decoder, not this crate, sets
-the frame rate for the image protocols.
+In practice this is not what limits you. A full-screen 80×24 plot on kitty costs about a
+millisecond of your process, and the terminal's own image decoder sets the frame rate from
+there. Through the ratatui widget the same plot runs at roughly 980 fps on kitty, 790 on
+iTerm2, 700 on sixel and 7500 as text. The whole shapes example, a dithered fill plus a
+spline, a Bézier, a filled polygon, an ellipse and text, draws in under 100 µs. Palette
+colours instead of RGB cost nothing measurable and make frames slightly smaller.
 
-* `Canvas` is a flat `u32` per dot; a 200×50-cell canvas is 320 KB and never reallocates.
-* `Renderer` reuses all its buffers; steady-state rendering does not allocate.
-* Rasterisation is one table lookup per pixel using a mask built once per cell size.
-* The built-in zlib encoder only tries four match distances (one pixel, one cell, one
-  row, one dot row), which covers flat runs, dither patterns and vertical repetition;
-  it compares eight bytes at a time and sticks with the last distance while it keeps
-  matching.
-* One kitty image id per renderer, so updates replace in place without flicker.
-* No dependencies beyond optional `libc` (detection) and `ratatui` (widget).
+Why it is cheap:
+
+* A canvas is one flat `u32` per dot. 200×50 cells is 320 KB, allocated once.
+* `Renderer` reuses every buffer, so steady-state rendering does not allocate.
+* Rasterising is one table lookup per pixel, from a mask built once per cell size.
+* The built-in zlib encoder tries four match distances (one pixel, one cell, one row, one
+  dot row), which is what flat runs, dither patterns and vertical repetition actually need.
+  It compares eight bytes at a time. The 288×144 logo frame goes from 166 KB to 7 KB.
+* One kitty image id per renderer, so updates replace in place and never flicker.
+* No dependencies beyond optional `libc` for detection and `ratatui` for the widget.
 
 ## Examples
 
 ```sh
-cargo run --example logo                    # detect and draw the mascot
-cargo run --example logo -- theme           # in the terminal's palette colours
-cargo run --example logo -- text            # plain braille
-cargo run --example logo -- svg logo.svg    # transparent SVG (or png)
+cargo run --example gallery                 # every primitive, one per panel
+cargo run --example shapes                  # a scene built from them
+cargo run --example logo                    # the mascot (add `theme`, `text`, `svg`, `png`)
 cargo run --example calibrate               # match dot size to your font
-cargo run --example shapes                  # polygons, splines, arcs, fonts
-COBRA_COLORS=16 cargo run --example shapes  # the same on a 16-colour terminal
-cargo run --release --example snake         # animation with timing (add `theme`)
-cargo run --release --features ratatui --example tui   # `t` toggles palette colours
+cargo run --release --example snake         # animation, with timing
+cargo run --release --features ratatui --example tui
+COBRA_COLORS=16 cargo run --example gallery # the 16-colour fallback
 cargo bench                                 # the table above
 ```
 
@@ -296,11 +289,11 @@ cargo bench                                 # the table above
 
 ## Limits
 
-* Inside tmux or screen the text protocol is used; set `COBRA_PROTOCOL` if your
+* Inside tmux or screen you get the text protocol. Set `COBRA_PROTOCOL` if your
   multiplexer passes graphics through.
-* On non-unix platforms there are no tty queries; overrides are honoured, otherwise text.
-* `copy_text` prints the glyphs under the image so selecting the region copies braille;
-  on terminals that draw text above images it shows through and is off by default.
+* Off unix there are no tty queries. Overrides are honoured, otherwise text.
+* `copy_text` prints the glyphs under the image so selecting the region copies braille. On
+  terminals that draw text above images it shows through, so it is off by default.
 
 ## License
 
