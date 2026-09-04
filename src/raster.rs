@@ -75,8 +75,8 @@ impl Raster {
                 for y in 0..ch {
                     let line = &mut self.rgba[(row as usize * ch + y) * stride + x0..][..cw * 4];
                     let mrow = &self.mask[y * cw..(y + 1) * cw];
-                    for (px, &m) in line.chunks_exact_mut(4).zip(mrow) {
-                        px.copy_from_slice(&lut[m as usize]);
+                    for (px, &m) in line.as_chunks_mut::<4>().0.iter_mut().zip(mrow) {
+                        *px = lut[m as usize];
                     }
                 }
             }

@@ -100,7 +100,7 @@ mod term;
 #[cfg_attr(docsrs, doc(cfg(feature = "ratatui")))]
 pub mod ratatui;
 
-pub use canvas::{bayer, braille, Canvas, Cell, DOTS_X, DOTS_Y};
+pub use canvas::{Canvas, Cell, DOTS_X, DOTS_Y, bayer, braille};
 pub use color::{Color, Depth, Palette, Rgb};
 pub use draw::{Paint, Point};
 pub use font::{Font, FontError, Glyph};

@@ -1,14 +1,16 @@
 [package]
 name = "cobra"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.75"
+version = "26.1.0"
+edition = "2024"
+rust-version = "1.88"
 description = "Per-dot coloured braille canvases for the terminal, drawn with the best graphics protocol the terminal supports."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/MysteriousWolf/cobra"
 readme = "README.md"
 keywords = ["terminal", "braille", "canvas", "kitty", "sixel"]
 categories = ["command-line-interface", "graphics", "visualization"]
+# CI plumbing has no business in the published tarball.
+exclude = [".github/", "ci/"]
 
 [package.metadata.docs.rs]
 all-features = true

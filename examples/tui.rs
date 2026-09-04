@@ -11,7 +11,7 @@ mod common;
 use std::io;
 use std::time::Duration;
 
-use cobra::ratatui::{overlay, Braille};
+use cobra::ratatui::{Braille, overlay};
 use cobra::{Canvas, Renderer, Terminal};
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::Rect;
@@ -51,13 +51,13 @@ fn main() -> io::Result<()> {
         if let Err(e) = overlay(&mut renderer, &canvas, inner, tui.backend_mut()) {
             break Err(e);
         }
-        if event::poll(Duration::from_millis(33))? {
-            if let Event::Key(k) = event::read()? {
-                match k.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
-                    KeyCode::Char('t') => themed = !themed,
-                    _ => {}
-                }
+        if event::poll(Duration::from_millis(33))?
+            && let Event::Key(k) = event::read()?
+        {
+            match k.code {
+                KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
+                KeyCode::Char('t') => themed = !themed,
+                _ => {}
             }
         }
     };

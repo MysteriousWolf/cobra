@@ -204,7 +204,7 @@ impl Canvas {
                 }
             }
             xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            for pair in xs.chunks_exact(2) {
+            for pair in xs.as_chunks::<2>().0 {
                 self.span(y, first(pair[0]), first(pair[1]), paint);
             }
         }
@@ -242,11 +242,7 @@ impl Canvas {
             return;
         }
         let at = |i: isize| -> Point {
-            if closed {
-                pts[i.rem_euclid(n as isize) as usize]
-            } else {
-                pts[i.clamp(0, n as isize - 1) as usize]
-            }
+            if closed { pts[i.rem_euclid(n as isize) as usize] } else { pts[i.clamp(0, n as isize - 1) as usize] }
         };
         let segments = if closed { n } else { n - 1 };
         let pts = (0..segments).flat_map(move |s| {

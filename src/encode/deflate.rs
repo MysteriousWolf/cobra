@@ -79,16 +79,15 @@ fn match_len(data: &[u8], pos: usize, dist: usize) -> usize {
     let max = MAX_MATCH.min(data.len() - pos);
     let (a, b) = (&data[pos - dist..pos - dist + max], &data[pos..pos + max]);
     let mut n = 0;
-    let mut wa = a.chunks_exact(8);
-    let mut wb = b.chunks_exact(8);
-    for (x, y) in (&mut wa).zip(&mut wb) {
-        let (x, y) = (u64::from_ne_bytes(x.try_into().unwrap()), u64::from_ne_bytes(y.try_into().unwrap()));
+    let ((wa, ra), (wb, rb)) = (a.as_chunks::<8>(), b.as_chunks::<8>());
+    for (x, y) in wa.iter().zip(wb) {
+        let (x, y) = (u64::from_ne_bytes(*x), u64::from_ne_bytes(*y));
         if x != y {
             return n + ((x ^ y).to_le().trailing_zeros() / 8) as usize;
         }
         n += 8;
     }
-    n + wa.remainder().iter().zip(wb.remainder()).take_while(|(x, y)| x == y).count()
+    n + ra.iter().zip(rb).take_while(|(x, y)| x == y).count()
 }
 
 /// Appends a zlib stream for `data` to `out`, trying only the match distances in

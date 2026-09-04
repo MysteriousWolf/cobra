@@ -11,7 +11,7 @@
 use std::f32::consts::TAU;
 use std::io::{self, Write};
 
-use cobra::{export, Canvas, Font, Paint, Point, Renderer, Rgb, Terminal};
+use cobra::{Canvas, Font, Paint, Point, Renderer, Rgb, Terminal, export};
 
 /// 4 x 3 panels of 36 x 32 dots each.
 const COLS: u16 = 72;

@@ -66,7 +66,7 @@ impl Protocol {
             return Some(Self::Sixel);
         }
         match var("TERM_PROGRAM").as_deref() {
-            Some("WezTerm") | Some("ghostty") => Some(Self::Kitty),
+            Some("WezTerm" | "ghostty") => Some(Self::Kitty),
             Some("iTerm.app") => Some(Self::Iterm2),
             _ => None,
         }
@@ -201,10 +201,10 @@ impl Terminal {
         let multiplexed = protocol == Some(Protocol::Text) && std::env::var("TMUX").is_ok();
         if (protocol.is_none() || !t.cell.is_known() || want_palette) && !multiplexed {
             let probe = query::probe(protocol.is_none(), !t.cell.is_known(), want_palette);
-            if !t.cell.is_known() {
-                if let Some(c) = probe.cell {
-                    t.cell = c;
-                }
+            if !t.cell.is_known()
+                && let Some(c) = probe.cell
+            {
+                t.cell = c;
             }
             if protocol.is_none() {
                 protocol = Some(if probe.kitty {
