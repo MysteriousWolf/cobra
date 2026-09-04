@@ -38,7 +38,7 @@ impl Image {
 
     pub fn from_rgba(rgba: &[u8], width: usize, height: usize) -> Self {
         assert_eq!(rgba.len(), width * height * 4, "raster is not {width}x{height} RGBA");
-        let pixels = rgba.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect();
+        let pixels = rgba.as_chunks::<4>().0.to_vec();
         Self { width, height, pixels }
     }
 }
@@ -210,7 +210,7 @@ pub fn decode_png(png: &[u8]) -> Image {
     let mut pixels = Vec::with_capacity(width * height);
     for row in raw.chunks_exact(stride + 1) {
         assert_eq!(row[0], 0, "only filter type 0 is expected");
-        pixels.extend(row[1..].chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]));
+        pixels.extend_from_slice(row[1..].as_chunks::<4>().0);
     }
     Image { width, height, pixels }
 }

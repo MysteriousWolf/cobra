@@ -50,9 +50,9 @@ pub fn png(canvas: &Canvas, style: &Style) -> Vec<u8> {
     let mut raster = Raster::default();
     let (w, h) = raster.draw(canvas, style.cell, style.dot_size, &style.palette, canvas.cols(), canvas.rows());
     if let Some(bg) = style.background {
-        for px in raster.rgba.chunks_exact_mut(4) {
+        for px in raster.rgba.as_chunks_mut::<4>().0 {
             if px[3] == 0 {
-                px.copy_from_slice(&[bg.r, bg.g, bg.b, 255]);
+                *px = [bg.r, bg.g, bg.b, 255];
             }
         }
     }

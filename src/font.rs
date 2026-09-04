@@ -328,17 +328,20 @@ impl Canvas {
                 cy += font.line_height();
                 continue;
             }
-            if let Some(g) = font.glyph(ch) {
-                if cy < self.height() && cy + g.height as i32 > 0 && cx < self.width() && cx + g.width as i32 > 0 {
-                    for row in 0..g.height {
-                        let mut bits = g.row(row);
-                        // Runs of set bits become spans.
-                        while bits != 0 {
-                            let start = bits.trailing_zeros();
-                            let len = (bits >> start).trailing_ones();
-                            self.span(cy + row as i32, cx + start as i32, cx + (start + len) as i32, paint);
-                            bits &= u64::MAX.checked_shl(start + len).unwrap_or(0);
-                        }
+            if let Some(g) = font.glyph(ch)
+                && cy < self.height()
+                && cy + g.height as i32 > 0
+                && cx < self.width()
+                && cx + g.width as i32 > 0
+            {
+                for row in 0..g.height {
+                    let mut bits = g.row(row);
+                    // Runs of set bits become spans.
+                    while bits != 0 {
+                        let start = bits.trailing_zeros();
+                        let len = (bits >> start).trailing_ones();
+                        self.span(cy + row as i32, cx + start as i32, cx + (start + len) as i32, paint);
+                        bits &= u64::MAX.checked_shl(start + len).unwrap_or(0);
                     }
                 }
             }

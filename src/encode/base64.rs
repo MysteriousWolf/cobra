@@ -5,8 +5,8 @@ const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0
 /// Appends the base64 encoding of `input` to `out`.
 pub(crate) fn encode(input: &[u8], out: &mut Vec<u8>) {
     out.reserve(input.len().div_ceil(3) * 4);
-    let mut chunks = input.chunks_exact(3);
-    for c in &mut chunks {
+    let (chunks, rest) = input.as_chunks::<3>();
+    for c in chunks {
         let n = (c[0] as u32) << 16 | (c[1] as u32) << 8 | c[2] as u32;
         out.extend_from_slice(&[
             TABLE[(n >> 18) as usize & 63],
@@ -15,7 +15,6 @@ pub(crate) fn encode(input: &[u8], out: &mut Vec<u8>) {
             TABLE[n as usize & 63],
         ]);
     }
-    let rest = chunks.remainder();
     match rest.len() {
         1 => {
             let n = (rest[0] as u32) << 16;

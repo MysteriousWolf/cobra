@@ -207,10 +207,10 @@ fn roundtrip(seq: &[u8], timeout_ms: i32) -> Option<Vec<u8>> {
             Ok(0) | Err(_) => break,
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
         }
-        if let Some(i) = find(&buf, b"\x1b[?") {
-            if buf[i + 3..].contains(&b'c') {
-                break;
-            }
+        if let Some(i) = find(&buf, b"\x1b[?")
+            && buf[i + 3..].contains(&b'c')
+        {
+            break;
         }
     }
     Some(buf)
