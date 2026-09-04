@@ -4,6 +4,8 @@
 //! writes depends on the renderer's protocol:
 //!
 //! * **Text** – braille glyphs with a foreground colour per cell. Nothing else to do.
+//! * **Any protocol** – cells holding [text](crate::text) are written as that real
+//!   character with its own style, since ratatui's buffer is exactly the place for it.
 //! * **Kitty** – Unicode *placeholder* cells that reference the renderer's image id.
 //!   The image itself has to be transmitted outside the buffer once per frame, which
 //!   is what [`overlay`] does. Placeholders never change between frames, so ratatui's
@@ -33,7 +35,7 @@ use std::io::{self, Write};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 
 use crate::render::{Placement, Quantizer};
@@ -373,6 +375,15 @@ impl Widget for Braille<'_> {
         for row in 0..rows {
             for col in 0..cols {
                 let Some(cell) = buf.cell_mut(Position::new(area.x + col, area.y + row)) else { continue };
+                // A printed character wins over both the placeholder and the glyph:
+                // it is what the cell is for.
+                let text = self.canvas.text_cell(col as i32, row as i32);
+                if let Some(t) = text {
+                    let t = crate::TextCell { style: q.style(t.style), ..t };
+                    cell.set_char(if t.is_continuation() { ' ' } else { t.ch });
+                    cell.set_style(style(t.style));
+                    continue;
+                }
                 if kitty {
                     // Only the first cell of a row carries diacritics; the terminal
                     // infers the rest from their neighbours.
@@ -398,6 +409,28 @@ impl Widget for Braille<'_> {
             }
         }
     }
+}
+
+/// A cobra text style as a ratatui one.
+fn style(s: crate::TextStyle) -> Style {
+    let color = |c: Option<crate::Color>| match c {
+        Some(crate::Color::Rgb(c)) => Color::Rgb(c.r, c.g, c.b),
+        Some(crate::Color::Indexed(i)) => Color::Indexed(i),
+        Some(crate::Color::Foreground) | None => Color::Reset,
+    };
+    let mut m = Modifier::empty();
+    for (bit, modifier) in [
+        (crate::Attrs::BOLD, Modifier::BOLD),
+        (crate::Attrs::DIM, Modifier::DIM),
+        (crate::Attrs::ITALIC, Modifier::ITALIC),
+        (crate::Attrs::UNDERLINE, Modifier::UNDERLINED),
+        (crate::Attrs::REVERSE, Modifier::REVERSED),
+    ] {
+        if s.attrs.has(bit) {
+            m |= modifier;
+        }
+    }
+    Style::new().fg(color(s.fg)).bg(color(s.bg)).add_modifier(m)
 }
 
 /// Transmits the image for a [`Braille`] widget rendered at `area`. Call it after

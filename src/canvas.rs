@@ -1,5 +1,6 @@
 //! The dot grid.
 
+use crate::text::TextCell;
 use crate::{Color, Paint};
 
 /// Braille bit for dot `(dx, dy)` inside a cell, indexed `[dy][dx]`.
@@ -55,17 +56,24 @@ pub fn bayer(x: i32, y: i32) -> f32 {
 ///
 /// Storage is one `u32` per dot (`0` = unset, otherwise a tagged [`Color`]), so a full
 /// 200×50-cell canvas is 320 KiB and never allocates after construction.
+///
+/// On top of the dots sits a [text layer](crate::text): real characters, one per cell,
+/// written with [`print`](Self::print). It stays unallocated until something is
+/// printed, and a cell that holds a character shows it instead of its dots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Canvas {
     cols: u16,
     rows: u16,
     pub(crate) dots: Vec<u32>,
+    /// Empty, or one entry per cell; see [`crate::text`].
+    pub(crate) text: Vec<TextCell>,
 }
 
 impl Canvas {
     /// Creates an empty canvas of `cols × rows` cells.
     pub fn new(cols: u16, rows: u16) -> Self {
-        Self { cols, rows, dots: vec![0; cols as usize * DOTS_X as usize * rows as usize * DOTS_Y as usize] }
+        let dots = vec![0; cols as usize * DOTS_X as usize * rows as usize * DOTS_Y as usize];
+        Self { cols, rows, dots, text: Vec::new() }
     }
 
     /// Width in cells.
@@ -92,9 +100,10 @@ impl Canvas {
         self.rows as i32 * DOTS_Y as i32
     }
 
-    /// Unsets every dot. Keeps the allocation.
+    /// Unsets every dot and empties the text layer. Keeps both allocations.
     pub fn clear(&mut self) {
         self.dots.fill(0);
+        self.text.clear();
     }
 
     #[inline]
@@ -224,13 +233,19 @@ impl Canvas {
         (0..self.rows).flat_map(move |r| (0..self.cols).map(move |c| self.cell(c, r)))
     }
 
-    /// Plain braille text, one line per row, no colour. This is what a user gets when they
-    /// copy the canvas out of a terminal running the text fallback.
+    /// Plain text, one line per row, no colour: braille glyphs for the dots, and the
+    /// real character wherever one was [printed](Self::print). This is what a user gets
+    /// when they copy the canvas out of a terminal running the text fallback.
     pub fn to_text(&self) -> String {
         let mut s = String::with_capacity((self.cols as usize * 3 + 1) * self.rows as usize);
         for r in 0..self.rows {
             for c in 0..self.cols {
-                s.push(self.cell(c, r).glyph());
+                let text = self.text_at(c as i32, r as i32);
+                match text.ch {
+                    '\0' => s.push(self.cell(c, r).glyph()),
+                    TextCell::CONTINUATION => {}
+                    ch => s.push(ch),
+                }
             }
             s.push('\n');
         }

@@ -27,11 +27,21 @@ pub struct Style {
     pub background: Option<Rgb>,
     /// Resolves [`Color::Indexed`] and [`Color::Foreground`] dots. Default: xterm.
     pub palette: Palette,
+    /// Draw the [text layer](crate::text). A file has no terminal font, so [`svg`]
+    /// writes `<text>` elements and [`png`] approximates the characters with
+    /// [`Font::tiny`](crate::Font::tiny), which covers printable ASCII. Default `true`.
+    pub text: bool,
 }
 
 impl Default for Style {
     fn default() -> Self {
-        Self { cell: CellSize { width: 10, height: 20 }, dot_size: 0.7, background: None, palette: Palette::default() }
+        Self {
+            cell: CellSize { width: 10, height: 20 },
+            dot_size: 0.7,
+            background: None,
+            palette: Palette::default(),
+            text: true,
+        }
     }
 }
 
@@ -48,7 +58,8 @@ impl Style {
 /// `style.background` is set.
 pub fn png(canvas: &Canvas, style: &Style) -> Vec<u8> {
     let mut raster = Raster::default();
-    let (w, h) = raster.draw(canvas, style.cell, style.dot_size, &style.palette, canvas.cols(), canvas.rows());
+    let font = style.text.then(crate::Font::tiny);
+    let (w, h) = raster.draw(canvas, style.cell, style.dot_size, &style.palette, canvas.cols(), canvas.rows(), font);
     if let Some(bg) = style.background {
         for px in raster.rgba.as_chunks_mut::<4>().0 {
             if px[3] == 0 {
@@ -90,19 +101,73 @@ pub fn svg(canvas: &Canvas, style: &Style) -> String {
     for (key, circles) in groups {
         let _ = writeln!(s, r##"<g fill="#{key:06x}">{circles}</g>"##);
     }
+    if style.text {
+        svg_text(canvas, style, &mut s);
+    }
     s.push_str("</svg>\n");
     s
+}
+
+/// Writes the text layer as real `<text>` elements: a file keeps text as text.
+fn svg_text(canvas: &Canvas, style: &Style, s: &mut String) {
+    let (cw, ch) = (style.cell.width as f32, style.cell.height as f32);
+    // A monospace advance is about 0.6 em, so this is the size whose glyphs fill a cell.
+    let size = (cw / 0.6).min(ch * 0.8);
+    let hex = |c: Color| {
+        let c = c.resolve(&style.palette);
+        format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+    };
+    for row in 0..canvas.rows() {
+        for col in 0..canvas.cols() {
+            let Some(cell) = canvas.text_cell(col as i32, row as i32) else { continue };
+            if let Some(bg) = cell.style.bg {
+                let _ = writeln!(
+                    s,
+                    r#"<rect x="{}" y="{}" width="{cw}" height="{ch}" fill="{}"/>"#,
+                    col as f32 * cw,
+                    row as f32 * ch,
+                    hex(bg)
+                );
+            }
+            if cell.is_continuation() {
+                continue;
+            }
+            let escaped = match cell.ch {
+                '&' => "&amp;".to_string(),
+                '<' => "&lt;".to_string(),
+                '>' => "&gt;".to_string(),
+                ch => ch.to_string(),
+            };
+            let weight = if cell.style.attrs.has(crate::Attrs::BOLD) { r#" font-weight="bold""# } else { "" };
+            let italic = if cell.style.attrs.has(crate::Attrs::ITALIC) { r#" font-style="italic""# } else { "" };
+            let _ = writeln!(
+                s,
+                r#"<text x="{}" text-anchor="middle" y="{}" font-family="monospace" font-size="{size}" fill="{}"{weight}{italic}>{escaped}</text>"#,
+                col as f32 * cw + cw / 2.0,
+                (row + 1) as f32 * ch - ch * 0.25,
+                hex(cell.style.fg.unwrap_or(Color::Foreground)),
+            );
+        }
+    }
 }
 
 /// Resolves every dot of `canvas` to RGB through `palette`; useful before exporting
 /// a canvas that uses terminal colours to a file that has no terminal.
 pub fn resolve(canvas: &Canvas, palette: &Palette) -> Canvas {
-    let mut out = Canvas::new(canvas.cols(), canvas.rows());
+    let mut out = canvas.clone();
     for y in 0..canvas.height() {
         for x in 0..canvas.width() {
             if let Some(c) = canvas.get(x, y) {
                 out.set(x, y, Color::Rgb(c.resolve(palette)));
             }
+        }
+    }
+    for row in 0..canvas.rows() as i32 {
+        for col in 0..canvas.cols() as i32 {
+            let Some(cell) = canvas.text_cell(col, row) else { continue };
+            let baked = |c: Option<Color>| c.map(|c| Color::Rgb(c.resolve(palette)));
+            let style = crate::TextStyle { fg: baked(cell.style.fg), bg: baked(cell.style.bg), ..cell.style };
+            out.print(col, row, &cell.ch.to_string(), style);
         }
     }
     out
