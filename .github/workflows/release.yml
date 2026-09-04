@@ -50,6 +50,13 @@ jobs:
       - name: Install fish
         run: sudo apt-get update && sudo apt-get install -y fish
 
+      # Every git write below — the tag as much as the two commits — needs this,
+      # and the tag is the one that runs even when there is no bump to commit.
+      - name: Configure the committer
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
       - name: Resolve the version to release
         id: version
         run: |
@@ -108,8 +115,6 @@ jobs:
       - name: Commit the bump
         if: steps.guard.outputs.proceed == 'true' && steps.version.outputs.bumped == 'true' && !inputs.dry-run
         run: |
-          git config user.name  'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Cargo.toml
           git commit -m 'Release ${{ steps.version.outputs.version }}'
           git push origin HEAD:main
@@ -149,8 +154,6 @@ jobs:
         run: |
           next="$(ci/version.fish next patch)"
           ci/version.fish set "$next"
-          git config user.name  'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Cargo.toml
           git commit -m "Open $next for development [skip ci]"
           git push origin HEAD:main
