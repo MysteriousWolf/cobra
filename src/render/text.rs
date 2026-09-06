@@ -81,7 +81,7 @@ pub(super) fn frame(
     let mut q = Quantizer::new(depth, palette);
     for row in 0..rows {
         if let Placement::At(c, r) = placement {
-            out.extend_from_slice(format!("\x1b[{};{}H", r + row + 1, c + 1).as_bytes());
+            cursor_to(r + row + 1, c + 1, out);
         }
         let mut current = TextStyle::default();
         for col in 0..cols {
@@ -140,16 +140,14 @@ pub(super) fn overlay(
                 continue;
             }
             match placement {
-                Placement::At(c, r) => {
-                    out.extend_from_slice(format!("\x1b[{};{}H", r + row + 1, c + col + 1).as_bytes())
-                }
+                Placement::At(c, r) => cursor_to(r + row + 1, c + col + 1, out),
                 _ => {
                     out.extend_from_slice(b"\x1b8\r");
                     if row > 0 {
-                        out.extend_from_slice(format!("\x1b[{row}B").as_bytes());
+                        step(row, b'B', out);
                     }
                     if col > 0 {
-                        out.extend_from_slice(format!("\x1b[{col}C").as_bytes());
+                        step(col, b'C', out);
                     }
                 }
             }
@@ -171,6 +169,22 @@ pub(super) fn overlay(
     }
 }
 
+/// `CUP`: moves the cursor to a 1-based row and column.
+pub(super) fn cursor_to(row: u16, col: u16, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"\x1b[");
+    num(row as u32, out);
+    out.push(b';');
+    num(col as u32, out);
+    out.push(b'H');
+}
+
+/// A relative cursor move: `n` cells in the direction `dir` (`A`–`D`).
+pub(super) fn step(n: u16, dir: u8, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"\x1b[");
+    num(n as u32, out);
+    out.push(dir);
+}
+
 /// Emits the difference between two styles. Colours alone are one SGR; anything else
 /// resets and sets the lot, which is shorter than tracking each attribute off again.
 fn apply(current: &mut TextStyle, next: TextStyle, out: &mut Vec<u8>) {
@@ -181,14 +195,14 @@ fn apply(current: &mut TextStyle, next: TextStyle, out: &mut Vec<u8>) {
         out.extend_from_slice(b"\x1b[0m");
         *current = TextStyle::default();
         for (bit, code) in [
-            (Attrs::BOLD, "1"),
-            (Attrs::DIM, "2"),
-            (Attrs::ITALIC, "3"),
-            (Attrs::UNDERLINE, "4"),
-            (Attrs::REVERSE, "7"),
+            (Attrs::BOLD, b"\x1b[1m".as_slice()),
+            (Attrs::DIM, b"\x1b[2m"),
+            (Attrs::ITALIC, b"\x1b[3m"),
+            (Attrs::UNDERLINE, b"\x1b[4m"),
+            (Attrs::REVERSE, b"\x1b[7m"),
         ] {
             if next.attrs.has(bit) {
-                out.extend_from_slice(format!("\x1b[{code}m").as_bytes());
+                out.extend_from_slice(code);
             }
         }
     }
@@ -203,25 +217,61 @@ fn apply(current: &mut TextStyle, next: TextStyle, out: &mut Vec<u8>) {
     *current = next;
 }
 
+/// Appends a decimal number. A frame emits one SGR per colour change and one escape
+/// per row, so these are written straight into the output buffer rather than through
+/// `format!`, which would allocate a `String` for each of them.
+#[inline]
+pub(crate) fn num(n: u32, out: &mut Vec<u8>) {
+    let mut buf = [0u8; 10];
+    let mut i = buf.len();
+    let mut n = n;
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    out.extend_from_slice(&buf[i..]);
+}
+
 /// Foreground SGR for a colour. ANSI indices use the classic `30–37` / `90–97` codes,
 /// which even 16-colour terminals understand.
 pub(crate) fn sgr(color: Color, out: &mut Vec<u8>) {
-    match color {
-        Color::Rgb(Rgb { r, g, b }) => out.extend_from_slice(format!("\x1b[38;2;{r};{g};{b}m").as_bytes()),
-        Color::Indexed(i @ 0..=7) => out.extend_from_slice(format!("\x1b[{}m", 30 + i).as_bytes()),
-        Color::Indexed(i @ 8..=15) => out.extend_from_slice(format!("\x1b[{}m", 82 + i).as_bytes()),
-        Color::Indexed(i) => out.extend_from_slice(format!("\x1b[38;5;{i}m").as_bytes()),
-        Color::Foreground => out.extend_from_slice(b"\x1b[39m"),
-    }
+    color_sgr(color, b"\x1b[38;2;", 30, b"\x1b[38;5;", b"\x1b[39m", out);
 }
 
 /// Background SGR for a colour, mirroring [`sgr`].
 pub(crate) fn sgr_bg(color: Color, out: &mut Vec<u8>) {
+    color_sgr(color, b"\x1b[48;2;", 40, b"\x1b[48;5;", b"\x1b[49m", out);
+}
+
+/// The two differ only in their prefixes: backgrounds are foregrounds plus ten.
+#[inline]
+fn color_sgr(color: Color, truecolor: &[u8], base: u32, indexed: &[u8], default: &[u8], out: &mut Vec<u8>) {
     match color {
-        Color::Rgb(Rgb { r, g, b }) => out.extend_from_slice(format!("\x1b[48;2;{r};{g};{b}m").as_bytes()),
-        Color::Indexed(i @ 0..=7) => out.extend_from_slice(format!("\x1b[{}m", 40 + i).as_bytes()),
-        Color::Indexed(i @ 8..=15) => out.extend_from_slice(format!("\x1b[{}m", 92 + i).as_bytes()),
-        Color::Indexed(i) => out.extend_from_slice(format!("\x1b[48;5;{i}m").as_bytes()),
-        Color::Foreground => out.extend_from_slice(b"\x1b[49m"),
+        Color::Rgb(Rgb { r, g, b }) => {
+            out.extend_from_slice(truecolor);
+            for (i, c) in [r, g, b].into_iter().enumerate() {
+                if i > 0 {
+                    out.push(b';');
+                }
+                num(c as u32, out);
+            }
+            out.push(b'm');
+        }
+        // 0–7 are `base + i`, 8–15 the bright `base + 52 + i`.
+        Color::Indexed(i @ 0..=15) => {
+            out.extend_from_slice(b"\x1b[");
+            num(base + if i < 8 { i as u32 } else { 52 + i as u32 }, out);
+            out.push(b'm');
+        }
+        Color::Indexed(i) => {
+            out.extend_from_slice(indexed);
+            num(i as u32, out);
+            out.push(b'm');
+        }
+        Color::Foreground => out.extend_from_slice(default),
     }
 }

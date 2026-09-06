@@ -165,10 +165,10 @@ impl Renderer {
                 for _ in 0..rows {
                     self.out.extend_from_slice(b"\r\n");
                 }
-                self.out.extend_from_slice(format!("\x1b[{rows}A").as_bytes());
+                text::step(rows, b'A', &mut self.out);
                 if self.opts.copy_text {
                     text::frame(canvas, cols, rows, Placement::Flow, depth, palette, &mut self.out);
-                    self.out.extend_from_slice(format!("\x1b[{rows}A").as_bytes());
+                    text::step(rows, b'A', &mut self.out);
                 }
             }
             Placement::At(col, row) => {
@@ -178,7 +178,7 @@ impl Renderer {
                 if self.opts.copy_text {
                     text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out);
                 }
-                self.out.extend_from_slice(format!("\x1b[{};{}H", row + 1, col + 1).as_bytes());
+                text::cursor_to(row + 1, col + 1, &mut self.out);
             }
             Placement::Virtual => {}
         }
@@ -211,7 +211,10 @@ impl Renderer {
         }
 
         match placement {
-            Placement::Flow => self.out.extend_from_slice(format!("\x1b8\r\x1b[{rows}B").as_bytes()),
+            Placement::Flow => {
+                self.out.extend_from_slice(b"\x1b8\r");
+                text::step(rows, b'B', &mut self.out);
+            }
             Placement::At(..) => self.out.extend_from_slice(b"\x1b8"),
             Placement::Virtual => {}
         }
