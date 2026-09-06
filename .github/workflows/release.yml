@@ -120,6 +120,7 @@ jobs:
           git push origin HEAD:main
 
       - name: Tag
+        id: tag
         if: steps.guard.outputs.proceed == 'true' && !inputs.dry-run
         run: |
           git tag -a '${{ steps.version.outputs.tag }}' -m 'cobra ${{ steps.version.outputs.version }}'
@@ -149,8 +150,15 @@ jobs:
       # check` enforces on every pull request. Opening the next patch here keeps that
       # true without anyone having to remember. Pushes made with GITHUB_TOKEN do not
       # start new workflow runs, so this does not re-trigger the release.
+      #
+      # The tag, not the whole job, is what makes this necessary: once `v26.1.0` exists,
+      # main reading `26.1.0` fails the gate on every pull request. So this runs whenever
+      # the tag went out, even if the GitHub release or the crates.io publish failed
+      # afterwards — those are re-runnable, a repository-wide red gate is not. Bumping the
+      # patch is also all it does: a release that should raise the minor instead says so at
+      # release time, via the `release` bump on workflow_dispatch.
       - name: Open the next development version
-        if: steps.guard.outputs.proceed == 'true' && !inputs.dry-run
+        if: "!cancelled() && steps.tag.outcome == 'success'"
         run: |
           next="$(ci/version.fish next patch)"
           ci/version.fish set "$next"

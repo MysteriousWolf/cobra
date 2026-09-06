@@ -150,7 +150,7 @@ impl Renderer {
             return &self.out;
         }
 
-        let (w, h) = self.raster.draw(canvas, self.term.cell, self.opts.dot_size, &self.term.palette, cols, rows);
+        let (w, h) = self.raster.draw(canvas, self.term.cell, self.opts.dot_size, &self.term.palette, cols, rows, None);
         let rgba = &self.raster.rgba;
         self.payload.clear();
         // LZ77 distances in pixels: one pixel (runs), one cell (dither patterns),
@@ -165,22 +165,24 @@ impl Renderer {
                 for _ in 0..rows {
                     self.out.extend_from_slice(b"\r\n");
                 }
-                self.out.extend_from_slice(format!("\x1b[{rows}A").as_bytes());
+                text::step(rows, b'A', &mut self.out);
                 if self.opts.copy_text {
                     text::frame(canvas, cols, rows, Placement::Flow, depth, palette, &mut self.out);
-                    self.out.extend_from_slice(format!("\x1b[{rows}A").as_bytes());
+                    text::step(rows, b'A', &mut self.out);
                 }
             }
             Placement::At(col, row) => {
+                // The one save of the cursor: DECSC has a single slot, so saving again
+                // for the image would lose the caller's position.
                 self.out.extend_from_slice(b"\x1b7");
                 if self.opts.copy_text {
                     text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out);
                 }
-                self.out.extend_from_slice(format!("\x1b[{};{}H", row + 1, col + 1).as_bytes());
+                text::cursor_to(row + 1, col + 1, &mut self.out);
             }
             Placement::Virtual => {}
         }
-        if placement != Placement::Virtual {
+        if placement == Placement::Flow {
             self.out.extend_from_slice(b"\x1b7");
         }
 
@@ -189,7 +191,10 @@ impl Renderer {
                 let bytes = dists.map(|d| d * 4);
                 crate::encode::deflate::zlib(rgba, &bytes, &mut self.payload);
                 let virt = (placement == Placement::Virtual).then_some((cols, rows));
-                kitty::frame(&self.payload, w, h, self.id, virt, &mut self.scratch, &mut self.out);
+                // Text cells are printed after the image, so on kitty the image has to
+                // sit below the text layer for them to show.
+                let z = if canvas.has_text() { -1 } else { 0 };
+                kitty::frame(&self.payload, w, h, self.id, virt, z, &mut self.scratch, &mut self.out);
             }
             Protocol::Iterm2 => {
                 crate::encode::png::encode(rgba, w, h, &dists, &mut self.scratch, &mut self.payload);
@@ -201,8 +206,15 @@ impl Renderer {
             Protocol::Text => unreachable!(),
         }
 
+        if canvas.has_text() && placement != Placement::Virtual {
+            text::overlay(canvas, cols, rows, placement, depth, palette, &mut self.out);
+        }
+
         match placement {
-            Placement::Flow => self.out.extend_from_slice(format!("\x1b8\r\x1b[{rows}B").as_bytes()),
+            Placement::Flow => {
+                self.out.extend_from_slice(b"\x1b8\r");
+                text::step(rows, b'B', &mut self.out);
+            }
             Placement::At(..) => self.out.extend_from_slice(b"\x1b8"),
             Placement::Virtual => {}
         }
@@ -213,7 +225,7 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CellSize, Rgb};
+    use crate::{CellSize, Palette, Rgb};
 
     fn canvas() -> Canvas {
         let mut c = Canvas::new(3, 2);
@@ -277,13 +289,45 @@ mod tests {
 
         let mut i = Renderer::new(Terminal::new(Protocol::Iterm2, cell));
         let s = i.encode(&canvas(), Placement::At(0, 0));
-        assert!(s.starts_with(b"\x1b7\x1b[1;1H\x1b7\x1b]1337;File=inline=1"));
+        assert!(
+            s.starts_with(b"\x1b7\x1b[1;1H\x1b]1337;File=inline=1"),
+            "one cursor save, so `render_at` really restores it"
+        );
 
         let mut x = Renderer::new(Terminal::new(Protocol::Sixel, cell));
         let s = x.encode_view(&canvas(), Placement::Flow, 1, 1);
         assert!(s.windows(9).any(|w| w == b"\x1bP0;1;0q\""));
         let s = String::from_utf8_lossy(s).into_owned();
         assert!(s.contains("\"1;1;8;16"));
+    }
+
+    #[test]
+    fn text_frames_print_real_characters() {
+        let mut c = Canvas::new(4, 1);
+        c.set(0, 0, Rgb::hex(0xff0000));
+        c.print(1, 0, "hi", crate::TextStyle::new(Rgb::hex(0x00ff00)).on(Rgb::hex(0x000010)).bold());
+        let mut r = Renderer::new(Terminal::text());
+        let s = String::from_utf8(r.encode(&c, Placement::Flow).to_vec()).unwrap();
+        assert_eq!(s, "\x1b[38;2;255;0;0m⠁\x1b[0m\x1b[1m\x1b[38;2;0;255;0m\x1b[48;2;0;0;16mhi\x1b[0m⠀\x1b[0m\r\n");
+        assert_eq!(c.to_text(), "⠁hi⠀\n");
+    }
+
+    #[test]
+    fn image_frames_print_text_over_the_picture() {
+        let mut c = Canvas::new(3, 2);
+        c.print(1, 1, "ok", crate::Color::Foreground);
+        let mut k = Renderer::new(Terminal::new(Protocol::Kitty, CellSize { width: 8, height: 16 }));
+        let s = String::from_utf8(k.encode(&c, Placement::Flow).to_vec()).unwrap();
+        assert!(s.contains("z=-1"), "the image goes below the text layer");
+        // Back to the saved origin, down a row, right a column, then the characters.
+        assert!(s.contains("\x1b8\r\x1b[1B\x1b[1C\x1b[39mok\x1b[0m"), "{s:?}");
+        let mut i = Renderer::new(Terminal::new(Protocol::Iterm2, CellSize { width: 8, height: 16 }));
+        let s = String::from_utf8(i.encode(&c, Placement::At(4, 2)).to_vec()).unwrap();
+        assert!(s.contains("\x1b[4;6H\x1b[39mok\x1b[0m"), "{s:?}");
+        // The cells the characters take are left transparent for them to show through.
+        let mut raster = crate::raster::Raster::default();
+        raster.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &Palette::default(), 3, 2, None);
+        assert!(raster.rgba.iter().all(|&b| b == 0));
     }
 
     #[test]

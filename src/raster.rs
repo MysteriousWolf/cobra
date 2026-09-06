@@ -1,6 +1,6 @@
 //! Canvas → RGBA raster, aligned to the terminal's cell grid.
 
-use crate::{Canvas, CellSize, Color, Palette};
+use crate::{Canvas, CellSize, Color, Font, Palette};
 
 /// Reusable rasteriser. Holds a per-cell lookup mask so a frame is one table lookup
 /// per pixel and no per-dot geometry.
@@ -42,6 +42,11 @@ impl Raster {
 
     /// Rasterises the top-left `cols × rows` cells of `canvas` into `self.rgba`.
     /// Returns the image size in pixels.
+    ///
+    /// Cells holding [text](crate::text) are left to the terminal, which prints the
+    /// real character over the picture — unless `glyphs` is given, as it is for file
+    /// export, where the character is drawn with that bitmap font instead.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         canvas: &Canvas,
@@ -50,6 +55,7 @@ impl Raster {
         palette: &Palette,
         cols: u16,
         rows: u16,
+        glyphs: Option<&Font>,
     ) -> (u32, u32) {
         self.prepare(cell, radius);
         let (cw, ch) = (cell.width as usize, cell.height as usize);
@@ -59,6 +65,13 @@ impl Raster {
         let stride = w * 4;
         for row in 0..rows {
             for col in 0..cols {
+                let text = canvas.text_at(col as i32, row as i32);
+                if !text.is_empty() {
+                    if let Some(font) = glyphs {
+                        self.glyph(text, font, palette, col, row, w);
+                    }
+                    continue;
+                }
                 let dots = canvas.cell_dots(col, row);
                 if dots.iter().all(|&d| d == 0) {
                     continue;
@@ -83,6 +96,35 @@ impl Raster {
         }
         (w as u32, h as u32)
     }
+
+    /// Draws one text cell with a bitmap font, stretched to fill the cell box. Export
+    /// has no terminal to print real characters, so this is the best it can do.
+    fn glyph(&mut self, text: crate::TextCell, font: &Font, palette: &Palette, col: u16, row: u16, w: usize) {
+        let (cw, ch) = (self.cell.width as usize, self.cell.height as usize);
+        let rgba = |c: Color| {
+            let c = c.resolve(palette);
+            [c.r, c.g, c.b, 255]
+        };
+        let bg = text.style.bg.map(rgba);
+        let fg = rgba(text.style.fg.unwrap_or(Color::Foreground));
+        let glyph = (!text.is_continuation()).then(|| font.glyph(text.ch)).flatten();
+        for y in 0..ch {
+            let line = &mut self.rgba[(row as usize * ch + y) * w * 4 + col as usize * cw * 4..][..cw * 4];
+            for (x, px) in line.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                if let Some(bg) = bg {
+                    *px = bg;
+                }
+                // Nearest neighbour, with a dot of margin so glyphs do not touch.
+                if let Some(g) = &glyph {
+                    let gx = (x * g.width as usize / cw.max(1)) as u8;
+                    let gy = (y * (g.height as usize + 1) / ch.max(1)) as u8;
+                    if g.dot(gx, gy) {
+                        *px = fg;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -95,7 +137,7 @@ mod tests {
         let mut c = Canvas::new(2, 1);
         c.set(3, 3, Rgb::hex(0x0000ff)); // bottom-right dot of cell 1
         let mut r = Raster::default();
-        let (w, h) = r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &Palette::default(), 2, 1);
+        let (w, h) = r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &Palette::default(), 2, 1, None);
         assert_eq!((w, h), (16, 16));
         let px = |x: usize, y: usize| &r.rgba[(y * 16 + x) * 4..][..4];
         assert_eq!(px(14, 14), &[0, 0, 255, 255]); // slot centre
@@ -112,7 +154,7 @@ mod tests {
         p.colors[1] = Rgb::hex(0x123456);
         p.foreground = Rgb::hex(0xabcdef);
         let mut r = Raster::default();
-        r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &p, 1, 1);
+        r.draw(&c, CellSize { width: 8, height: 16 }, 1.0, &p, 1, 1, None);
         let px = |x: usize, y: usize| &r.rgba[(y * 8 + x) * 4..][..4];
         assert_eq!(px(2, 2), &[0x12, 0x34, 0x56, 255]);
         assert_eq!(px(6, 2), &[0xab, 0xcd, 0xef, 255]);

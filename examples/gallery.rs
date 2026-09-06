@@ -11,13 +11,16 @@
 use std::f32::consts::TAU;
 use std::io::{self, Write};
 
-use cobra::{Canvas, Font, Paint, Point, Renderer, Rgb, Terminal, export};
+use cobra::{
+    Align, Bubble, Canvas, Font, Paint, Point, Rect, Renderer, Rgb, Shape, Side, Tail, TailKind, Terminal, TextStyle,
+    export,
+};
 
-/// 4 x 3 panels of 36 x 32 dots each.
+/// 4 x 6 panels of 36 x 36 dots each, with two rows spare for the tails at the bottom.
 const COLS: u16 = 72;
-const ROWS: u16 = 24;
+const ROWS: u16 = 56;
 const PANEL_W: i32 = 36;
-const PANEL_H: i32 = 32;
+const PANEL_H: i32 = 36;
 
 fn main() -> io::Result<()> {
     let mut canvas = Canvas::new(COLS, ROWS);
@@ -44,7 +47,7 @@ fn draw(c: &mut Canvas) {
     type Panel = fn(&mut Canvas, f32, f32, Rgb);
 
     // label, colour, body
-    let panels: [(&str, u32, Panel); 12] = [
+    let panels: [(&str, u32, Panel); 24] = [
         ("set", 0xff3355, dots),
         ("line", 0xff8c1a, lines),
         ("disc", 0xffd21e, discs),
@@ -57,6 +60,18 @@ fn draw(c: &mut Canvas) {
         ("spline", 0xff6f91, spline),
         ("text", 0xc9d1d9, text),
         ("dither", 0x4fd1c5, dither),
+        ("round rect", 0x5ec33a, round_rects),
+        ("ngon + star", 0xffd21e, ngons),
+        ("pie + ring", 0x2ec4a6, pies),
+        ("arrow", 0xff8c1a, arrows),
+        ("print", 0xc9d1d9, print),
+        ("text box", 0x6c7bff, text_box),
+        ("speech", 0xff6f91, speech),
+        ("thought", 0xe45cc4, thought),
+        ("tails", 0xffd21e, tails),
+        ("speak", 0x3aa0ff, speak),
+        ("clear", 0x5ec33a, clear_behind),
+        ("dot text", 0x2ec4a6, font_bubble),
     ];
 
     for (i, (name, hex, body)) in panels.into_iter().enumerate() {
@@ -159,6 +174,144 @@ fn text(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
     let big = Font::tiny().scale(2);
     c.text(x, y, "Aa1", &big, color);
     c.text(x, y + big.line_height() + 2, "3x5 dots", Font::tiny(), Paint::dithered(color, 0.75));
+}
+
+/// Rounded boxes: filled, and a 2-dot border.
+fn round_rects(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    c.fill_round_rect(x, y + 2.0, 15.0, 14.0, 5.0, color);
+    c.round_rect(x + 18.0, y + 2.0, 15.0, 14.0, 5.0, 2.0, color);
+}
+
+/// A regular polygon and a star, filled and stroked.
+fn ngons(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    c.fill_ngon(x + 8.0, y + 9.0, 8.0, 6, 0.0, color);
+    c.ngon(x + 8.0, y + 9.0, 4.0, 6, 0.5, 1.0, Rgb::hex(0x0b0e14));
+    c.fill_star(x + 25.0, y + 9.0, 9.0, 4.0, 5, -1.57, color);
+    c.star(x + 25.0, y + 9.0, 9.0, 4.0, 5, -1.57, 1.0, color.dim(0.6));
+}
+
+/// A pie chart of three slices, and a ring next to it.
+fn pies(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    let mut a = 0.0;
+    for (share, dim) in [(0.45, 1.0), (0.3, 0.7), (0.25, 0.45)] {
+        let next = a + share * TAU;
+        c.fill_pie(x + 9.0, y + 9.0, 8.0, 8.0, a, next, color.dim(dim));
+        a = next;
+    }
+    c.ring(x + 26.0, y + 9.0, 8.0, 4.5, color);
+    c.ring(x + 26.0, y + 9.0, 3.5, 2.0, Paint::dithered(color, 0.5));
+}
+
+/// Arrows: the tip lands exactly on the point given, the head scales with the shaft.
+fn arrows(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    c.arrow((x, y + 2.0), (x + 32.0, y + 2.0), 1.0, 5.0, color.dim(0.55));
+    c.arrow((x, y + 9.0), (x + 32.0, y + 9.0), 3.0, 8.0, color.dim(0.75));
+    c.arrow((x + 2.0, y + 18.0), (x + 30.0, y + 15.0), 5.0, 11.0, color);
+}
+
+/// The text layer: real characters in the terminal's own font, one per cell.
+fn print(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    let (col, row) = ((x / 2.0) as i32, (y / 4.0) as i32);
+    c.print(col, row, "Real text, bold", TextStyle::new(color).bold());
+    c.print(col, row + 1, "any glyph: ± λ ✓", TextStyle::new(color.dim(0.75)));
+    c.print(col, row + 2, " on a background ", TextStyle::new(Rgb::hex(0x0b0e14)).on(Rgb::hex(0x4fd1c5)));
+    c.print(col, row + 3, "and underlined", TextStyle::new(color).underline());
+}
+
+/// A bubble with no tail is a text box: wrapped, padded, bordered.
+fn text_box(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    Bubble::new("Text boxes wrap, pad and align themselves.")
+        .wrap(15)
+        .border(1.0, color)
+        .fill(Rgb::hex(0x161b22))
+        .ink(color)
+        .align(Align::Center)
+        .draw(c, x, y);
+}
+
+/// A speech bubble, and the whisper preset with its curling tail.
+fn speech(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    Bubble::speech("hi").fill(color.dim(0.45)).border(1.0, color).ink(Rgb::hex(0xf0f6fc)).draw(c, x, y);
+    Bubble::whisper("psst").border(1.0, Paint::dithered(color, 0.6)).ink(color).draw(c, x + 16.0, y + 4.0);
+}
+
+/// The thought and shout presets: a cloud of lobes and a starburst.
+fn thought(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    Bubble::thought("hm").fill(Rgb::hex(0x161b22)).border(1.0, color.dim(0.8)).ink(color).draw(c, x, y);
+    Bubble::shout("HEY").fill(color).ink(Rgb::hex(0x0b0e14)).draw(c, x + 17.0, y);
+}
+
+/// A tail can leave any side, at any point along it, in any of three kinds.
+fn tails(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    let corners = [
+        (0.0, 2.0, Side::Left, TailKind::Point),
+        (20.0, 2.0, Side::Top, TailKind::Curve),
+        (0.0, 16.0, Side::Bottom, TailKind::Bubbles),
+        (20.0, 16.0, Side::Right, TailKind::Point),
+    ];
+    for (dx, dy, side, kind) in corners {
+        Bubble::new("hi")
+            .shape(Shape::Round(3.0))
+            .tail(Tail::new(side, 0.5, kind).len(6.0))
+            .fill(color.dim(0.5))
+            .ink(Rgb::hex(0xf0f6fc))
+            .draw(c, x + dx, y + dy);
+    }
+}
+
+/// `clear_behind` unsets the dots under a bubble, so it reads on a busy background.
+fn clear_behind(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    for i in 0..7 {
+        c.polyline(&[(x, y + i as f32 * 4.0), (x + 34.0, y + 2.0 + i as f32 * 4.0)], 1.0, Paint::dithered(color, 0.8));
+    }
+    Bubble::new("on top of it").wrap(12).shape(Shape::Round(4.0)).border(1.0, color).ink(color).clear_behind().draw(
+        c,
+        x + 3.0,
+        y + 9.0,
+    );
+}
+
+/// A bubble can draw its text in a bitmap font instead of the text layer, for when a
+/// character cell is too coarse, or for an export that has no terminal font.
+fn font_bubble(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    Bubble::new("dots").font(Font::tiny()).shape(Shape::Round(3.0)).fill(color.dim(0.45)).ink(Rgb::hex(0xf0f6fc)).draw(
+        c,
+        x,
+        y + 2.0,
+    );
+    Bubble::new("2x")
+        .font(&Font::tiny().scale(2))
+        .pad(0, 0)
+        .shape(Shape::Round(3.0))
+        .fill(color.dim(0.45))
+        .ink(Rgb::hex(0xf0f6fc))
+        .draw(c, x + 20.0, y);
+    Bubble::new("no cells")
+        .font(Font::tiny())
+        .wrap(14)
+        .align(Align::Center)
+        .border(1.0, Paint::dithered(color, 0.7))
+        .ink(color)
+        .draw(c, x + 5.0, y + 14.0);
+}
+
+/// `speak` puts the bubble where it fits: pointing at the mouth, on the canvas, and
+/// clear of the zones it was told to avoid.
+fn speak(c: &mut Canvas, x: f32, y: f32, color: Rgb) {
+    let area = Rect::new(x, y, 34.0, 26.0);
+    let face = Rect::new(x + 19.0, y + 8.0, 14.0, 14.0);
+    c.fill_ellipse(face.center().0, face.center().1, 7.0, 7.0, color.dim(0.5));
+    c.fill_ellipse(face.center().0 + 2.0, face.center().1 - 2.0, 1.5, 1.5, Rgb::hex(0x0b0e14));
+    let mouth = (face.center().0 - 2.0, face.center().1 + 4.0);
+    // `speak` is this over the whole canvas; here the bubble is kept in its panel.
+    let (placed, at) = Bubble::speech("over here")
+        .wrap(5)
+        .align(Align::Center)
+        .fill(Rgb::hex(0x161b22))
+        .border(1.0, color)
+        .ink(color)
+        .place(area, mouth, &[face]);
+    placed.draw(c, at.0, at.1);
 }
 
 /// Ordered dithering: a coverage ramp, then raw spans at falling coverage.

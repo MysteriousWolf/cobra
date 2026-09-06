@@ -80,6 +80,69 @@ impl From<(u8, u8, u8)> for Paint {
 /// A point in dot coordinates.
 pub type Point = (f32, f32);
 
+/// An axis-aligned box in dot coordinates: what a [`Bubble`](crate::Bubble) occupies
+/// and what a keep-out zone is.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rect {
+    /// Left edge.
+    pub x: f32,
+    /// Top edge.
+    pub y: f32,
+    /// Width in dots.
+    pub w: f32,
+    /// Height in dots.
+    pub h: f32,
+}
+
+impl Rect {
+    /// A box from its corner and size.
+    pub const fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self { x, y, w, h }
+    }
+
+    /// A box around `center`.
+    pub fn around(center: Point, w: f32, h: f32) -> Self {
+        Self::new(center.0 - w / 2.0, center.1 - h / 2.0, w, h)
+    }
+
+    /// Right edge (`x + w`).
+    pub fn right(&self) -> f32 {
+        self.x + self.w
+    }
+
+    /// Bottom edge (`y + h`).
+    pub fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
+
+    /// Centre point.
+    pub fn center(&self) -> Point {
+        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    }
+
+    /// Whether `p` is inside.
+    pub fn contains(&self, p: Point) -> bool {
+        p.0 >= self.x && p.0 < self.right() && p.1 >= self.y && p.1 < self.bottom()
+    }
+
+    /// A copy shrunk by `d` on every side (grown when `d` is negative).
+    pub fn inset(&self, d: f32) -> Rect {
+        Rect::new(self.x + d, self.y + d, (self.w - 2.0 * d).max(0.0), (self.h - 2.0 * d).max(0.0))
+    }
+
+    /// A copy moved by `(dx, dy)`.
+    pub fn offset(&self, dx: f32, dy: f32) -> Rect {
+        Rect::new(self.x + dx, self.y + dy, self.w, self.h)
+    }
+
+    /// Area the two boxes share, `0.0` when they do not touch.
+    pub fn overlap(&self, other: &Rect) -> f32 {
+        let w = (self.right().min(other.right()) - self.x.max(other.x)).max(0.0);
+        let h = (self.bottom().min(other.bottom()) - self.y.max(other.y)).max(0.0);
+        w * h
+    }
+}
+
 /// First dot whose centre is at or after `v`.
 #[inline]
 fn first(v: f32) -> i32 {
@@ -95,6 +158,33 @@ fn dist(a: Point, b: Point) -> f32 {
 #[inline]
 fn steps(len: f32) -> u32 {
     (len.ceil() as u32).clamp(1, 4096)
+}
+
+/// Vertices a generated shape may have, so they fit a stack buffer.
+const MAX_POINTS: usize = 128;
+
+/// Horizontal extent of a rounded box at scan line `sy`, `None` outside it.
+fn round_rect_span(sy: f32, x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<(f32, f32)> {
+    if sy < y || sy >= y + h || w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let r = r.clamp(0.0, w.min(h) / 2.0);
+    let dy = (y + r - sy).max(sy - (y + h - r)).max(0.0);
+    let inset = if dy > 0.0 { r - (r * r - dy * dy).max(0.0).sqrt() } else { 0.0 };
+    Some((x + inset, x + w - inset))
+}
+
+/// Vertices of a regular polygon, alternating `r1` and `r2` so one call also makes a
+/// star. Returns the buffer and how much of it is used.
+fn ngon_points(cx: f32, cy: f32, r1: f32, r2: f32, n: u32, rot: f32) -> ([Point; MAX_POINTS], usize) {
+    let n = n.clamp(3, MAX_POINTS as u32) as usize;
+    let mut pts = [(0.0f32, 0.0f32); MAX_POINTS];
+    for (i, p) in pts[..n].iter_mut().enumerate() {
+        let a = rot + std::f32::consts::TAU * i as f32 / n as f32;
+        let r = if i % 2 == 0 { r1 } else { r2 };
+        *p = (cx + r * a.cos(), cy + r * a.sin());
+    }
+    (pts, n)
 }
 
 impl Canvas {
@@ -262,6 +352,133 @@ impl Canvas {
             })
         });
         self.stroke(pts, closed, width, paint.into());
+    }
+
+    /// Fills the box from `(x, y)` of size `w × h` with corners rounded to radius `r`.
+    pub fn fill_round_rect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, paint: impl Into<Paint>) {
+        let paint = paint.into();
+        for row in first(y)..first(y + h) {
+            if let Some((a, b)) = round_rect_span(row as f32 + 0.5, x, y, w, h, r) {
+                self.span(row, first(a), first(b), paint);
+            }
+        }
+    }
+
+    /// Outlines a rounded box with a border `width` dots thick, drawn inside it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn round_rect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, width: f32, paint: impl Into<Paint>) {
+        let paint = paint.into();
+        let t = width.max(1.0).min(w / 2.0).min(h / 2.0);
+        for row in first(y)..first(y + h) {
+            let sy = row as f32 + 0.5;
+            let Some((a, b)) = round_rect_span(sy, x, y, w, h, r) else { continue };
+            // The hole is the same shape inset by the border; rows above and below it
+            // are solid.
+            match round_rect_span(sy, x + t, y + t, w - 2.0 * t, h - 2.0 * t, r - t) {
+                Some((ia, ib)) => {
+                    self.span(row, first(a), first(ia), paint);
+                    self.span(row, first(ib), first(b), paint);
+                }
+                None => self.span(row, first(a), first(b), paint),
+            }
+        }
+    }
+
+    /// Fills the ring between radii `inner` and `outer`, centred on `(cx, cy)`.
+    pub fn ring(&mut self, cx: f32, cy: f32, outer: f32, inner: f32, paint: impl Into<Paint>) {
+        let paint = paint.into();
+        let (outer, inner) = (outer.max(0.0), inner.clamp(0.0, outer));
+        for y in first(cy - outer)..first(cy + outer) {
+            let dy = (y as f32 + 0.5 - cy).abs();
+            let ho = (outer * outer - dy * dy).max(0.0).sqrt();
+            let hi = (inner * inner - dy * dy).max(0.0).sqrt();
+            if hi > 0.0 {
+                self.span(y, first(cx - ho), first(cx - hi), paint);
+                self.span(y, first(cx + hi), first(cx + ho), paint);
+            } else {
+                self.span(y, first(cx - ho), first(cx + ho), paint);
+            }
+        }
+    }
+
+    /// Fills the pie slice of the ellipse `(cx, cy, rx, ry)` from angle `a0` to `a1`
+    /// (radians, clockwise on screen).
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_pie(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, a0: f32, a1: f32, paint: impl Into<Paint>) {
+        let n = steps((a1 - a0).abs() * rx.max(ry)).min(MAX_POINTS as u32 - 1);
+        let mut pts = [(0.0f32, 0.0f32); MAX_POINTS];
+        pts[0] = (cx, cy);
+        for i in 0..=n {
+            let a = a0 + (a1 - a0) * i as f32 / n as f32;
+            pts[1 + i as usize] = (cx + rx * a.cos(), cy + ry * a.sin());
+        }
+        self.fill_polygon(&pts[..2 + n as usize], paint);
+    }
+
+    /// Fills the regular `sides`-gon inscribed in radius `r` around `(cx, cy)`,
+    /// rotated by `rot` radians (`0` puts a vertex to the right).
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_ngon(&mut self, cx: f32, cy: f32, r: f32, sides: u32, rot: f32, paint: impl Into<Paint>) {
+        let (pts, n) = ngon_points(cx, cy, r, r, sides, rot);
+        self.fill_polygon(&pts[..n], paint);
+    }
+
+    /// Strokes the outline of [`fill_ngon`](Self::fill_ngon).
+    #[allow(clippy::too_many_arguments)]
+    pub fn ngon(&mut self, cx: f32, cy: f32, r: f32, sides: u32, rot: f32, width: f32, paint: impl Into<Paint>) {
+        let (pts, n) = ngon_points(cx, cy, r, r, sides, rot);
+        self.polygon(&pts[..n], width, paint);
+    }
+
+    /// Fills a star with `points` spikes reaching `outer`, its notches at `inner`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_star(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        outer: f32,
+        inner: f32,
+        points: u32,
+        rot: f32,
+        paint: impl Into<Paint>,
+    ) {
+        let (pts, n) = ngon_points(cx, cy, outer, inner, points.clamp(2, 32) * 2, rot);
+        self.fill_polygon(&pts[..n], paint);
+    }
+
+    /// Strokes the outline of [`fill_star`](Self::fill_star).
+    #[allow(clippy::too_many_arguments)]
+    pub fn star(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        outer: f32,
+        inner: f32,
+        points: u32,
+        rot: f32,
+        width: f32,
+        paint: impl Into<Paint>,
+    ) {
+        let (pts, n) = ngon_points(cx, cy, outer, inner, points.clamp(2, 32) * 2, rot);
+        self.polygon(&pts[..n], width, paint);
+    }
+
+    /// Draws an arrow from `from` to `to`: a shaft `width` dots wide and a filled head
+    /// `head` dots long, whose tip is exactly `to`.
+    pub fn arrow(&mut self, from: Point, to: Point, width: f32, head: f32, paint: impl Into<Paint>) {
+        let paint = paint.into();
+        let len = dist(from, to);
+        if len <= 0.0 {
+            return;
+        }
+        let head = head.max(width).min(len);
+        let (ux, uy) = ((to.0 - from.0) / len, (to.1 - from.1) / len);
+        // The shaft stops where the head starts, so a dithered arrow does not paint
+        // the overlap twice.
+        let base = (to.0 - ux * head, to.1 - uy * head);
+        self.polyline(&[from, base], width, paint);
+        let (nx, ny) = (-uy * head * 0.4, ux * head * 0.4);
+        self.fill_polygon(&[to, (base.0 + nx, base.1 + ny), (base.0 - nx, base.1 - ny)], paint);
     }
 
     /// Strokes the path through `pts`: Bresenham lines for `width ≤ 1`, otherwise a
@@ -438,6 +655,68 @@ mod tests {
         let mut e = Canvas::new(10, 3);
         e.ellipse(10.0, 6.0, 8.0, 4.0, 1.0, C);
         assert!(e.get(10, 6).is_none() && count(&e) > 20);
+    }
+
+    #[test]
+    fn round_boxes_lose_their_corners_only() {
+        let mut c = Canvas::new(10, 5);
+        c.fill_round_rect(0.0, 0.0, 20.0, 20.0, 6.0, C);
+        assert!(c.get(10, 0).is_some() && c.get(0, 10).is_some(), "flat sides stay flat");
+        assert!(c.get(0, 0).is_none() && c.get(19, 19).is_none(), "corners are cut");
+        let mut o = Canvas::new(10, 5);
+        o.round_rect(0.0, 0.0, 20.0, 20.0, 6.0, 2.0, C);
+        assert!(o.get(10, 0).is_some() && o.get(10, 1).is_some() && o.get(10, 3).is_none(), "2 dots of border");
+        assert!(count(&o) < count(&c));
+        // A radius of zero is the plain box.
+        let (mut a, mut b) = (Canvas::new(4, 2), Canvas::new(4, 2));
+        a.fill_round_rect(1.0, 1.0, 6.0, 6.0, 0.0, C);
+        b.fill_rect(1.0, 1.0, 6.0, 6.0, C);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn rings_are_hollow_and_pies_are_wedges() {
+        let mut c = Canvas::new(10, 5);
+        c.ring(10.0, 10.0, 8.0, 4.0, C);
+        assert!(c.get(10, 10).is_none() && c.get(10, 3).is_some() && c.get(10, 16).is_some());
+        let n = count(&c) as f32;
+        assert!((n - std::f32::consts::PI * (64.0 - 16.0)).abs() < 20.0, "{n}");
+        let mut p = Canvas::new(10, 5);
+        p.fill_pie(10.0, 10.0, 8.0, 8.0, 0.0, std::f32::consts::FRAC_PI_2, C);
+        assert!(p.get(14, 12).is_some(), "inside the quarter");
+        assert!(p.get(6, 8).is_none() && p.get(14, 8).is_none(), "outside it");
+        assert!((count(&p) as f32 - std::f32::consts::PI * 64.0 / 4.0).abs() < 12.0);
+    }
+
+    #[test]
+    fn ngons_stars_and_arrows() {
+        let mut h = Canvas::new(10, 5);
+        h.fill_ngon(10.0, 10.0, 8.0, 6, 0.0, C);
+        assert!(h.get(10, 10).is_some() && h.get(17, 10).is_some() && h.get(3, 16).is_none());
+        let mut s = Canvas::new(10, 5);
+        s.fill_star(10.0, 10.0, 9.0, 3.5, 5, 0.0, C);
+        assert!(s.get(16, 10).is_some(), "the spike reaches out past the notch radius");
+        assert!(s.get(16, 16).is_none() && s.get(3, 3).is_none(), "the notches between spikes are empty");
+        let mut o = Canvas::new(10, 5);
+        o.star(10.0, 10.0, 9.0, 3.5, 5, 0.0, 1.0, C);
+        assert!(o.get(10, 10).is_none() && count(&o) < count(&s));
+        let mut a = Canvas::new(12, 4);
+        a.arrow((2.0, 8.0), (20.0, 8.0), 2.0, 6.0, C);
+        assert!(a.get(18, 8).is_some(), "the head runs up to the point asked for");
+        assert!(a.get(15, 7).is_some() && a.get(15, 9).is_some(), "the head is wider than the shaft");
+        assert!(a.get(10, 6).is_none(), "the shaft is only as wide as asked");
+    }
+
+    #[test]
+    fn rect_geometry_helpers() {
+        let r = Rect::new(2.0, 4.0, 10.0, 6.0);
+        assert_eq!((r.right(), r.bottom(), r.center()), (12.0, 10.0, (7.0, 7.0)));
+        assert!(r.contains((2.0, 4.0)) && !r.contains((12.0, 7.0)));
+        assert_eq!(r.inset(1.0), Rect::new(3.0, 5.0, 8.0, 4.0));
+        assert_eq!(r.offset(1.0, -1.0), Rect::new(3.0, 3.0, 10.0, 6.0));
+        assert_eq!(r.overlap(&Rect::new(7.0, 4.0, 10.0, 6.0)), 30.0);
+        assert_eq!(r.overlap(&Rect::new(90.0, 0.0, 1.0, 1.0)), 0.0);
+        assert_eq!(Rect::around((0.0, 0.0), 4.0, 2.0), Rect::new(-2.0, -1.0, 4.0, 2.0));
     }
 
     #[test]

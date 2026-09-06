@@ -47,10 +47,23 @@
 //! ## Drawing
 //!
 //! Besides single dots and Bresenham lines, [`Canvas`] has span-based vector
-//! primitives (`fill_rect`, `fill_polygon`, `fill_ellipse`, stroked `rect`, `polygon`,
-//! `polyline`, `ellipse`, `arc`, `bezier`, `spline`) that take a [`Paint`]: a colour,
-//! a dithered coverage, or [`Paint::erase`]. [`Canvas::text`] draws with a [`Font`], a
-//! tiny text-format bitmap font that scales; [`Font::tiny`] is built in.
+//! primitives (`fill_rect`, `fill_round_rect`, `fill_polygon`, `fill_ellipse`,
+//! `fill_ngon`, `fill_star`, `fill_pie`, `ring`, `arrow`, stroked `rect`,
+//! `round_rect`, `polygon`, `polyline`, `ellipse`, `ngon`, `star`, `arc`, `bezier`,
+//! `spline`) that take a [`Paint`]: a colour, a dithered coverage, or
+//! [`Paint::erase`].
+//!
+//! ## Text
+//!
+//! Two kinds, for two jobs. [`Canvas::text`] draws with a [`Font`], a tiny text-format
+//! bitmap font that scales ([`Font::tiny`] is built in), so a label is dots like
+//! everything else. [`Canvas::print`] puts a *real character* in a cell — any glyph the
+//! terminal's font has, still copyable, sharp at any size — on a [text layer](text)
+//! that every protocol and the exporters understand.
+//!
+//! [`Bubble`] puts the two together: a text box, or a chat bubble with a tail that
+//! [`Bubble::speak`] aims at a speaker while dodging the rectangles you want kept
+//! clear.
 //!
 //! ## Colours
 //!
@@ -86,6 +99,7 @@
 #![cfg_attr(not(all(feature = "detect", unix)), forbid(unsafe_code))]
 #![warn(missing_docs)]
 
+pub mod bubble;
 mod canvas;
 mod color;
 mod draw;
@@ -95,14 +109,17 @@ mod font;
 mod raster;
 mod render;
 mod term;
+pub mod text;
 
 #[cfg(feature = "ratatui")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ratatui")))]
 pub mod ratatui;
 
+pub use bubble::{Bubble, Shape, Side, Tail, TailKind};
 pub use canvas::{Canvas, Cell, DOTS_X, DOTS_Y, bayer, braille};
 pub use color::{Color, Depth, Palette, Rgb};
-pub use draw::{Paint, Point};
+pub use draw::{Paint, Point, Rect};
 pub use font::{Font, FontError, Glyph};
 pub use render::{Options, Placement, Renderer};
 pub use term::{CellSize, Protocol, Terminal};
+pub use text::{Align, Attrs, TextCell, TextStyle};

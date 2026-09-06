@@ -1,0 +1,754 @@
+//! Text boxes and speech bubbles.
+//!
+//! A [`Bubble`] is a body (rectangle, rounded box, ellipse, cloud or starburst) with
+//! text in it and, optionally, a tail pointing at whoever is speaking. Without a tail
+//! it is a text box; with one it is a chat bubble, and the tail can leave from any
+//! side at any point along it.
+//!
+//! ```
+//! use cobra::{Bubble, Canvas, Rgb};
+//!
+//! let mut c = Canvas::new(40, 10);
+//! Bubble::speech("Hello!")
+//!     .fill(Rgb::hex(0x1b2430))
+//!     .border(1.0, Rgb::hex(0x3aa0ff))
+//!     .ink(Rgb::hex(0xc9d1d9))
+//!     .draw(&mut c, 4.0, 4.0);
+//! ```
+//!
+//! The text is [real text](crate::text) by default, so it stays sharp and copyable;
+//! [`Bubble::font`] switches it to dots in a bitmap [`Font`] when a bubble has to fit
+//! somewhere too small for a character cell.
+//!
+//! # Choosing a place
+//!
+//! [`Bubble::speak`] takes the mouth to point at and any number of keep-out
+//! rectangles, tries the bubble on all four sides of the mouth, and draws the one that
+//! stays on the canvas and clear of the zones, with the tail leaning over to reach the
+//! mouth:
+//!
+//! ```
+//! # use cobra::{Bubble, Canvas, Rect, Rgb};
+//! # let mut canvas = Canvas::new(60, 12);
+//! let face = Rect::new(40.0, 20.0, 24.0, 20.0);
+//! let mouth = (52.0, 30.0);
+//! Bubble::speech("Watch out!").fill(Rgb::hex(0x203040)).speak(&mut canvas, mouth, &[face]);
+//! ```
+
+use crate::text::{Align, TextStyle};
+use crate::{Canvas, Font, Paint, Point, Rect, text};
+
+/// An edge of a bubble.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Side {
+    /// Above the body.
+    Top,
+    /// Right of the body.
+    Right,
+    /// Below the body.
+    Bottom,
+    /// Left of the body.
+    Left,
+}
+
+impl Side {
+    /// Unit vector pointing out of the body.
+    fn out(self) -> Point {
+        match self {
+            Side::Top => (0.0, -1.0),
+            Side::Right => (1.0, 0.0),
+            Side::Bottom => (0.0, 1.0),
+            Side::Left => (-1.0, 0.0),
+        }
+    }
+
+    /// Point `at` (`0..=1`) along this side of `body`.
+    fn along(self, body: Rect, at: f32) -> Point {
+        let t = at.clamp(0.0, 1.0);
+        match self {
+            Side::Top => (body.x + body.w * t, body.y),
+            Side::Bottom => (body.x + body.w * t, body.bottom()),
+            Side::Left => (body.x, body.y + body.h * t),
+            Side::Right => (body.right(), body.y + body.h * t),
+        }
+    }
+
+    /// Whether the side runs horizontally.
+    fn horizontal(self) -> bool {
+        matches!(self, Side::Top | Side::Bottom)
+    }
+}
+
+/// The shape of a bubble's body.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Shape {
+    /// Plain box.
+    Rect,
+    /// Box with corners rounded to a radius in dots.
+    Round(f32),
+    /// Ellipse through the body's box.
+    Ellipse,
+    /// Scalloped outline of overlapping lobes: a thought bubble.
+    Cloud,
+    /// Spiky starburst: a shout.
+    Burst,
+}
+
+/// What a tail looks like.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TailKind {
+    /// A straight triangle, the usual speech tail.
+    Point,
+    /// A curved, tapering comic tail.
+    Curve,
+    /// Shrinking discs, the usual thought-bubble trail.
+    Bubbles,
+}
+
+/// Where and how a bubble's tail leaves the body.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tail {
+    /// Which side it leaves from.
+    pub side: Side,
+    /// Where along that side, `0..=1` (left to right, top to bottom).
+    pub at: f32,
+    /// How far it reaches, in dots.
+    pub len: f32,
+    /// Width of its base, in dots.
+    pub width: f32,
+    /// Its look.
+    pub kind: TailKind,
+    /// Where the point ends up. `None` puts it straight out from the base, which is
+    /// what a hand-placed bubble wants; [`Bubble::speak`] sets it to the mouth.
+    pub tip: Option<Point>,
+}
+
+impl Default for Tail {
+    fn default() -> Self {
+        Self { side: Side::Bottom, at: 0.25, len: 6.0, width: 5.0, kind: TailKind::Point, tip: None }
+    }
+}
+
+impl Tail {
+    /// A tail of `kind` leaving `side` at `at` (`0..=1` along it).
+    pub fn new(side: Side, at: f32, kind: TailKind) -> Self {
+        Self { side, at, kind, ..Self::default() }
+    }
+
+    /// Sets how far the tail reaches, in dots.
+    pub fn len(mut self, len: f32) -> Self {
+        self.len = len;
+        self
+    }
+
+    /// Sets the width of the tail's base, in dots.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Base centre and tip for a body.
+    fn geometry(&self, body: Rect) -> (Point, Point) {
+        let base = self.side.along(body, self.at);
+        let out = self.side.out();
+        (base, self.tip.unwrap_or((base.0 + out.0 * self.len, base.1 + out.1 * self.len)))
+    }
+}
+
+/// A text box, or a chat bubble when it has a [`Tail`]. See the [module docs](self).
+#[derive(Clone, Copy, Debug)]
+pub struct Bubble<'a> {
+    text: &'a str,
+    shape: Shape,
+    tail: Option<Tail>,
+    fill: Option<Paint>,
+    border: Option<(f32, Paint)>,
+    ink: TextStyle,
+    font: Option<&'a Font>,
+    pad: (i32, i32),
+    align: Align,
+    wrap: i32,
+    clear_behind: bool,
+}
+
+impl<'a> Bubble<'a> {
+    /// A plain text box: a rectangle, no tail.
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            shape: Shape::Rect,
+            tail: None,
+            fill: None,
+            border: None,
+            ink: TextStyle::default(),
+            font: None,
+            pad: (1, 0),
+            align: Align::Left,
+            wrap: 0,
+            clear_behind: false,
+        }
+    }
+
+    /// A rounded box with a triangular tail: an ordinary speech bubble.
+    pub fn speech(text: &'a str) -> Self {
+        Self { shape: Shape::Round(4.0), tail: Some(Tail::default()), pad: (1, 1), ..Self::new(text) }
+    }
+
+    /// A cloud with a trail of discs: a thought bubble.
+    pub fn thought(text: &'a str) -> Self {
+        Self {
+            shape: Shape::Cloud,
+            tail: Some(Tail { kind: TailKind::Bubbles, len: 9.0, width: 4.0, ..Tail::default() }),
+            align: Align::Center,
+            pad: (1, 1),
+            ..Self::new(text)
+        }
+    }
+
+    /// A starburst with a straight tail: a shout.
+    pub fn shout(text: &'a str) -> Self {
+        Self {
+            shape: Shape::Burst,
+            tail: Some(Tail { width: 7.0, ..Tail::default() }),
+            align: Align::Center,
+            pad: (1, 1),
+            ..Self::new(text)
+        }
+    }
+
+    /// A rounded box with a curling tail, drawn dithered: an aside.
+    pub fn whisper(text: &'a str) -> Self {
+        Self {
+            shape: Shape::Round(3.0),
+            tail: Some(Tail { kind: TailKind::Curve, len: 8.0, width: 4.0, ..Tail::default() }),
+            pad: (1, 1),
+            ..Self::new(text)
+        }
+    }
+
+    /// Sets the body shape.
+    pub fn shape(mut self, shape: Shape) -> Self {
+        self.shape = shape;
+        self
+    }
+
+    /// Attaches a tail.
+    pub fn tail(mut self, tail: Tail) -> Self {
+        self.tail = Some(tail);
+        self
+    }
+
+    /// Removes the tail, leaving a text box.
+    pub fn no_tail(mut self) -> Self {
+        self.tail = None;
+        self
+    }
+
+    /// Fills the body.
+    pub fn fill(mut self, paint: impl Into<Paint>) -> Self {
+        self.fill = Some(paint.into());
+        self
+    }
+
+    /// Outlines the body with a border `width` dots thick.
+    pub fn border(mut self, width: f32, paint: impl Into<Paint>) -> Self {
+        self.border = Some((width, paint.into()));
+        self
+    }
+
+    /// Sets the text style. Its background defaults to the bubble's fill, since a
+    /// printed character replaces the dots in its cell.
+    pub fn ink(mut self, ink: impl Into<TextStyle>) -> Self {
+        self.ink = ink.into();
+        self
+    }
+
+    /// Draws the text as dots in `font` instead of as real characters. Use it when a
+    /// bubble is too small for a character cell, or in a drawing that is exported to
+    /// an image.
+    pub fn font(mut self, font: &'a Font) -> Self {
+        self.font = Some(font);
+        self
+    }
+
+    /// Padding between the text and the body edge, in cells. Default `(1, 0)`, and at
+    /// least one row when the bubble has a border and prints real text: a character
+    /// hides the dots in its cell, and the top and bottom of the border are in it.
+    pub fn pad(mut self, cols: i32, rows: i32) -> Self {
+        self.pad = (cols.max(0), rows.max(0));
+        self
+    }
+
+    /// Aligns the lines inside the bubble.
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Wraps the text to at most `cols` cells wide.
+    pub fn wrap(mut self, cols: i32) -> Self {
+        self.wrap = cols.max(0);
+        self
+    }
+
+    /// Unsets the dots under the body before drawing, so the bubble reads on top of a
+    /// busy background even when it is not filled.
+    pub fn clear_behind(mut self) -> Self {
+        self.clear_behind = true;
+        self
+    }
+
+    /// Padding actually used: a bordered bubble of real text needs a row of its own
+    /// for the border, since a printed character owns its whole cell.
+    fn padding(&self) -> (i32, i32) {
+        let rows = if self.border.is_some() && self.font.is_none() { self.pad.1.max(1) } else { self.pad.1 };
+        (self.pad.0, rows)
+    }
+
+    /// Size of the body in dots, always a whole number of cells so the text inside
+    /// lands on the character grid.
+    pub fn size(&self) -> (f32, f32) {
+        let (w, h) = self.content_cells();
+        let pad = self.padding();
+        let (mut cols, mut rows) = (w + 2 * pad.0, h + 2 * pad.1);
+        // Round shapes lose the corners, so they need room the box does not, and a
+        // burst has to be wide enough that its notches clear the text.
+        match self.shape {
+            Shape::Ellipse | Shape::Cloud => {
+                cols = (cols as f32 * 1.5).ceil() as i32;
+                rows = (rows + 1).max((rows as f32 * 1.6).ceil() as i32);
+            }
+            Shape::Burst => {
+                cols = (cols as f32 * 1.8).ceil() as i32;
+                rows = (rows + 1).max((rows as f32 * 1.8).ceil() as i32);
+            }
+            _ => {}
+        }
+        (cols.max(1) as f32 * crate::DOTS_X as f32, rows.max(1) as f32 * crate::DOTS_Y as f32)
+    }
+
+    /// Everything the bubble would cover if drawn at `(x, y)`: the body and its tail.
+    /// Useful as a keep-out zone for the next bubble.
+    pub fn bounds(&self, x: f32, y: f32) -> Rect {
+        let (w, h) = self.size();
+        let body = Rect::new(snap(x, crate::DOTS_X as f32), snap(y, crate::DOTS_Y as f32), w, h);
+        let Some(tail) = self.tail else { return body };
+        let (_, tip) = tail.geometry(body);
+        let (x0, y0) = (body.x.min(tip.0), body.y.min(tip.1));
+        Rect::new(x0, y0, body.right().max(tip.0) - x0, body.bottom().max(tip.1) - y0)
+    }
+
+    /// Draws the bubble with the top-left of its body at dot `(x, y)`, snapped to the
+    /// cell grid, and returns the body's box. The tail may reach outside it.
+    pub fn draw(&self, canvas: &mut Canvas, x: f32, y: f32) -> Rect {
+        let (w, h) = self.size();
+        let body = Rect::new(snap(x, crate::DOTS_X as f32), snap(y, crate::DOTS_Y as f32), w, h);
+        let border = self.border.map_or(0.0, |(t, _)| t);
+        if self.clear_behind {
+            self.paint_body(canvas, body, border, Paint::erase());
+            if let Some(t) = self.tail {
+                paint_tail(canvas, body, &t, border, Paint::erase());
+            }
+        }
+        // Border first, then the fill inset by it: one path draws every shape, and an
+        // unfilled body carves its inside back out.
+        match (self.border, self.fill) {
+            (Some((t, bp)), fill) => {
+                self.paint_body(canvas, body, 0.0, bp);
+                if let Some(tail) = self.tail {
+                    paint_tail(canvas, body, &tail, 0.0, bp);
+                }
+                self.paint_body(canvas, body, -t, fill.unwrap_or(Paint::erase()));
+                if let Some(tail) = self.tail {
+                    paint_tail(canvas, body, &tail, -t, fill.unwrap_or(Paint::erase()));
+                }
+            }
+            (None, Some(fill)) => {
+                self.paint_body(canvas, body, 0.0, fill);
+                if let Some(tail) = self.tail {
+                    paint_tail(canvas, body, &tail, 0.0, fill);
+                }
+            }
+            (None, None) => {}
+        }
+        self.paint_text(canvas, body);
+        body
+    }
+
+    /// Draws the bubble where it fits best: pointing its tail at `mouth`, inside the
+    /// canvas and off every rectangle in `keep_out`. Returns the body's box.
+    ///
+    /// The four sides are tried in turn (above the mouth first, then beside it, then
+    /// below); each candidate is pushed back onto the canvas, and the one that covers
+    /// the least of the keep-out zones with the least tail lean wins.
+    pub fn speak(&self, canvas: &mut Canvas, mouth: Point, keep_out: &[Rect]) -> Rect {
+        let area = Rect::new(0.0, 0.0, canvas.width() as f32, canvas.height() as f32);
+        let (placed, at) = self.place(area, mouth, keep_out);
+        placed.draw(canvas, at.0, at.1)
+    }
+
+    /// The placement [`speak`](Self::speak) would use: a copy of the bubble with its
+    /// tail aimed at `mouth`, and the top-left dot to draw it at.
+    pub fn place(&self, area: Rect, mouth: Point, keep_out: &[Rect]) -> (Self, Point) {
+        let (w, h) = self.size();
+        let mut tail = self.tail.unwrap_or_default();
+        let gap = tail.len.max(2.0);
+        let mut best: Option<(f32, Point, Side)> = None;
+        // Bias: a bubble above the speaker reads first, then beside, then below.
+        for (bias, side) in [(0.0, Side::Bottom), (1.0, Side::Right), (1.0, Side::Left), (2.0, Side::Top)] {
+            let corner = match side {
+                Side::Bottom => (mouth.0 - w / 2.0, mouth.1 - gap - h),
+                Side::Top => (mouth.0 - w / 2.0, mouth.1 + gap),
+                Side::Right => (mouth.0 - gap - w, mouth.1 - h / 2.0),
+                Side::Left => (mouth.0 + gap, mouth.1 - h / 2.0),
+            };
+            let x = snap(corner.0.clamp(area.x, (area.right() - w).max(area.x)), crate::DOTS_X as f32);
+            let y = snap(corner.1.clamp(area.y, (area.bottom() - h).max(area.y)), crate::DOTS_Y as f32);
+            let body = Rect::new(x, y, w, h);
+            // Everything is an area in dots², so the terms compare directly; the lean
+            // is charged the strip of body it drags the tail across.
+            let mut score = keep_out.iter().map(|k| body.overlap(k)).sum::<f32>();
+            score += 2.0 * (w * h - body.overlap(&area));
+            let base = tail_base(body, side, mouth);
+            let lean = if side.horizontal() { (mouth.0 - base.0).abs() } else { (mouth.1 - base.1).abs() };
+            score += lean * 4.0 + bias * w.min(h);
+            if body.contains(mouth) {
+                score += w * h * 8.0;
+            }
+            if best.as_ref().is_none_or(|(b, ..)| score < *b) {
+                best = Some((score, (x, y), side));
+            }
+        }
+        let (_, at, side) = best.expect("four candidates");
+        let body = Rect::new(at.0, at.1, w, h);
+        let base = tail_base(body, side, mouth);
+        tail.side = side;
+        tail.at = if side.horizontal() { (base.0 - body.x) / w } else { (base.1 - body.y) / h };
+        tail.tip = Some(mouth);
+        (Self { tail: Some(tail), ..*self }, at)
+    }
+
+    /// Text size in cells.
+    fn content_cells(&self) -> (i32, i32) {
+        match self.font {
+            Some(f) => {
+                let text = self.wrapped(f);
+                let (w, h) = f.measure(&text);
+                let cell = (crate::DOTS_X as i32, crate::DOTS_Y as i32);
+                ((w + cell.0 - 1) / cell.0, (h + cell.1 - 1) / cell.1)
+            }
+            None => {
+                let (mut w, mut lines) = (0, 0);
+                for line in text::wrap(self.text, self.wrap) {
+                    w = w.max(text::width(line));
+                    lines += 1;
+                }
+                (w, lines.max(1))
+            }
+        }
+    }
+
+    /// The text with wrapping applied, for font drawing (which measures in dots).
+    fn wrapped(&self, font: &Font) -> String {
+        if self.wrap == 0 {
+            return self.text.to_string();
+        }
+        // A cell is two dots wide, so a `wrap` in cells is that many dots of glyphs.
+        let cols = (self.wrap * crate::DOTS_X as i32 / font.advance('n').max(1)).max(1);
+        let mut out = String::with_capacity(self.text.len() + 8);
+        for (i, line) in text::wrap(self.text, cols).enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            out.push_str(line);
+        }
+        out
+    }
+
+    /// The text style to print with: a character hides the dots in its cell, so unless
+    /// the caller picked a background the fill has to become one, or the text would
+    /// punch holes in the bubble.
+    fn text_style(&self) -> TextStyle {
+        let mut ink = self.ink;
+        if ink.bg.is_none()
+            && let Some(fill) = self.fill
+            && fill.coverage() >= 1.0
+            && let Some(color) = fill.color()
+        {
+            ink.bg = Some(color);
+        }
+        ink
+    }
+
+    fn paint_text(&self, canvas: &mut Canvas, body: Rect) {
+        let (cw, ch) = self.content_cells();
+        let cols = (body.w / crate::DOTS_X as f32) as i32;
+        let rows = (body.h / crate::DOTS_Y as f32) as i32;
+        let col = body.x as i32 / crate::DOTS_X as i32 + (cols - cw) / 2;
+        let row = body.y as i32 / crate::DOTS_Y as i32 + (rows - ch) / 2;
+        match self.font {
+            Some(f) => {
+                let text = self.wrapped(f);
+                let (w, h) = f.measure(&text);
+                let x = body.x as i32 + ((body.w as i32 - w) / 2).max(0);
+                let y = body.y as i32 + ((body.h as i32 - h) / 2).max(0);
+                let ink = self.ink.fg.map_or(Paint::new(crate::Color::Foreground), Paint::new);
+                for (i, line) in text.lines().enumerate() {
+                    let dx = match self.align {
+                        Align::Left => 0,
+                        Align::Center => (w - f.measure(line).0) / 2,
+                        Align::Right => w - f.measure(line).0,
+                    };
+                    canvas.text(x + dx, y + i as i32 * f.line_height(), line, f, ink);
+                }
+            }
+            None => {
+                self.paint_wrapped(canvas, col, row, cw);
+            }
+        }
+    }
+
+    fn paint_wrapped(&self, canvas: &mut Canvas, col: i32, row: i32, width: i32) {
+        for (line_no, line) in text::wrap(self.text, self.wrap).enumerate() {
+            let w = text::width(line);
+            let dx = match self.align {
+                Align::Left => 0,
+                Align::Center => (width - w) / 2,
+                Align::Right => width - w,
+            };
+            canvas.print(col + dx, row + line_no as i32, line, self.text_style());
+        }
+    }
+
+    /// Fills the body shape grown by `grow` dots (negative shrinks it).
+    fn paint_body(&self, canvas: &mut Canvas, body: Rect, grow: f32, paint: Paint) {
+        let r = body.inset(-grow);
+        if r.w <= 0.0 || r.h <= 0.0 {
+            return;
+        }
+        let (cx, cy) = r.center();
+        match self.shape {
+            Shape::Rect => canvas.fill_rect(r.x, r.y, r.w, r.h, paint),
+            Shape::Round(rad) => canvas.fill_round_rect(r.x, r.y, r.w, r.h, rad + grow, paint),
+            Shape::Ellipse => canvas.fill_ellipse(cx, cy, r.w / 2.0, r.h / 2.0, paint),
+            Shape::Cloud => {
+                // Lobes strung around an inner box, plus the box itself. They have to
+                // be a good fraction of the body or the outline reads as a rounded box.
+                let lobe = (body.w.min(body.h) / 3.0).clamp(3.0, 12.0);
+                let inner = body.inset(lobe);
+                canvas.fill_round_rect(
+                    inner.x - grow,
+                    inner.y - grow,
+                    inner.w + 2.0 * grow,
+                    inner.h + 2.0 * grow,
+                    lobe,
+                    paint,
+                );
+                for (px, py) in perimeter(inner, lobe * 1.5) {
+                    canvas.fill_ellipse(px, py, lobe + grow, lobe + grow, paint);
+                }
+            }
+            Shape::Burst => {
+                // Few, deep spikes read as a shout; many shallow ones just look noisy.
+                let spikes = ((body.w + body.h) / 16.0).clamp(5.0, 12.0) as u32;
+                let mut pts = [(0.0f32, 0.0f32); 32];
+                let n = (spikes * 2) as usize;
+                for (i, p) in pts[..n].iter_mut().enumerate() {
+                    let a = std::f32::consts::TAU * i as f32 / n as f32 - std::f32::consts::FRAC_PI_2;
+                    let k = if i % 2 == 0 { 1.0 } else { 0.75 };
+                    *p = (cx + (r.w / 2.0) * k * a.cos(), cy + (r.h / 2.0) * k * a.sin());
+                }
+                canvas.fill_polygon(&pts[..n], paint);
+            }
+        }
+    }
+}
+
+/// Where the tail should leave `side` to reach `mouth`, kept away from the corners.
+fn tail_base(body: Rect, side: Side, mouth: Point) -> Point {
+    let inset = 0.15;
+    let t = if side.horizontal() { (mouth.0 - body.x) / body.w } else { (mouth.1 - body.y) / body.h };
+    side.along(body, t.clamp(inset, 1.0 - inset))
+}
+
+/// Points spaced about `step` dots apart around the outline of `r`.
+fn perimeter(r: Rect, step: f32) -> impl Iterator<Item = Point> {
+    let step = step.max(1.0);
+    let (nx, ny) = ((r.w / step).ceil().max(1.0) as i32, (r.h / step).ceil().max(1.0) as i32);
+    let horizontal = (0..nx).flat_map(move |i| {
+        let x = r.x + r.w * i as f32 / nx as f32;
+        [(x, r.y), (r.right() - (x - r.x), r.bottom())]
+    });
+    let vertical = (0..ny).flat_map(move |i| {
+        let y = r.y + r.h * i as f32 / ny as f32;
+        [(r.right(), y), (r.x, r.bottom() - (y - r.y))]
+    });
+    horizontal.chain(vertical)
+}
+
+/// Fills a tail grown by `grow` dots, the same way [`Bubble::paint_body`] does.
+fn paint_tail(canvas: &mut Canvas, body: Rect, tail: &Tail, grow: f32, paint: Paint) {
+    let (base, tip) = tail.geometry(body);
+    let half = (tail.width / 2.0 + grow).max(0.5);
+    let (dx, dy) = (tip.0 - base.0, tip.1 - base.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len <= 0.0 {
+        return;
+    }
+    // Along the side, so the base stays flush with the body edge.
+    let (sx, sy) = if tail.side.horizontal() { (1.0, 0.0) } else { (0.0, 1.0) };
+    let (ox, oy) = tail.side.out();
+    // Sink the base a dot into the body so no seam shows between them.
+    let (bx, by) = (base.0 - ox * (grow + 1.0), base.1 - oy * (grow + 1.0));
+    let (tx, ty) = (tip.0 + ox * grow, tip.1 + oy * grow);
+    match tail.kind {
+        TailKind::Point => {
+            canvas.fill_polygon(&[(bx - sx * half, by - sy * half), (bx + sx * half, by + sy * half), (tx, ty)], paint);
+        }
+        TailKind::Curve => {
+            // Two quadratics from the base corners to the tip, bowed the same way:
+            // the tail leaves the body at full width and curls to a point.
+            let (b0, b1) = ((bx - sx * half, by - sy * half), (bx + sx * half, by + sy * half));
+            let c0 = (b0.0 + ox * len * 0.35, b0.1 + oy * len * 0.35);
+            let c1 = (b1.0 + ox * len * 0.6 + sx * half * 1.5, b1.1 + oy * len * 0.6 + sy * half * 1.5);
+            let q = |a: Point, c: Point, b: Point, t: f32| {
+                let u = 1.0 - t;
+                (u * u * a.0 + 2.0 * u * t * c.0 + t * t * b.0, u * u * a.1 + 2.0 * u * t * c.1 + t * t * b.1)
+            };
+            const N: usize = 12;
+            let mut pts = [(0.0f32, 0.0f32); 2 * N + 2];
+            for i in 0..=N {
+                let t = i as f32 / N as f32;
+                pts[i] = q(b0, c0, (tx, ty), t);
+                pts[2 * N + 1 - i] = q(b1, c1, (tx, ty), t);
+            }
+            canvas.fill_polygon(&pts, paint);
+        }
+        TailKind::Bubbles => {
+            let (ux, uy) = (dx / len, dy / len);
+            for i in 0..3 {
+                let t = 0.25 + 0.35 * i as f32;
+                let r = half * (1.0 - 0.25 * i as f32);
+                let r = r.max(0.6);
+                canvas.fill_ellipse(bx + ux * len * t, by + uy * len * t, r, r, paint);
+            }
+        }
+    }
+}
+
+/// Rounds `v` to the nearest multiple of `step`, so text lands on the cell grid.
+fn snap(v: f32, step: f32) -> f32 {
+    (v / step).round() * step
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Rgb;
+
+    const INK: Rgb = Rgb::hex(0xffffff);
+
+    fn lit(c: &Canvas) -> usize {
+        c.cells().map(|cell| cell.bits.count_ones() as usize).sum()
+    }
+
+    #[test]
+    fn a_text_box_is_a_bubble_without_a_tail() {
+        let mut c = Canvas::new(20, 4);
+        let b = Bubble::new("hi").fill(Rgb::hex(0x202020)).ink(INK);
+        assert_eq!(b.size(), (8.0, 4.0), "2 cells of text plus a cell of padding either side");
+        assert_eq!(b.bounds(2.0, 4.0), Rect::new(2.0, 4.0, 8.0, 4.0), "no tail, no reach past the body");
+        let body = b.draw(&mut c, 2.0, 4.0);
+        assert_eq!(body, Rect::new(2.0, 4.0, 8.0, 4.0));
+        assert_eq!(c.text_cell(2, 1).map(|t| t.ch), Some('h'));
+        assert_eq!(c.text_cell(3, 1).map(|t| t.ch), Some('i'));
+        assert!(c.get(2, 4).is_some() && c.get(0, 4).is_none());
+    }
+
+    #[test]
+    fn drawing_snaps_to_the_cell_grid() {
+        let mut c = Canvas::new(20, 4);
+        let body = Bubble::new("x").ink(INK).draw(&mut c, 3.0, 5.0);
+        assert_eq!((body.x % 2.0, body.y % 4.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn every_shape_fills_and_borders() {
+        for shape in [Shape::Rect, Shape::Round(3.0), Shape::Ellipse, Shape::Cloud, Shape::Burst] {
+            let mut c = Canvas::new(24, 6);
+            let b = Bubble::new("ab cd").wrap(4).shape(shape).fill(Rgb::hex(0x102030)).border(1.0, INK).ink(INK);
+            let body = b.draw(&mut c, 4.0, 4.0);
+            assert!(body.w >= 8.0 && body.h >= 8.0, "{shape:?} body {body:?}");
+            assert!(lit(&c) > 20, "{shape:?} drew nothing");
+            let printed = (0..24)
+                .flat_map(|col| (0..6).map(move |row| (col, row)))
+                .filter(|&(c2, r)| c.text_cell(c2, r).is_some_and(|t| t.ch == 'a' || t.ch == 'c'));
+            assert_eq!(printed.count(), 2, "{shape:?} lost its text");
+        }
+    }
+
+    #[test]
+    fn tails_leave_from_every_side() {
+        for side in [Side::Top, Side::Right, Side::Bottom, Side::Left] {
+            let mut c = Canvas::new(20, 6);
+            let b = Bubble::new("hi").tail(Tail::new(side, 0.5, TailKind::Point).len(6.0)).fill(INK).ink(0u32);
+            let body = b.draw(&mut c, 8.0, 8.0);
+            let (ox, oy) = side.out();
+            let (px, py) = (body.center().0 + ox * (body.w / 2.0 + 2.0), body.center().1 + oy * (body.h / 2.0 + 2.0));
+            assert!(c.get(px as i32, py as i32).is_some(), "{side:?} tail missing at {px},{py}");
+        }
+    }
+
+    #[test]
+    fn placement_avoids_keep_out_zones_and_the_edges() {
+        let c = Canvas::new(30, 8);
+        let area = Rect::new(0.0, 0.0, c.width() as f32, c.height() as f32);
+        let b = Bubble::speech("hello there");
+        // Speaking from the top of the canvas: the bubble cannot go above, so it does
+        // not, and it still points at the mouth.
+        let (placed, at) = b.place(area, (30.0, 2.0), &[]);
+        let body = Rect::new(at.0, at.1, placed.size().0, placed.size().1);
+        assert!(body.y >= 0.0 && body.bottom() <= area.bottom() && body.right() <= area.right());
+        assert_eq!(placed.tail.unwrap().tip, Some((30.0, 2.0)));
+        // With the whole left half blocked, it goes right.
+        let block = Rect::new(0.0, 0.0, 30.0, 32.0);
+        let (_, at) = b.place(area, (30.0, 16.0), &[block]);
+        assert!(at.0 >= 28.0, "moved off the blocked half: {at:?}");
+    }
+
+    #[test]
+    fn speak_draws_and_reports_where() {
+        let mut c = Canvas::new(40, 10);
+        let face = Rect::new(40.0, 20.0, 24.0, 20.0);
+        let body = Bubble::speech("watch out").fill(Rgb::hex(0x203040)).ink(INK).speak(&mut c, (52.0, 24.0), &[face]);
+        assert_eq!(body.overlap(&face), 0.0);
+        assert!(c.has_text());
+        assert!(lit(&c) > 50);
+    }
+
+    #[test]
+    fn text_takes_the_fill_as_its_background() {
+        let mut c = Canvas::new(10, 2);
+        Bubble::new("hi").fill(Rgb::hex(0x203040)).ink(INK).draw(&mut c, 0.0, 0.0);
+        assert_eq!(c.text_cell(1, 0).unwrap().style.bg, Some(crate::Color::Rgb(Rgb::hex(0x203040))));
+        // An explicit background wins, and a dithered fill is not one.
+        let mut c = Canvas::new(10, 2);
+        Bubble::new("hi").fill(Paint::dithered(Rgb::hex(0x203040), 0.5)).ink(INK).draw(&mut c, 0.0, 0.0);
+        assert_eq!(c.text_cell(1, 0).unwrap().style.bg, None);
+    }
+
+    #[test]
+    fn font_mode_draws_dots_not_cells() {
+        let mut c = Canvas::new(20, 6);
+        Bubble::new("hi").font(Font::tiny()).ink(INK).fill(Rgb::hex(0x101010)).draw(&mut c, 0.0, 0.0);
+        assert!(!c.has_text(), "font mode never touches the text layer");
+        assert!(lit(&c) > 8);
+    }
+
+    #[test]
+    fn wrapping_grows_the_box_downwards() {
+        let one = Bubble::new("a b c d e f").size();
+        let many = Bubble::new("a b c d e f").wrap(3).size();
+        assert!(many.0 < one.0 && many.1 > one.1);
+    }
+}

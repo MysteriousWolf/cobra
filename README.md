@@ -13,7 +13,8 @@ pixel grid four times taller and twice as wide as the text grid. The catch is th
 character can only have one colour, so every dot in a cell has to share it.
 
 cobra keeps the braille model but drops that limit. You draw on a canvas where every
-dot has its own colour, and it picks the best way to show it:
+dot has its own colour — plus a layer of real characters where dots are too coarse — and
+it picks the best way to show it:
 
 * On kitty, WezTerm, Ghostty, iTerm2, foot, xterm and Windows Terminal it sends a small
   image aligned to the character grid, so each dot keeps its colour.
@@ -81,9 +82,21 @@ c.fill_polygon(&pts, Rgb::hex(0xa96cff));
 c.bezier(&[(0.0, 18.0), (16.0, 1.0), (32.0, 18.0)], 1.0, Rgb::hex(0xe45cc4));
 c.spline(&pts, false, 2.0, Rgb::hex(0xff6f91));           // Catmull-Rom through every point
 
+// Rounded boxes, regular polygons, stars, wedges, rings and arrows.
+c.fill_round_rect(2.0, 2.0, 20.0, 12.0, 4.0, Rgb::hex(0x5ec33a));
+c.round_rect(2.0, 2.0, 20.0, 12.0, 4.0, 2.0, Rgb::hex(0x5ec33a));  // 2-dot border
+c.fill_ngon(10.0, 10.0, 8.0, 6, 0.0, Rgb::hex(0xffd21e));          // hexagon
+c.fill_star(30.0, 10.0, 9.0, 4.0, 5, 0.0, Rgb::hex(0xffd21e));     // 5 spikes, notches at 4
+c.fill_pie(10.0, 10.0, 8.0, 8.0, 0.0, 2.1, Rgb::hex(0x2ec4a6));    // wedge, radians
+c.ring(30.0, 10.0, 8.0, 5.0, Rgb::hex(0x2ec4a6));                  // outer, inner
+c.arrow((0.0, 8.0), (30.0, 8.0), 2.0, 6.0, Rgb::hex(0xff8c1a));    // tip lands on the point
+
 // Text, in a built-in 3×5 font.
 c.text(2, 2, "cobra", &Font::tiny().scale(2), Rgb::hex(0xc9d1d9));
 ```
+
+`Rect { x, y, w, h }` is the box type the bubbles below use, with `center`, `contains`,
+`inset`, `offset` and `overlap` on it.
 
 ### Paint
 
@@ -139,7 +152,39 @@ Quantisation happens per dot, before the cell picks its dominant colour, so two 
 that land on the same palette entry vote together instead of splitting the cell. Set
 `COBRA_COLORS=16` to see it without hunting for an old terminal.
 
-## Fonts
+## Text
+
+Two kinds, because a dot grid and a character grid are different resolutions.
+
+`canvas.text` draws with a bitmap font, so a label is dots like every other shape: any
+size, any colour, anywhere. `canvas.print` puts a **real character** in a terminal cell —
+whatever the user's font can draw, still copyable, still readable by a screen reader, and
+sharp at any font size.
+
+```rust
+use cobra::{Attrs, Align, TextStyle, text};
+
+canvas.print(2, 1, "Ready.", TextStyle::new(ink).bold());     // (col, row) in cells
+canvas.print(2, 2, "字 ± λ ✓", ink);                          // anything the font has
+canvas.print(2, 3, " selected ", TextStyle::new(bg).on(ink)); // colours and attributes
+canvas.print_wrapped(2, 4, 20, paragraph, ink, Align::Center);
+
+text::measure("two\nlines");        // (width, lines) in cells
+text::wrap(paragraph, 20);          // an iterator of lines, allocating nothing
+text::char_width('字');             // 2
+```
+
+A cell holding a character shows that character instead of its eight dots, in every
+protocol: the text fallback prints it in place of the braille glyph, the image protocols
+leave the cell transparent and print over the picture (on kitty the image is placed below
+the text layer), the ratatui widget writes it into the buffer, `to_text()` includes it,
+and both exporters draw it. The layer costs nothing until you print: it is not allocated
+until the first character.
+
+Since a character owns its whole cell, whatever was drawn under it is hidden — use
+`TextStyle::on` (or a `Bubble`, which does it for you) to keep the background colour.
+
+### Fonts
 
 ```rust
 canvas.text(2, 2, "cobra", &Font::tiny().scale(2), ink);
@@ -169,6 +214,64 @@ A             // one character, or U+0041; a blank line ends the glyph
 
 Glyphs can be any size up to 64 dots wide, so one font can mix narrow punctuation with
 wide capitals, or hold a handful of large symbols. Any script can generate one.
+
+## Text boxes and speech bubbles
+
+A `Bubble` is a body with text in it. Without a tail it is a text box; with one it is a
+chat bubble.
+
+```rust
+use cobra::{Align, Bubble, Shape, Side, Tail, TailKind};
+
+Bubble::new("Text boxes wrap, pad and align themselves.")
+    .wrap(20)                          // cells
+    .align(Align::Center)
+    .fill(Rgb::hex(0x161b22))
+    .border(1.0, Rgb::hex(0x6c7bff))
+    .ink(Rgb::hex(0xc9d1d9))
+    .draw(&mut canvas, 4.0, 4.0);      // returns the body's Rect
+```
+
+Four presets cover the usual voices, and every part of them can still be changed:
+
+| | Body | Tail |
+|---|---|---|
+| `Bubble::speech` | rounded box | triangle |
+| `Bubble::thought` | cloud of lobes | trail of discs |
+| `Bubble::shout` | starburst | triangle |
+| `Bubble::whisper` | rounded box | curling comic tail |
+| `Bubble::new` | box | none |
+
+`shape` takes `Rect`, `Round(radius)`, `Ellipse`, `Cloud` or `Burst`; `tail` takes a
+`Tail`, which is a `Side`, a position `0..=1` along it, a length, a base width and one of
+`TailKind::Point`, `Curve` or `Bubbles`:
+
+```rust
+Bubble::speech("psst")
+    .tail(Tail::new(Side::Left, 0.7, TailKind::Curve).len(8.0).width(4.0))
+    .clear_behind()                    // unset the dots underneath, for busy backgrounds
+    .draw(&mut canvas, 4.0, 4.0);
+```
+
+The text is real text, so a bubble is copyable and stays sharp. `font(&Font::tiny())`
+switches it to dots instead, for bubbles smaller than a character cell or drawings headed
+for a file.
+
+### Letting it choose a place
+
+Give `speak` the mouth to point at and the rectangles to stay off, and it tries the bubble
+on all four sides, pushes each candidate back onto the canvas, and draws the one that
+covers the least of what you wanted kept clear — with the tail leaning over to reach the
+mouth wherever it ends up:
+
+```rust
+let face = Rect::new(40.0, 20.0, 24.0, 20.0);
+let body = Bubble::speech("Watch out!").wrap(10).fill(ink).speak(&mut canvas, mouth, &[face]);
+```
+
+`place(area, mouth, keep_out)` does the same without drawing, returning the bubble with
+its tail aimed and the position to draw it at, so you can confine it to part of the canvas
+or feed `bounds()` back in as the keep-out zone for the next one.
 
 ## Terminals
 
@@ -215,7 +318,8 @@ overlay(&mut renderer, &canvas, area, terminal.backend_mut())?;
 On kitty the widget writes Unicode placeholder cells that never change between frames, so
 ratatui's diff leaves them alone and `overlay` only sends the compressed image. On iTerm2
 and sixel, which cannot place an image in the buffer, the widget writes the text fallback
-and `overlay` paints over it. On text terminals `overlay` does nothing.
+and `overlay` paints over it. On text terminals `overlay` does nothing. Cells you printed
+into are written as those characters with their own style, whatever the protocol.
 
 ## Export
 
@@ -226,8 +330,10 @@ std::fs::write("plot.png", png(&canvas, &Style::default().scale(2)))?;
 std::fs::write("plot.svg", svg(&canvas, &Style::default()))?;
 ```
 
-Both reuse the renderer's geometry, so a file looks like the terminal did. The background
-is transparent unless you set `Style::background`. The logo and the shape gallery at the
+Both reuse the renderer's geometry, so a file looks like the terminal did. Printed text
+comes along: SVG writes real `<text>` elements, and PNG, which has no terminal font,
+approximates the characters with the built-in one (`Style::text` turns that off). The
+background is transparent unless you set `Style::background`. The logo and the shape gallery at the
 top of this file were made this way.
 
 ## Performance
@@ -298,6 +404,8 @@ cargo bench                                 # the table above
 * Off unix there are no tty queries. Overrides are honoured, otherwise text.
 * `copy_text` prints the glyphs under the image so selecting the region copies braille. On
   terminals that draw text above images it shows through, so it is off by default.
+* A printed character takes its whole cell, so the dots in that cell are not drawn. Text
+  and dots share a canvas, not a cell.
 
 ## Versioning
 
