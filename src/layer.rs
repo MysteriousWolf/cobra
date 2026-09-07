@@ -115,8 +115,9 @@ pub enum Effect {
         /// What the border is painted with.
         paint: Paint,
     },
-    /// A halo `width` dots wide whose coverage falls from the paint's at the edge to
-    /// nothing at `width`: an outer glow.
+    /// A halo `width` dots wide whose coverage falls from two thirds of the paint's
+    /// at the edge to nothing at `width`: an outer glow. The halo never reaches
+    /// solid, so a shape stays distinct from a glow in its own colour.
     Glow {
         /// Reach in dots.
         width: f32,
@@ -150,6 +151,10 @@ pub enum Effect {
     },
 }
 
+/// Coverage of a glow's innermost ring as a fraction of its paint's: below solid, so
+/// the shape reads as the source of the glow rather than part of it.
+const GLOW_PEAK: f32 = 0.66;
+
 impl Effect {
     /// A drop shadow: the silhouette moved by `(dx, dy)` dots in `paint`.
     pub fn shadow(dx: i32, dy: i32, paint: impl Into<Paint>) -> Self {
@@ -161,7 +166,8 @@ impl Effect {
         Self::Outline { width, paint: paint.into() }
     }
 
-    /// A glow fading out over `width` dots.
+    /// A glow fading out over `width` dots, starting below solid so the shape
+    /// itself stays the brightest thing.
     pub fn glow(width: f32, paint: impl Into<Paint>) -> Self {
         Self::Glow { width, paint: paint.into() }
     }
@@ -220,7 +226,7 @@ impl Effect {
                 }
                 let t = (1.0 - (s.dist - 0.5) / width.max(0.5)).clamp(0.0, 1.0);
                 let color = paint.color()?;
-                Some(Paint::dithered(color, paint.coverage() * t))
+                Some(Paint::dithered(color, paint.coverage() * GLOW_PEAK * t))
             }
             Effect::Gap { .. } => (!s.inside()).then_some(Paint::erase()),
             Effect::Rim { paint, .. } => s.inside().then_some(*paint),

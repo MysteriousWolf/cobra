@@ -324,7 +324,7 @@ dots and printed cells): positive outside, negative inside, rounded to the neare
 | `Effect::shadow(dx, dy, paint)` | the silhouette moved by `(dx, dy)`, beneath the layer |
 | `Effect::outline(width, paint)` | a border `width` dots thick around it |
 | `Effect::gap(width)` | nothing: clears the layers beneath within `width` dots |
-| `Effect::glow(width, paint)` | a halo fading out over `width` dots |
+| `Effect::glow(width, paint)` | a halo fading out over `width` dots, never solid, so the shape stays distinct from a glow in its own colour |
 | `Effect::rim(depth, paint)` | the `depth` dots just inside the edge |
 | `Effect::shader(reach, depth, f)` | whatever `f` returns, within `reach` outside and `depth` inside |
 

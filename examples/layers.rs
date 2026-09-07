@@ -87,8 +87,8 @@ fn draw(layers: &mut Layers, theme: Theme) {
         let (cx, cy) = (px + 13.0, py + 17.0);
         layer.disc(cx, cy, 7.0, color);
         layer.fill_star(px + 29.0, py + 15.0, 7.0, 3.0, 5, -1.57, color.dim(0.8));
-        // A label in real text, part of the same silhouette as the shapes.
-        layer.print((px / 2.0) as i32 + 4, (py / 4.0) as i32 + 5, "ab", TextStyle::new(theme.ink).on(color));
+        // A label in real text inside the disc: part of the same silhouette.
+        layer.print((px / 2.0) as i32 + 6, (py / 4.0) as i32 + 4, "ab", TextStyle::new(theme.ink).on(color));
     }
 
     // A bubble on its own layer, across two panels, carrying two effects at once.
