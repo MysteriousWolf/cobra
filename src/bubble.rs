@@ -151,11 +151,10 @@ impl Tail {
         self
     }
 
-    /// Base centre and tip for a body.
-    fn geometry(&self, body: Rect) -> (Point, Point) {
-        let base = self.side.along(body, self.at);
-        let out = self.side.out();
-        (base, self.tip.unwrap_or((base.0 + out.0 * self.len, base.1 + out.1 * self.len)))
+    /// The tip for a tail leaving the body at `base`: straight out unless one was set.
+    fn tip_from(&self, base: Point) -> Point {
+        let (ox, oy) = self.side.out();
+        self.tip.unwrap_or((base.0 + ox * self.len, base.1 + oy * self.len))
     }
 }
 
@@ -342,7 +341,7 @@ impl<'a> Bubble<'a> {
     pub fn bounds(&self, x: f32, y: f32) -> Rect {
         let body = self.body_at(x, y);
         let Some(tail) = self.tail else { return body };
-        let (_, tip) = tail.geometry(body);
+        let tip = tail.tip_from(self.tail_anchor(body, &tail).base);
         let (x0, y0) = (body.x.min(tip.0), body.y.min(tip.1));
         Rect::new(x0, y0, body.right().max(tip.0) - x0, body.bottom().max(tip.1) - y0)
     }
@@ -509,8 +508,47 @@ impl<'a> Bubble<'a> {
     fn paint(&self, canvas: &mut Canvas, body: Rect, grow: f32, paint: Paint) {
         self.paint_body(canvas, body, grow, paint);
         if let Some(tail) = self.tail {
-            paint_tail(canvas, body, &tail, grow, paint);
+            paint_tail(canvas, &tail, self.tail_anchor(body, &tail), grow, paint);
         }
+    }
+
+    /// Where a tail joins the body. Its `base` is on the side, slid along it if the
+    /// body is not solid right to the ends there; its `root` is `depth` inside, where
+    /// the body is solid across the whole width the tail needs, so the tail's sides
+    /// run in through a rounded corner, a scallop or a notch and meet the outline
+    /// wherever it is. A box is solid at its edge; a rounded one a radius in; an
+    /// ellipse or burst at the rectangle inscribed in it; a cloud at its inner box,
+    /// which the corner lobes complete.
+    ///
+    /// Every pass roots the tail on the same line, at least a border's width plus a
+    /// dot inside the outline: the fill then overlaps the body's fill (no seam), and
+    /// its inset tail always lies within the border pass's (no leak).
+    fn tail_anchor(&self, body: Rect, tail: &Tail) -> Anchor {
+        const CORE: f32 = 1.0 - std::f32::consts::FRAC_1_SQRT_2;
+        let (len, across) = if tail.side.horizontal() { (body.w, body.h) } else { (body.h, body.w) };
+        let (depth, margin) = match self.shape {
+            Shape::Rect => (0.0, 0.0),
+            Shape::Round(r) => (r.clamp(0.0, across / 2.0), 0.0),
+            Shape::Ellipse => (across / 2.0 * CORE, len / 2.0 * CORE),
+            Shape::Cloud => (cloud_lobe(body), 0.0),
+            Shape::Burst => {
+                let core = 1.0 - BURST_NOTCH * std::f32::consts::FRAC_1_SQRT_2;
+                (across / 2.0 * core, len / 2.0 * core)
+            }
+        };
+        // How far out the tail goes is the same wherever it leaves the side, so it
+        // is known before the base is: the root is widened in proportion, so the
+        // tail is still `width` where it crosses the outline.
+        let depth = depth.max(self.border_width() + 1.0).min(across / 2.0);
+        let (ox, oy) = tail.side.out();
+        let mid = tail.side.along(body, 0.5);
+        let tip = tail.tip_from(mid);
+        let reach = ((tip.0 - mid.0) * ox + (tip.1 - mid.1) * oy).max(depth).max(1.0);
+        let half = tail.width / 2.0 * (reach + depth) / reach;
+        let (lo, hi) = (margin + half, len - margin - half);
+        let at = if lo <= hi { (tail.at * len).clamp(lo, hi) / len } else { 0.5 };
+        let base = tail.side.along(body, at);
+        Anchor { base, root: (base.0 - ox * depth, base.1 - oy * depth), half }
     }
 
     /// Fills the body shape grown by `grow` dots (negative shrinks it).
@@ -525,9 +563,8 @@ impl<'a> Bubble<'a> {
             Shape::Round(rad) => canvas.fill_round_rect(r.x, r.y, r.w, r.h, rad + grow, paint),
             Shape::Ellipse => canvas.fill_ellipse(cx, cy, r.w / 2.0, r.h / 2.0, paint),
             Shape::Cloud => {
-                // Lobes strung around an inner box, plus the box itself. They have to
-                // be a good fraction of the body or the outline reads as a rounded box.
-                let lobe = (body.w.min(body.h) / 3.0).clamp(3.0, 12.0);
+                // Lobes strung around an inner box, plus the box itself.
+                let lobe = cloud_lobe(body);
                 let inner = body.inset(lobe);
                 canvas.fill_round_rect(
                     inner.x - grow,
@@ -543,21 +580,55 @@ impl<'a> Bubble<'a> {
             }
             Shape::Burst => {
                 // Few, deep spikes read as a shout; many shallow ones just look noisy.
-                // Both radii move by `grow`, so a border is the same thickness at the
-                // points and in the notches.
                 let spikes = ((body.w + body.h) / 16.0).clamp(5.0, 12.0) as u32;
                 let mut pts = [(0.0f32, 0.0f32); 32];
                 let n = (spikes * 2) as usize;
                 let (rx, ry) = (body.w / 2.0, body.h / 2.0);
                 for (i, p) in pts[..n].iter_mut().enumerate() {
                     let a = std::f32::consts::TAU * i as f32 / n as f32 - std::f32::consts::FRAC_PI_2;
-                    let k = if i % 2 == 0 { 1.0 } else { 0.75 };
-                    *p = (cx + (rx * k + grow) * a.cos(), cy + (ry * k + grow) * a.sin());
+                    let k = if i % 2 == 0 { 1.0 } else { BURST_NOTCH };
+                    *p = (cx + rx * k * a.cos(), cy + ry * k * a.sin());
                 }
+                offset_polygon(&mut pts[..n], grow);
                 canvas.fill_polygon(&pts[..n], paint);
             }
         }
     }
+}
+
+/// Moves every edge of the polygon `pts` out by `d` (in when negative), sliding each
+/// vertex along the bisector of its two edges, so a border drawn as the difference
+/// of two offsets is the same thickness at a point and in a notch. `pts` must wind
+/// clockwise on screen.
+fn offset_polygon(pts: &mut [Point], d: f32) {
+    let n = pts.len();
+    if n < 3 || d == 0.0 {
+        return;
+    }
+    let mut src = [(0.0f32, 0.0f32); 32];
+    src[..n].copy_from_slice(pts);
+    let normal = |a: Point, b: Point| {
+        let (ex, ey) = (b.0 - a.0, b.1 - a.1);
+        let l = (ex * ex + ey * ey).sqrt().max(1e-6);
+        (ey / l, -ex / l)
+    };
+    for i in 0..n {
+        let (p, q, r) = (src[(i + n - 1) % n], src[i], src[(i + 1) % n]);
+        let (n1, n2) = (normal(p, q), normal(q, r));
+        // The bisector `n1 + n2` scaled so the edges move by exactly `d`; the floor
+        // keeps a hairpin vertex from flying off.
+        let k = d / (1.0 + n1.0 * n2.0 + n1.1 * n2.1).max(0.05);
+        pts[i] = (q.0 + (n1.0 + n2.0) * k, q.1 + (n1.1 + n2.1) * k);
+    }
+}
+
+/// How far in from the points a burst's notches sit, as a fraction of its radius.
+const BURST_NOTCH: f32 = 0.75;
+
+/// Radius of a cloud's lobes: a good fraction of the body, or the outline reads as a
+/// rounded box.
+fn cloud_lobe(body: Rect) -> f32 {
+    (body.w.min(body.h) / 3.0).clamp(3.0, 12.0)
 }
 
 /// Where the tail should leave `side` to reach `mouth`, kept away from the corners.
@@ -582,34 +653,65 @@ fn perimeter(r: Rect, step: f32) -> impl Iterator<Item = Point> {
     horizontal.chain(vertical)
 }
 
+/// Where a tail meets its body; see [`Bubble::tail_anchor`].
+#[derive(Clone, Copy, Debug)]
+struct Anchor {
+    /// Where the tail crosses the body's outline.
+    base: Point,
+    /// Where its base line really is, inside the body.
+    root: Point,
+    /// Half its width at the root.
+    half: f32,
+}
+
 /// Fills a tail grown by `grow` dots, the same way [`Bubble::paint_body`] does: the
 /// same tail drawn at `0.0` and then at `-t` leaves a border `t` thick all round.
-fn paint_tail(canvas: &mut Canvas, body: Rect, tail: &Tail, grow: f32, paint: Paint) {
-    let (base, tip) = tail.geometry(body);
-    let (dx, dy) = (tip.0 - base.0, tip.1 - base.1);
+fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint: Paint) {
+    let Anchor { base, root, half } = anchor;
+    let tip = tail.tip_from(base);
+    let (ox, oy) = tail.side.out();
+    let (sx, sy) = if tail.side.horizontal() { (1.0, 0.0) } else { (0.0, 1.0) };
+    let hw = tail.width / 2.0;
+    let (dx, dy) = (tip.0 - root.0, tip.1 - root.1);
     let len = (dx * dx + dy * dy).sqrt();
     if len <= 0.0 {
         return;
     }
+    if tail.kind == TailKind::Bubbles {
+        // Three shrinking discs on the line from base to tip, centred the same in
+        // every pass so their borders stay even.
+        // Snapped to dot centres, so a disc a few dots across is round, not lopsided.
+        for (t, scale) in [(0.2, 1.0), (0.55, 0.7), (0.85, 0.45)] {
+            let r = (hw * scale + grow).max(0.5);
+            let (cx, cy) = (base.0 + (tip.0 - base.0) * t, base.1 + (tip.1 - base.1) * t);
+            canvas.fill_ellipse(cx.floor() + 0.5, cy.floor() + 0.5, r, r, paint);
+        }
+        return;
+    }
+    // Offsetting the triangle's sides by `grow` moves its tip along the axis by
+    // `grow · hyp / half`; the base line stays at the root, inside the body, and the
+    // corners are where the shifted sides cross it. A thin tail's inset vanishes
+    // well before the tip, which is what keeps its border even right to the point.
     let (ux, uy) = (dx / len, dy / len);
-    let hw = tail.width / 2.0;
-    let half = (hw + grow).max(0.5);
-    // Along the side, so the base stays flush with the body edge, and out of it.
-    let (sx, sy) = if tail.side.horizontal() { (1.0, 0.0) } else { (0.0, 1.0) };
-    let (ox, oy) = tail.side.out();
-    // Sink the base into the body past whatever inset this pass is drawing at, so no
-    // seam shows between them; the tip moves along the tail so it stays on its line.
-    let sink = 1.0 - grow;
-    let (bx, by) = (base.0 - ox * sink, base.1 - oy * sink);
-    let (tx, ty) = (tip.0 + ux * grow, tip.1 + uy * grow);
-    let (b0, b1) = ((bx - sx * half, by - sy * half), (bx + sx * half, by + sy * half));
+    let hyp = (half * half + len * len).sqrt();
+    let apex = (tip.0 + ux * grow * hyp / half, tip.1 + uy * grow * hyp / half);
+    if (apex.0 - root.0) * ox + (apex.1 - root.1) * oy <= 0.0 {
+        return;
+    }
+    let corner = |sign: f32| {
+        // The shifted side runs through the apex parallel to the original one.
+        let (vx, vy) = (root.0 + sx * half * sign - tip.0, root.1 + sy * half * sign - tip.1);
+        let along = vx * ox + vy * oy;
+        let s = if along.abs() < 1e-3 { 0.0 } else { ((root.0 - apex.0) * ox + (root.1 - apex.1) * oy) / along };
+        (apex.0 + vx * s, apex.1 + vy * s)
+    };
+    let (b0, b1) = (corner(-1.0), corner(1.0));
     match tail.kind {
-        TailKind::Point => canvas.fill_polygon(&[b0, b1, (tx, ty)], paint),
+        TailKind::Point | TailKind::Bubbles => canvas.fill_polygon(&[b0, b1, apex], paint),
         TailKind::Curve => {
             // Two quadratics from the base corners to the tip, bowed the same way: the
             // tail leaves the body at full width and curls to a point. The curl is
-            // set by the tail's true width, not this pass's, so every pass follows
-            // the same curve.
+            // set by the tail's true width, so every pass follows the same curve.
             let c0 = (b0.0 + ox * len * 0.35, b0.1 + oy * len * 0.35);
             let c1 = (b1.0 + ox * len * 0.6 + sx * hw * 1.5, b1.1 + oy * len * 0.6 + sy * hw * 1.5);
             let q = |a: Point, c: Point, b: Point, t: f32| {
@@ -620,18 +722,10 @@ fn paint_tail(canvas: &mut Canvas, body: Rect, tail: &Tail, grow: f32, paint: Pa
             let mut pts = [(0.0f32, 0.0f32); 2 * N + 2];
             for i in 0..=N {
                 let t = i as f32 / N as f32;
-                pts[i] = q(b0, c0, (tx, ty), t);
-                pts[2 * N + 1 - i] = q(b1, c1, (tx, ty), t);
+                pts[i] = q(b0, c0, apex, t);
+                pts[2 * N + 1 - i] = q(b1, c1, apex, t);
             }
             canvas.fill_polygon(&pts, paint);
-        }
-        TailKind::Bubbles => {
-            // Three shrinking discs on the line from base to tip, centred the same
-            // wherever the pass is drawing so their borders stay even.
-            for (t, scale) in [(0.2, 1.0), (0.55, 0.7), (0.85, 0.45)] {
-                let r = (hw * scale + grow).max(0.5);
-                canvas.fill_ellipse(base.0 + ux * len * t, base.1 + uy * len * t, r, r, paint);
-            }
         }
     }
 }
@@ -712,7 +806,7 @@ mod tests {
             assert_eq!(c.get(x, y), Some(crate::Color::Rgb(fill)), "seam at {x},{y}");
         }
         // The tail's own edges are border.
-        assert_eq!(c.get(x - 2, body.bottom() as i32), Some(crate::Color::Rgb(INK)));
+        assert_eq!(c.get(x - 3, body.bottom() as i32), Some(crate::Color::Rgb(INK)));
     }
 
     #[test]
