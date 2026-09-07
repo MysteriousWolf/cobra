@@ -171,10 +171,8 @@ fn item_start(line: &str) -> Option<(Kind, String)> {
         (Kind::Type, r)
     } else if let Some(r) = rest.strip_prefix("const ") {
         (Kind::Const, r)
-    } else if let Some(r) = rest.strip_prefix("trait ") {
-        (Kind::Trait, r)
     } else {
-        return None;
+        (Kind::Trait, rest.strip_prefix("trait ")?)
     };
     let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
     (!name.is_empty()).then_some((kind, name))
