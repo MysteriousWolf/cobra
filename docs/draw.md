@@ -34,7 +34,7 @@ with a dash pattern; a bare `f32` is a solid pen).
 - `Paint`: [`Paint::new`](draw.md#paintnew), [`Paint::dithered`](draw.md#paintdithered), [`Paint::erase`](draw.md#painterase), [`Paint::pattern`](draw.md#paintpattern), [`Paint::linear`](draw.md#paintlinear), [`Paint::radial`](draw.md#paintradial), [`Paint::edge`](draw.md#paintedge), [`Paint::shader`](draw.md#paintshader), [`Paint::dither`](draw.md#paintdither), [`Paint::anchor`](draw.md#paintanchor), [`Paint::color`](draw.md#paintcolor), [`Paint::coverage`](draw.md#paintcoverage)
 - `Pen`: [`Pen::new`](draw.md#pennew), [`Pen::dash`](draw.md#pendash), [`Pen::dotted`](draw.md#pendotted), [`Pen::phase`](draw.md#penphase)
 - `Rect`: [`Rect::new`](draw.md#rectnew), [`Rect::around`](draw.md#rectaround), [`Rect::right`](draw.md#rectright), [`Rect::bottom`](draw.md#rectbottom), [`Rect::center`](draw.md#rectcenter), [`Rect::contains`](draw.md#rectcontains), [`Rect::inset`](draw.md#rectinset), [`Rect::offset`](draw.md#rectoffset), [`Rect::overlap`](draw.md#rectoverlap)
-- `Canvas`: [`Canvas::span`](draw.md#canvasspan), [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut), [`Canvas::fill_rect`](draw.md#canvasfill_rect), [`Canvas::rect`](draw.md#canvasrect), [`Canvas::fill_ellipse`](draw.md#canvasfill_ellipse), [`Canvas::ellipse`](draw.md#canvasellipse), [`Canvas::arc`](draw.md#canvasarc), [`Canvas::polyline`](draw.md#canvaspolyline), [`Canvas::polygon`](draw.md#canvaspolygon), [`Canvas::fill_polygon`](draw.md#canvasfill_polygon), [`Canvas::fill_path`](draw.md#canvasfill_path), [`Canvas::stroke_path`](draw.md#canvasstroke_path), [`Canvas::bezier`](draw.md#canvasbezier), [`Canvas::spline`](draw.md#canvasspline), [`Canvas::fill_round_rect`](draw.md#canvasfill_round_rect), [`Canvas::round_rect`](draw.md#canvasround_rect), [`Canvas::ring`](draw.md#canvasring), [`Canvas::fill_pie`](draw.md#canvasfill_pie), [`Canvas::fill_ngon`](draw.md#canvasfill_ngon), [`Canvas::ngon`](draw.md#canvasngon), [`Canvas::fill_star`](draw.md#canvasfill_star), [`Canvas::star`](draw.md#canvasstar), [`Canvas::arrow`](draw.md#canvasarrow)
+- `Canvas`: [`Canvas::span`](draw.md#canvasspan), [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::stencil_in`](draw.md#canvasstencil_in), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut), [`Canvas::fill_rect`](draw.md#canvasfill_rect), [`Canvas::rect`](draw.md#canvasrect), [`Canvas::fill_ellipse`](draw.md#canvasfill_ellipse), [`Canvas::ellipse`](draw.md#canvasellipse), [`Canvas::arc`](draw.md#canvasarc), [`Canvas::polyline`](draw.md#canvaspolyline), [`Canvas::polygon`](draw.md#canvaspolygon), [`Canvas::fill_polygon`](draw.md#canvasfill_polygon), [`Canvas::fill_path`](draw.md#canvasfill_path), [`Canvas::stroke_path`](draw.md#canvasstroke_path), [`Canvas::bezier`](draw.md#canvasbezier), [`Canvas::spline`](draw.md#canvasspline), [`Canvas::fill_round_rect`](draw.md#canvasfill_round_rect), [`Canvas::round_rect`](draw.md#canvasround_rect), [`Canvas::ring`](draw.md#canvasring), [`Canvas::fill_pie`](draw.md#canvasfill_pie), [`Canvas::fill_ngon`](draw.md#canvasfill_ngon), [`Canvas::ngon`](draw.md#canvasngon), [`Canvas::fill_star`](draw.md#canvasfill_star), [`Canvas::star`](draw.md#canvasstar), [`Canvas::arrow`](draw.md#canvasarrow)
 
 ## `Pattern`
 
@@ -622,7 +622,8 @@ pub fn stencil(&mut self, mask: &Canvas, paint: impl Into<Paint>)
 
 Paints every dot that is set in `mask` (a canvas of the same size). This is
 how a shape-relative [`Paint`](draw.md#paint) is applied, and it works for any paint: the
-mask is the shape, whatever drew it.
+mask is the shape, whatever drew it. The mask is scanned for the box around
+its dots first; [`stencil_in`](draw.md#canvasstencil_in) takes that box from you.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/canvas-stencil.svg">
@@ -633,6 +634,41 @@ mask is the shape, whatever drew it.
 let mut mask = Canvas::new(24, 4);
 mask.text(1, 1, "MASK", &Font::tiny().scale_xy(3, 3), t.ink);
 c.stencil(&mask, Paint::linear((0.0, 0.0), (48.0, 0.0), RED, BLUE));
+```
+
+## `Canvas::stencil_in`
+
+```rust
+pub fn stencil_in(&mut self, mask: &Canvas, area: Rect, paint: impl Into<Paint>)
+```
+
+[`stencil`](draw.md#canvasstencil) within `area` only. The dots of `mask` outside it
+are neither painted nor looked at, so a caller that knows where its shape is
+(it drew it a moment ago) skips the scan over the whole mask. The area is
+also the frame a shape-relative paint works in: a gradient runs across it,
+and an edge paint measures to its border as to the mask's own. It covers the
+dots [`fill_rect`](draw.md#canvasfill_rect) would with the same box.
+
+```rust
+use cobra::{Canvas, Paint, Rect, Rgb};
+
+let mut mask = Canvas::new(20, 5);
+mask.disc(10.0, 10.0, 6.0, Rgb::hex(0xffffff));
+let mut canvas = Canvas::new(20, 5);
+canvas.stencil_in(&mask, Rect::new(4.0, 4.0, 12.0, 12.0), Paint::edge(Rgb::hex(0x3aa0ff), Rgb::hex(0x0b2a4a), 3.0));
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-stencil_in.svg">
+  <img src="img/canvas-stencil_in-light.svg" alt="Canvas::stencil_in" width="384">
+</picture>
+
+```rust
+let mut mask = Canvas::new(24, 4);
+mask.fill_rect(0.0, 0.0, 48.0, 16.0, t.ink);
+// Only the box is painted, and it is the gradient's frame: the mask's
+// extent is never looked at.
+c.stencil_in(&mask, Rect::new(4.0, 2.0, 40.0, 12.0), Paint::edge(BLUE, t.panel, 4.0));
 ```
 
 ## `Canvas::clip`

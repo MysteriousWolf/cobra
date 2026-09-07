@@ -73,9 +73,11 @@
 //! [`Layers`] stacks canvases and flattens them into one, bottom to top: what is in
 //! front hides what is behind, and each [`Layer`] can carry [`Effect`]s around its
 //! silhouette — a drop shadow, an outline, a cleared gap, a glow, a shaded rim, or a
-//! shader of your own. The result is a plain [`Canvas`], which every protocol and
-//! exporter takes as usual; in the text fallback a cell takes the colour of the
-//! topmost layer in it. See the [`layer`] module.
+//! shader of your own. A layer can be offset from the stack and wrap around it, so a
+//! parallax is layers scrolling by different amounts. The result is a plain
+//! [`Canvas`], which every protocol and exporter takes as usual; in the text
+//! fallback a cell takes the colour of the topmost layer in it. See the [`layer`]
+//! module.
 //!
 //! ## Colours
 //!
@@ -134,7 +136,7 @@ pub use canvas::{Canvas, Cell, DOTS_X, DOTS_Y, bayer, braille};
 pub use color::{Color, Depth, Palette, Rgb};
 pub use draw::{Paint, Pattern, Pen, Point, Probe, Rect, Shader};
 pub use font::{Font, FontError, Glyph};
-pub use layer::{Effect, Layer, Layers, Sample};
+pub use layer::{Effect, Field, Layer, Layers, Sample};
 pub use path::Path;
 pub use render::{Options, Placement, Renderer};
 pub use term::{CellSize, Protocol, Terminal};

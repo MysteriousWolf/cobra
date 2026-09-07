@@ -6,10 +6,13 @@
 //! its cell, and each layer's [`Effect`]s decorate its silhouette on the way — a drop
 //! shadow, an outline, a cleared gap that separates it from what is behind, a glow,
 //! a shaded rim, or a shader of your own. A [matte](Layer::matte) layer hides what is
-//! beneath it without painting anything itself. Everything downstream (the renderer,
-//! the ratatui widget, the exporters, [`Canvas::to_text`]) takes the flattened canvas
-//! as it would any other, and [`Canvas::effects`] runs the same effects around any
-//! mask on any canvas, without a stack.
+//! beneath it without painting anything itself. A layer can sit [offset](Layer::offset)
+//! from the stack, and [wrap](Layer::wrap) around it, so a background that scrolls
+//! slower than the foreground (parallax) is a matter of moving each layer by its own
+//! amount. Everything downstream (the renderer, the ratatui widget, the exporters,
+//! [`Canvas::to_text`]) takes the flattened canvas as it would any other, and
+//! [`Canvas::effects`] runs the same effects around any mask on any canvas, without
+//! a stack; a [`Field`] of your own keeps the scratch that takes between calls.
 //!
 //! ```
 //! use cobra::{Effect, Layers, Paint, Rgb};
@@ -65,7 +68,7 @@ pub struct Sample<'a> {
     /// What the dot shows right now: the layer's own colour inside the silhouette,
     /// whatever the layers below (and earlier effects) left outside it.
     pub color: Option<Color>,
-    layer: &'a Canvas,
+    sil: Silhouette<'a>,
 }
 
 impl Sample<'_> {
@@ -75,17 +78,20 @@ impl Sample<'_> {
         self.dist < 0.0
     }
 
-    /// The layer being shaded.
+    /// The layer being shaded. Its dots are in its own coordinates; the sample's
+    /// `x` and `y` are in the flattened canvas's, which differ by the layer's
+    /// [offset](Layer::offset).
     #[inline]
     pub fn layer(&self) -> &Canvas {
-        self.layer
+        self.sil.canvas
     }
 
-    /// Whether dot `(x, y)` of the layer is in its silhouette: set, or in a cell
-    /// that holds a character. This is how a shadow finds itself.
+    /// Whether dot `(x, y)` of the flattened canvas is in the layer's silhouette:
+    /// set, or in a cell that holds a character, once the layer's offset is
+    /// applied. This is how a shadow finds itself.
     #[inline]
     pub fn covered(&self, x: i32, y: i32) -> bool {
-        covered(self.layer, x, y)
+        self.sil.covered(x, y)
     }
 }
 
@@ -311,16 +317,65 @@ pub struct Layer {
     /// hole in the picture, or a hollow shape whose inside must stay clear, is a
     /// shape on a matte. Default `false`.
     pub matte: bool,
+    /// Where the layer sits over the stack, in dots: everything on it is moved right
+    /// by `.0` and down by `.1` when the stack is flattened, effects included, and
+    /// what moves off the stack is lost unless the layer [wraps](Self::wrap).
+    /// Printed characters move by whole cells, the offset rounded to the nearest.
+    /// Layers moving by different amounts per frame are a parallax; see
+    /// [`scroll`](Self::scroll). Default `(0, 0)`.
+    pub offset: (i32, i32),
+    /// Whether the layer repeats: what its offset moves off one edge of the stack
+    /// comes back on the opposite edge, so a background drawn once scrolls forever.
+    /// Effects see the wrapped silhouette, and so does [`Sample::covered`]. Default
+    /// `false`.
+    pub wrap: bool,
 }
 
 impl Layer {
     fn new(cols: u16, rows: u16) -> Self {
-        Self { canvas: Canvas::new(cols, rows), effects: Vec::new(), visible: true, matte: false }
+        Self {
+            canvas: Canvas::new(cols, rows),
+            effects: Vec::new(),
+            visible: true,
+            matte: false,
+            offset: (0, 0),
+            wrap: false,
+        }
     }
 
     /// Adds an effect after the ones already there.
     pub fn effect(&mut self, effect: Effect) -> &mut Self {
         self.effects.push(effect);
+        self
+    }
+
+    /// Moves the layer by `(dx, dy)` dots from where it is: adds to its
+    /// [`offset`](Self::offset). A wrapping layer's offset is kept within the size
+    /// of the stack, so scrolling it for hours never overflows.
+    ///
+    /// ```
+    /// use cobra::Layers;
+    ///
+    /// let mut layers = Layers::new(40, 10);
+    /// layers[0].wrap = true; // the far hills, drawn once
+    /// let _near = layers.push(); // the near ones
+    /// // Every frame the near layer moves a dot, the far one a dot every third frame.
+    /// for frame in 0..30 {
+    ///     layers[1].scroll(-1, 0);
+    ///     if frame % 3 == 0 {
+    ///         layers[0].scroll(-1, 0);
+    ///     }
+    ///     layers.flatten();
+    /// }
+    /// assert_eq!(layers[1].offset, (-30, 0));
+    /// assert_eq!(layers[0].offset, (70, 0), "ten dots left, modulo the width");
+    /// ```
+    pub fn scroll(&mut self, dx: i32, dy: i32) -> &mut Self {
+        self.offset = (self.offset.0 + dx, self.offset.1 + dy);
+        if self.wrap {
+            let (w, h) = (self.canvas.width().max(1), self.canvas.height().max(1));
+            self.offset = (self.offset.0.rem_euclid(w), self.offset.1.rem_euclid(h));
+        }
         self
     }
 
@@ -520,44 +575,158 @@ impl Layers {
         self.dirty = false;
         self.flat.clear();
         self.flat.prio.resize(self.flat.dots.len(), 0);
+        let (width, height) = (self.width() as usize, self.height() as usize);
         for i in 0..self.layers.len() {
             if !self.layers[i].visible {
                 continue;
             }
             let prio = i.min(u8::MAX as usize) as u8;
             let layer = &self.layers[i];
-            for ((f, p), &d) in self.flat.dots.iter_mut().zip(&mut self.flat.prio).zip(&layer.canvas.dots) {
-                if d != 0 {
-                    (*f, *p) = if layer.matte { (0, 0) } else { (d, prio) };
+            let sil = Silhouette::new(&layer.canvas, layer.offset, layer.wrap);
+            // Every row of the stack takes the layer row the offset puts there, in one
+            // run without wrapping and up to two with it.
+            for y in 0..height {
+                let Some(sy) = sil.row(y as i32) else { continue };
+                let src = &layer.canvas.dots[sy as usize * width..][..width];
+                for (x0, sx0, len) in sil.runs().into_iter().flatten() {
+                    let at = y * width + x0;
+                    let dots = &mut self.flat.dots[at..at + len];
+                    let prios = &mut self.flat.prio[at..at + len];
+                    for ((f, p), &d) in dots.iter_mut().zip(prios).zip(&src[sx0..sx0 + len]) {
+                        if d != 0 {
+                            (*f, *p) = if layer.matte { (0, 0) } else { (d, prio) };
+                        }
+                    }
                 }
             }
             if layer.canvas.has_text() {
                 for row in 0..self.rows as i32 {
                     for col in 0..self.cols as i32 {
-                        if let Some(cell) = layer.canvas.text_cell(col, row) {
-                            if layer.matte {
-                                self.flat.erase_text(col, row, 1);
-                                let (x, y) = (col as f32 * DOTS_X as f32, row as f32 * DOTS_Y as f32);
-                                self.flat.fill_rect(x, y, DOTS_X as f32, DOTS_Y as f32, Paint::erase());
-                            } else {
-                                self.flat.put(col, row, cell);
-                            }
+                        let Some(cell) = layer.canvas.text_cell(col, row) else { continue };
+                        let Some((col, row)) = sil.cell(col, row) else { continue };
+                        if layer.matte {
+                            self.flat.erase_text(col, row, 1);
+                            let (x, y) = (col as f32 * DOTS_X as f32, row as f32 * DOTS_Y as f32);
+                            self.flat.fill_rect(x, y, DOTS_X as f32, DOTS_Y as f32, Paint::erase());
+                        } else {
+                            self.flat.put(col, row, cell);
                         }
                     }
                 }
             }
             if !layer.effects.is_empty() {
-                self.field.apply(&mut self.flat, prio, &layer.canvas, &layer.effects);
+                self.field.apply(&mut self.flat, prio, sil, &layer.effects);
             }
         }
         &self.flat
     }
 }
 
-/// Scratch for running effects around a silhouette: the silhouette over the effect
-/// window (`1` = covered) and the squared distance fields outside and inside it.
+/// A layer's silhouette as the flattened canvas sees it: the layer's dots and printed
+/// cells, moved by its offset and, when it wraps, repeated. Coordinates go in as the
+/// stack's and come out as the layer's.
+#[derive(Clone, Copy, Debug)]
+struct Silhouette<'a> {
+    canvas: &'a Canvas,
+    dx: i32,
+    dy: i32,
+    wrap: bool,
+}
+
+impl<'a> Silhouette<'a> {
+    fn new(canvas: &'a Canvas, (dx, dy): (i32, i32), wrap: bool) -> Self {
+        let (w, h) = (canvas.width(), canvas.height());
+        // A wrapping offset is a phase: take it modulo the layer once, here, so the
+        // runs below are simple and an empty canvas cannot divide by zero.
+        let wrap = wrap && w > 0 && h > 0;
+        let (dx, dy) = if wrap { (dx.rem_euclid(w), dy.rem_euclid(h)) } else { (dx, dy) };
+        Self { canvas, dx, dy, wrap }
+    }
+
+    /// The layer row that lands on stack row `y`.
+    #[inline]
+    fn row(&self, y: i32) -> Option<i32> {
+        let (sy, h) = (y - self.dy, self.canvas.height());
+        if self.wrap { Some(sy.rem_euclid(h)) } else { (0..h).contains(&sy).then_some(sy) }
+    }
+
+    /// The runs of a row, `(stack x, layer x, length)`, that the layer lands on.
+    fn runs(&self) -> [Option<(usize, usize, usize)>; 2] {
+        let w = self.canvas.width();
+        let run = |x0: i32, sx0: i32, len: i32| (len > 0).then_some((x0 as usize, sx0 as usize, len as usize));
+        if self.wrap {
+            // The offset is in `0..w`, so the row is the layer's tail, then its head.
+            [run(self.dx, 0, w - self.dx), run(0, w - self.dx, self.dx)]
+        } else {
+            let (x0, x1) = (self.dx.max(0), (w + self.dx).min(w));
+            [run(x0, x0 - self.dx, x1 - x0), None]
+        }
+    }
+
+    /// The layer dot that lands on stack dot `(x, y)`, if any.
+    #[inline]
+    fn source(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let (sx, sy) = (x - self.dx, y - self.dy);
+        let (w, h) = (self.canvas.width(), self.canvas.height());
+        if self.wrap {
+            Some((sx.rem_euclid(w), sy.rem_euclid(h)))
+        } else {
+            ((0..w).contains(&sx) && (0..h).contains(&sy)).then_some((sx, sy))
+        }
+    }
+
+    /// Whether stack dot `(x, y)` is in the silhouette.
+    #[inline]
+    fn covered(&self, x: i32, y: i32) -> bool {
+        self.source(x, y).is_some_and(|(sx, sy)| covered(self.canvas, sx, sy))
+    }
+
+    /// The stack cell that layer cell `(col, row)` lands on: the offset rounded to
+    /// whole cells, since a character cannot straddle two.
+    fn cell(&self, col: i32, row: i32) -> Option<(i32, i32)> {
+        let (cols, rows) = (self.canvas.cols() as i32, self.canvas.rows() as i32);
+        let (cw, ch) = (DOTS_X as i32, DOTS_Y as i32);
+        let (col, row) = (col + (2 * self.dx + cw).div_euclid(2 * cw), row + (2 * self.dy + ch).div_euclid(2 * ch));
+        if self.wrap {
+            Some((col.rem_euclid(cols), row.rem_euclid(rows)))
+        } else {
+            ((0..cols).contains(&col) && (0..rows).contains(&row)).then_some((col, row))
+        }
+    }
+
+    /// The box around the silhouette on a stack of `width × height` dots, `None`
+    /// when it is empty or entirely off the stack.
+    fn bounds(&self, width: i32, height: i32) -> Option<(i32, i32, i32, i32)> {
+        let (x0, y0, x1, y1) = bounds(self.canvas)?;
+        if self.wrap {
+            return Some((0, 0, width, height));
+        }
+        let (x0, y0) = ((x0 + self.dx).max(0), (y0 + self.dy).max(0));
+        let (x1, y1) = ((x1 + self.dx).min(width), (y1 + self.dy).min(height));
+        (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
+    }
+}
+
+/// The scratch that running [`Effect`]s takes: the silhouette over the effect
+/// window and the distance fields outside and inside it, sized for the canvas the
+/// first time and kept. A [`Layers`] owns one; [`Canvas::effects`] makes one per
+/// call. Keep your own to run effects against masks every frame without allocating:
+///
+/// ```
+/// use cobra::{Canvas, Effect, Field, Rgb};
+///
+/// let mut field = Field::new();
+/// let mut canvas = Canvas::new(20, 5);
+/// let mut mask = Canvas::new(20, 5);
+/// for frame in 0..3 {
+///     canvas.clear();
+///     mask.clear();
+///     mask.disc(10.0 + frame as f32, 10.0, 5.0, Rgb::hex(0xffffff));
+///     field.effects(&mut canvas, &mask, &[Effect::outline(1.0).paint(Rgb::hex(0x3aa0ff))]);
+/// }
+/// ```
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Field {
+pub struct Field {
     mask: Vec<u8>,
     outside: Vec<f32>,
     inside: Vec<f32>,
@@ -565,14 +734,25 @@ pub(crate) struct Field {
 }
 
 impl Field {
-    /// Runs `effects` around the silhouette of `layer` over `target`, tagging the dots
-    /// they paint with `prio` where the target keeps layer tags.
-    fn apply(&mut self, target: &mut Canvas, prio: u8, layer: &Canvas, effects: &[Effect]) {
+    /// An empty scratch; the first call grows it to fit and later ones reuse it.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Runs `effects` around the silhouette of `mask` on `target`, exactly as
+    /// [`Canvas::effects`] does, with this scratch instead of a fresh one.
+    pub fn effects(&mut self, target: &mut Canvas, mask: &Canvas, effects: &[Effect]) {
+        self.apply(target, 0, Silhouette::new(mask, (0, 0), false), effects);
+    }
+
+    /// Runs `effects` around `sil` over `target`, tagging the dots they paint with
+    /// `prio` where the target keeps layer tags.
+    fn apply(&mut self, target: &mut Canvas, prio: u8, sil: Silhouette, effects: &[Effect]) {
         let needs = needs(effects);
-        let Some((x0, y0, x1, y1)) = bounds(layer) else { return };
+        let (width, height) = (target.width(), target.height());
+        let Some((x0, y0, x1, y1)) = sil.bounds(width, height) else { return };
         // The window: the silhouette's box grown by the widest reach, on the canvas,
         // plus a one-dot frame the distance fields use for what lies beyond it.
-        let (width, height) = (target.width(), target.height());
         let m = (needs.reach + 0.5).ceil() as i32;
         let (wx0, wy0) = ((x0 - m).max(0), (y0 - m).max(0));
         let (wx1, wy1) = ((x1 + m).min(width), (y1 + m).min(height));
@@ -587,7 +767,7 @@ impl Field {
         for y in wy0..wy1 {
             let row = &mut self.mask[(y - wy0 + 1) as usize * gw + 1..][..(wx1 - wx0) as usize];
             for (k, m) in row.iter_mut().enumerate() {
-                *m = covered(layer, wx0 + k as i32, y) as u8;
+                *m = sil.covered(wx0 + k as i32, y) as u8;
             }
         }
         if needs.outside {
@@ -631,7 +811,7 @@ impl Field {
                     }
                     let current = target.dots[d];
                     let color = (current != 0).then(|| Color::from_packed(current));
-                    let sample = Sample { x, y, dist, color, layer };
+                    let sample = Sample { x, y, dist, color, sil };
                     if let Some(v) = effect.shade(&sample).and_then(|paint| paint.sample(x, y)) {
                         target.dots[d] = v;
                         if let Some(p) = target.prio.get_mut(d) {
@@ -649,7 +829,8 @@ impl Canvas {
     /// cells) on this canvas, exactly as [`Layers::flatten`] would around a layer:
     /// an outline, a glow, a rim or a shadow against any mask you hand in, with no
     /// stack involved. The mask is usually a scratch canvas of the same size that a
-    /// shape was drawn on.
+    /// shape was drawn on. This allocates the scratch the effects run in; a kept
+    /// [`Field`] does not.
     ///
     /// ```
     /// use cobra::{Canvas, Effect, Rgb};
@@ -661,7 +842,7 @@ impl Canvas {
     /// canvas.effects(&mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(Rgb::hex(0xffffff))]);
     /// ```
     pub fn effects(&mut self, mask: &Canvas, effects: &[Effect]) {
-        Field::default().apply(self, 0, mask, effects);
+        Field::default().effects(self, mask, effects);
     }
 }
 
@@ -1003,6 +1184,96 @@ mod tests {
         assert_eq!(flat.get(4, 1), Some(Color::Rgb(B)), "the outline runs around the hole");
         assert!(flat.text_cell(3, 1).is_none(), "a printed cell on a matte clears the cell");
         assert_eq!(flat.get(6, 4), None);
+    }
+
+    #[test]
+    fn an_offset_layer_moves_with_its_text_and_effects() {
+        let mut l = Layers::new(6, 3);
+        l[0].fill_rect(0.0, 0.0, 12.0, 12.0, A);
+        let top = l.push();
+        top.fill_rect(0.0, 0.0, 4.0, 4.0, B);
+        top.print(0, 0, "x", A);
+        top.effect(Effect::shadow(1, 1).paint(Rgb::hex(0x111111)));
+        top.offset = (3, 5);
+        let flat = l.flatten().clone();
+        assert_eq!(flat.get(0, 0), Some(Color::Rgb(A)), "nothing of the moved layer stays behind");
+        assert_eq!(flat.get(3, 5), Some(Color::Rgb(B)));
+        assert_eq!(flat.get(6, 8), Some(Color::Rgb(B)));
+        assert_eq!(flat.get(7, 9), Some(Color::Rgb(Rgb::hex(0x111111))), "the shadow follows");
+        assert_eq!(flat.get(2, 4), Some(Color::Rgb(A)), "no shadow up-left of the moved box");
+        assert!(flat.text_cell(0, 0).is_none());
+        assert_eq!(flat.text_cell(2, 1).map(|t| t.ch), Some('x'), "3 dots is two cells, 5 dots one row");
+        // Off the stack is gone; text on a cell that would be off the stack too.
+        l[1].offset = (-3, 0);
+        let flat = l.flatten().clone();
+        assert_eq!(flat.get(0, 0), Some(Color::Rgb(B)));
+        assert_eq!(flat.get(1, 0), Some(Color::Rgb(A)), "only one column of the box remains");
+        assert_eq!(flat.get(1, 1), Some(Color::Rgb(Rgb::hex(0x111111))), "and the shadow of its neighbour");
+        assert!(!flat.has_text() || flat.text_cell(0, 0).is_none(), "the cell went off the left");
+        l[1].offset = (100, 0);
+        assert_eq!(lit(l.flatten()), 144, "a layer moved off entirely draws nothing");
+        // A shader sees stack coordinates and covered() in them too.
+        l[1].offset = (4, 4);
+        l[1].effects = vec![Effect::shader(1.0, 1.0, |s| {
+            assert_eq!(s.inside(), s.covered(s.x, s.y));
+            assert_eq!(s.layer().get(s.x - 4, s.y - 4).is_some(), s.inside());
+            None
+        })];
+        l.flatten();
+    }
+
+    #[test]
+    fn a_wrapping_layer_comes_back_on_the_other_side() {
+        let mut l = Layers::new(4, 2);
+        let top = l.push();
+        top.fill_rect(0.0, 0.0, 3.0, 3.0, B);
+        top.print(0, 0, "w", A);
+        top.wrap = true;
+        top.offset = (-1, -1);
+        let flat = l.flatten().clone();
+        assert_eq!(flat.get(0, 0), Some(Color::Rgb(B)));
+        assert_eq!(flat.get(1, 1), Some(Color::Rgb(B)));
+        assert_eq!(flat.get(2, 2), None, "the box is 3 wide, moved up-left by one");
+        assert_eq!(flat.get(7, 7), Some(Color::Rgb(B)), "its first row and column wrap to the far edges");
+        assert_eq!(flat.get(7, 0), Some(Color::Rgb(B)));
+        assert_eq!(flat.get(0, 7), Some(Color::Rgb(B)));
+        assert_eq!(lit(&flat), 9);
+        assert_eq!(flat.text_cell(0, 0).map(|t| t.ch), Some('w'), "one dot rounds to no cell");
+        l[1].offset = (-1, -3);
+        assert_eq!(l.flatten().text_cell(0, 1).map(|t| t.ch), Some('w'), "three dots round to a row: the last");
+        // Any offset is the same modulo the stack, and scroll keeps it there.
+        l[1].offset = (7, 7);
+        assert_eq!(l.flatten().clone(), flat);
+        l[1].scroll(-8, 16);
+        assert_eq!(l[1].offset, (7, 7));
+        assert_eq!(l.flatten().clone(), flat);
+        // Effects wrap with the silhouette: an outline of the box at the far corner.
+        l[1].effect(Effect::outline(1.0).paint(A));
+        let flat = l.flatten().clone();
+        assert_eq!(flat.get(6, 6), Some(Color::Rgb(A)));
+        assert_eq!(flat.get(2, 2), Some(Color::Rgb(A)));
+        assert_eq!(flat.get(3, 3), None);
+    }
+
+    #[test]
+    fn a_kept_field_matches_a_fresh_one_and_stops_allocating() {
+        let mut mask = Canvas::new(10, 4);
+        let effects = [Effect::glow(3.0).paint(A), Effect::rim(1.0)];
+        let mut field = Field::new();
+        let mut caps = Vec::new();
+        for t in 0..3 {
+            mask.clear();
+            mask.disc(6.0 + 3.0 * t as f32, 8.0, 4.0, B);
+            let mut kept = Canvas::new(10, 4);
+            field.effects(&mut kept, &mask, &effects);
+            let mut fresh = Canvas::new(10, 4);
+            fresh.effects(&mask, &effects);
+            assert_eq!(kept, fresh, "frame {t}");
+            assert!(lit(&kept) > 0);
+            caps.push((field.mask.capacity(), field.outside.capacity(), field.inside.capacity()));
+        }
+        assert_eq!(caps[0], caps[1]);
+        assert_eq!(caps[1], caps[2]);
     }
 
     #[test]

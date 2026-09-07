@@ -566,11 +566,38 @@ impl Canvas {
 
     /// Paints every dot that is set in `mask` (a canvas of the same size). This is
     /// how a shape-relative [`Paint`] is applied, and it works for any paint: the
-    /// mask is the shape, whatever drew it.
+    /// mask is the shape, whatever drew it. The mask is scanned for the box around
+    /// its dots first; [`stencil_in`](Self::stencil_in) takes that box from you.
     pub fn stencil(&mut self, mask: &Canvas, paint: impl Into<Paint>) {
-        let paint = paint.into();
         let Some((x0, y0, x1, y1)) = mask.dot_bounds() else { return };
-        let (x1, y1) = (x1.min(self.width()), y1.min(self.height()));
+        self.stencil_box(mask, x0, y0, x1, y1, paint.into());
+    }
+
+    /// [`stencil`](Self::stencil) within `area` only. The dots of `mask` outside it
+    /// are neither painted nor looked at, so a caller that knows where its shape is
+    /// (it drew it a moment ago) skips the scan over the whole mask. The area is
+    /// also the frame a shape-relative paint works in: a gradient runs across it,
+    /// and an edge paint measures to its border as to the mask's own. It covers the
+    /// dots [`fill_rect`](Self::fill_rect) would with the same box.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Paint, Rect, Rgb};
+    ///
+    /// let mut mask = Canvas::new(20, 5);
+    /// mask.disc(10.0, 10.0, 6.0, Rgb::hex(0xffffff));
+    /// let mut canvas = Canvas::new(20, 5);
+    /// canvas.stencil_in(&mask, Rect::new(4.0, 4.0, 12.0, 12.0), Paint::edge(Rgb::hex(0x3aa0ff), Rgb::hex(0x0b2a4a), 3.0));
+    /// ```
+    pub fn stencil_in(&mut self, mask: &Canvas, area: Rect, paint: impl Into<Paint>) {
+        let (x0, y0) = (first(area.x), first(area.y));
+        let (x1, y1) = (first(area.right()), first(area.bottom()));
+        self.stencil_box(mask, x0, y0, x1, y1, paint.into());
+    }
+
+    /// Paints the dots of `mask` within `x0..x1 × y0..y1`, clipped to both canvases.
+    fn stencil_box(&mut self, mask: &Canvas, x0: i32, y0: i32, x1: i32, y1: i32, paint: Paint) {
+        let (x0, y0) = (x0.max(0), y0.max(0));
+        let (x1, y1) = (x1.min(self.width()).min(mask.width()), y1.min(self.height()).min(mask.height()));
         if x0 >= x1 || y0 >= y1 {
             return;
         }
@@ -1357,6 +1384,40 @@ mod tests {
         let mut small = Canvas::new(2, 1);
         small.stencil(&big, C);
         assert_eq!(count(&small), 16);
+    }
+
+    #[test]
+    fn a_stencil_within_an_area_ignores_the_rest_of_the_mask() {
+        let mut mask = Canvas::new(8, 2);
+        mask.fill_rect(0.0, 0.0, 16.0, 8.0, C);
+        let mut c = Canvas::new(8, 2);
+        c.stencil_in(&mask, Rect::new(2.0, 0.0, 4.0, 8.0), Rgb::hex(0xff0000));
+        assert_eq!(count(&c), 32, "four columns of eight");
+        assert!(c.get(1, 0).is_none() && c.get(2, 0).is_some() && c.get(5, 0).is_some() && c.get(6, 0).is_none());
+        let mut whole = Canvas::new(8, 2);
+        whole.fill_rect(2.0, 0.0, 4.0, 8.0, Rgb::hex(0xff0000));
+        assert_eq!(c, whole, "the area rounds to dots as fill_rect does");
+        // A shape-relative paint takes the area as its frame: a gradient across the
+        // area, an edge paint measuring to the area's border.
+        let mut g = Canvas::new(8, 2);
+        g.stencil_in(
+            &mask,
+            Rect::new(4.0, 0.0, 8.0, 8.0),
+            Paint::linear((4.5, 0.0), (11.5, 0.0), Rgb::hex(0), Rgb::hex(0xff)),
+        );
+        assert_eq!(g.get(4, 0), Some(Color::Rgb(Rgb::hex(0))));
+        assert_eq!(g.get(11, 0), Some(Color::Rgb(Rgb::hex(0xff))));
+        let mut e = Canvas::new(8, 2);
+        e.stencil_in(&mask, Rect::new(4.0, 0.0, 8.0, 8.0), Paint::edge(Rgb::hex(0xff), Rgb::hex(0), 2.0));
+        assert_eq!(e.get(4, 3), Some(Color::Rgb(Rgb::hex(0xff))), "the area's left edge is an edge");
+        assert_eq!(e.get(7, 3), Some(Color::Rgb(Rgb::hex(0))), "and its middle is deep inside");
+        // Off both canvases is clipped, and an empty area paints nothing.
+        let mut off = Canvas::new(8, 2);
+        off.stencil_in(&mask, Rect::new(-10.0, -10.0, 100.0, 100.0), C);
+        assert_eq!(count(&off), 128, "the whole 16×8 mask");
+        off.clear();
+        off.stencil_in(&mask, Rect::new(3.0, 3.0, 0.0, 5.0), C);
+        assert_eq!(count(&off), 0);
     }
 
     #[test]
