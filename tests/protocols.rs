@@ -201,7 +201,13 @@ fn copy_text_prepends_the_braille_glyphs() {
     let copyable = String::from_utf8_lossy(copyable.encode(&canvas, Placement::Flow)).into_owned();
     let braille = |s: &str| s.chars().filter(|c| ('\u{2800}'..='\u{28ff}').contains(c)).collect::<String>();
     assert_eq!(braille(&plain), "", "an image frame should carry no glyphs");
-    assert_eq!(braille(&copyable), canvas.to_text().replace('\n', ""));
+    assert_eq!(braille(&copyable), trimmed(&canvas));
+}
+
+/// The canvas as text, minus the trailing blanks of each row: a frame ends a row
+/// with an erase instead of sending them.
+fn trimmed(canvas: &Canvas) -> String {
+    canvas.to_text().lines().map(|l| l.trim_end_matches('\u{2800}')).collect()
 }
 
 #[test]
@@ -210,8 +216,8 @@ fn text_protocol_survives_a_round_trip_through_braille() {
     let mut r = Renderer::new(Terminal::text());
     let frame = String::from_utf8(r.encode(&canvas, Placement::Flow).to_vec()).unwrap();
     let glyphs: String = frame.chars().filter(|c| ('\u{2800}'..='\u{28ff}').contains(c)).collect();
-    let expected: String = canvas.to_text().chars().filter(|c| *c != '\n').collect();
-    assert_eq!(glyphs, expected);
+    assert_eq!(glyphs, trimmed(&canvas));
+    assert!(frame.contains("\x1b[K"), "trailing blanks are one erase: {frame:?}");
 }
 
 #[test]
