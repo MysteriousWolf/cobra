@@ -16,7 +16,7 @@
 //! layers[0].fill_rect(0.0, 8.0, 60.0, 8.0, Paint::dithered(Rgb::hex(0x30363d), 0.5));
 //! let card = layers.push();
 //! card.fill_round_rect(6.0, 4.0, 30.0, 16.0, 4.0, Rgb::hex(0x3aa0ff));
-//! card.effect(Effect::shadow(2, 2, Paint::dithered(Rgb::hex(0), 0.6))).effect(Effect::gap(1.0));
+//! card.effect(Effect::shadow(2, 2).paint(Paint::dithered(Rgb::hex(0), 0.6))).effect(Effect::gap(1.0));
 //! let flat = layers.flatten(); // a `Canvas`: render, export or print it
 //! # assert!(flat.get(20, 10).is_some());
 //! ```
@@ -115,9 +115,10 @@ pub enum Effect {
         /// What the border is painted with.
         paint: Paint,
     },
-    /// A halo `width` dots wide: an outer glow. It leaves the dot next to the
-    /// silhouette alone and then falls from half the paint's coverage to nothing at
-    /// `width`, so a shape stays clearly separate from a glow in its own colour.
+    /// A halo `width` dots wide: an outer glow. It is painted in a darker shade of
+    /// the paint's colour, falling from part of the paint's coverage at the edge to
+    /// nothing at `width`, so a shape glowing in its own colour stays the brightest
+    /// thing and reads as the source of the glow.
     Glow {
         /// Reach in dots.
         width: f32,
@@ -151,27 +152,30 @@ pub enum Effect {
     },
 }
 
-/// Coverage of a glow's innermost ring as a fraction of its paint's: well below
-/// solid, so the shape reads as the source of the glow rather than part of it.
-const GLOW_PEAK: f32 = 0.5;
-/// Dots left untouched between a silhouette and its glow, so the two never touch.
-const GLOW_GAP: f32 = 1.0;
+/// Coverage of a glow's innermost ring as a fraction of its paint's: below solid,
+/// so the shape reads as the source of the glow rather than part of it.
+const GLOW_PEAK: f32 = 0.7;
+/// How much of the paint's brightness a glow keeps: a darker shade of the shape.
+const GLOW_SHADE: f32 = 0.6;
 
 impl Effect {
-    /// A drop shadow: the silhouette moved by `(dx, dy)` dots in `paint`.
-    pub fn shadow(dx: i32, dy: i32, paint: impl Into<Paint>) -> Self {
-        Self::Shadow { dx, dy, paint: paint.into() }
+    /// A drop shadow: the silhouette moved by `(dx, dy)` dots, in a dithered mid grey
+    /// that reads on dark and light terminals alike. [`paint`](Self::paint) changes it.
+    pub fn shadow(dx: i32, dy: i32) -> Self {
+        Self::Shadow { dx, dy, paint: Paint::dithered(crate::Rgb::hex(0x6b7380), 0.6) }
     }
 
-    /// A border `width` dots thick around the silhouette.
-    pub fn outline(width: f32, paint: impl Into<Paint>) -> Self {
-        Self::Outline { width, paint: paint.into() }
+    /// A border `width` dots thick around the silhouette, in the terminal's
+    /// foreground colour. [`paint`](Self::paint) changes it.
+    pub fn outline(width: f32) -> Self {
+        Self::Outline { width, paint: Paint::new(Color::Foreground) }
     }
 
-    /// A glow fading out over `width` dots, with a clear dot between it and the
-    /// shape and a peak well below solid, so the shape stays the brightest thing.
-    pub fn glow(width: f32, paint: impl Into<Paint>) -> Self {
-        Self::Glow { width, paint: paint.into() }
+    /// A glow fading out over `width` dots, in a darker shade of its paint so the shape
+    /// stays the brightest thing; by default the terminal's foreground colour, but
+    /// usually you want the shape's own colour: [`paint`](Self::paint) sets it.
+    pub fn glow(width: f32) -> Self {
+        Self::Glow { width, paint: Paint::new(Color::Foreground) }
     }
 
     /// A cleared ring `width` dots wide in the layers beneath.
@@ -179,9 +183,22 @@ impl Effect {
         Self::Gap { width }
     }
 
-    /// A rim `depth` dots deep just inside the silhouette.
-    pub fn rim(depth: f32, paint: impl Into<Paint>) -> Self {
-        Self::Rim { depth, paint: paint.into() }
+    /// A rim `depth` dots deep just inside the silhouette, dithered dark by default:
+    /// a shaded edge on any colour. [`paint`](Self::paint) changes it.
+    pub fn rim(depth: f32) -> Self {
+        Self::Rim { depth, paint: Paint::dithered(crate::Rgb::hex(0), 0.5) }
+    }
+
+    /// Replaces the effect's paint. Has no effect on a gap or a shader.
+    pub fn paint(mut self, paint: impl Into<Paint>) -> Self {
+        match &mut self {
+            Effect::Shadow { paint: p, .. }
+            | Effect::Outline { paint: p, .. }
+            | Effect::Glow { paint: p, .. }
+            | Effect::Rim { paint: p, .. } => *p = paint.into(),
+            Effect::Gap { .. } | Effect::Shader { .. } => {}
+        }
+        self
     }
 
     /// A shader of your own, consulted within `reach` dots outside the silhouette
@@ -226,11 +243,11 @@ impl Effect {
                 if s.inside() {
                     return None;
                 }
-                if s.dist < GLOW_GAP + 0.5 {
-                    return None;
-                }
-                let t = (1.0 - (s.dist - GLOW_GAP - 0.5) / (width - GLOW_GAP).max(0.5)).clamp(0.0, 1.0);
-                let color = paint.color()?;
+                let t = (1.0 - (s.dist - 0.5) / width.max(0.5)).clamp(0.0, 1.0);
+                let color = match paint.color()? {
+                    Color::Rgb(c) => Color::Rgb(c.dim(GLOW_SHADE)),
+                    other => other, // a palette colour has no shade; the dither carries it
+                };
                 Some(Paint::dithered(color, paint.coverage() * GLOW_PEAK * t))
             }
             Effect::Gap { .. } => (!s.inside()).then_some(Paint::erase()),
@@ -798,13 +815,13 @@ mod tests {
         l[0].fill_rect(0.0, 0.0, 16.0, 16.0, A);
         let top = l.push();
         top.fill_rect(6.0, 6.0, 4.0, 4.0, B);
-        top.effect(Effect::shadow(2, 2, Rgb::hex(0x111111)));
+        top.effect(Effect::shadow(2, 2).paint(Rgb::hex(0x111111)));
         let flat = l.flatten().clone();
         assert_eq!(flat.get(11, 11), Some(Color::Rgb(Rgb::hex(0x111111))), "shadow past the corner");
         assert_eq!(flat.get(9, 9), Some(Color::Rgb(B)), "the shape stays on top of its shadow");
         assert_eq!(flat.get(5, 5), Some(Color::Rgb(A)), "no shadow up-left");
 
-        l[1].effects = vec![Effect::outline(1.0, Rgb::hex(0x222222))];
+        l[1].effects = vec![Effect::outline(1.0).paint(Rgb::hex(0x222222))];
         let flat = l.flatten().clone();
         let ring = Some(Color::Rgb(Rgb::hex(0x222222)));
         assert_eq!(flat.get(5, 5), ring, "diagonal neighbour is in a 1-dot outline");
@@ -817,15 +834,17 @@ mod tests {
         assert_eq!(flat.get(3, 7), Some(Color::Rgb(A)));
         assert_eq!(flat.get(7, 7), Some(Color::Rgb(B)), "the gap never touches the layer itself");
 
-        l[1].effects = vec![Effect::glow(4.0, Rgb::hex(0x333333))];
+        l[1].effects = vec![Effect::glow(4.0).paint(Rgb::hex(0x333333))];
         let flat = l.flatten().clone();
-        let glow = |d: i32| (0..16).filter(|&y| flat.get(6 - d, y) == Some(Color::Rgb(Rgb::hex(0x333333)))).count();
-        assert_eq!(glow(1), 0, "the dot next to the shape is left clear");
-        assert!(glow(2) > glow(4), "the glow thins out: {} vs {}", glow(2), glow(4));
-        assert!(glow(2) < 16, "the glow never reaches solid");
+        let halo = Some(Color::Rgb(Rgb::hex(0x333333).dim(GLOW_SHADE)));
+        let glow = |d: i32| (0..16).filter(|&y| flat.get(6 - d, y) == halo).count();
+        assert!(glow(1) > 0, "the glow starts at the shape, in a darker shade");
+        assert!(glow(1) > glow(3), "the glow thins out: {} vs {}", glow(1), glow(3));
+        assert!(glow(1) < 16, "the glow never reaches solid");
         assert_eq!(glow(6), 0);
+        assert_eq!(flat.get(7, 7), Some(Color::Rgb(B)), "the shape keeps its own colour");
 
-        l[1].effects = vec![Effect::rim(1.0, Rgb::hex(0x444444))];
+        l[1].effects = vec![Effect::rim(1.0).paint(Rgb::hex(0x444444))];
         let flat = l.flatten().clone();
         assert_eq!(flat.get(6, 6), Some(Color::Rgb(Rgb::hex(0x444444))), "the edge dot is rim");
         assert_eq!(flat.get(5, 5), Some(Color::Rgb(A)), "outside is untouched");
@@ -833,7 +852,7 @@ mod tests {
         // layer's own colour is what the rim replaces.
         let mut l = Layers::new(8, 4);
         l.push().fill_rect(2.0, 2.0, 8.0, 8.0, B);
-        l[1].effect(Effect::rim(1.0, Rgb::hex(0x444444)));
+        l[1].effect(Effect::rim(1.0).paint(Rgb::hex(0x444444)));
         let flat = l.flatten();
         assert_eq!(flat.get(5, 5), Some(Color::Rgb(B)), "the middle of an 8×8 box is not");
         assert_eq!(flat.get(2, 5), Some(Color::Rgb(Rgb::hex(0x444444))));
@@ -868,7 +887,7 @@ mod tests {
     fn a_shape_off_the_edge_keeps_its_rim_there() {
         let mut l = Layers::new(4, 2);
         l[0].fill_rect(-4.0, -4.0, 8.0, 8.0, B);
-        l[0].effect(Effect::rim(1.0, A));
+        l[0].effect(Effect::rim(1.0).paint(A));
         let flat = l.flatten();
         assert_eq!(flat.get(0, 0), Some(Color::Rgb(A)), "the canvas edge is an edge");
         assert_eq!(flat.get(1, 1), Some(Color::Rgb(B)));
@@ -878,7 +897,10 @@ mod tests {
     #[test]
     fn flatten_does_not_allocate_after_warmup() {
         let mut l = Layers::new(20, 5);
-        l.push().effect(Effect::outline(2.0, A)).effect(Effect::rim(1.0, B)).effect(Effect::shadow(1, 1, A));
+        l.push()
+            .effect(Effect::outline(2.0).paint(A))
+            .effect(Effect::rim(1.0).paint(B))
+            .effect(Effect::shadow(1, 1).paint(A));
         let frame = |l: &mut Layers, t: f32| {
             l.clear();
             l[0].fill_rect(0.0, 0.0, 40.0, 20.0, Paint::dithered(A, 0.5));

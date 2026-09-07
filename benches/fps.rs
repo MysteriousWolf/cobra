@@ -181,11 +181,11 @@ fn layers_path(runs: usize, iters: usize) {
             layers.push();
         }
         if effects {
-            layers[1].effect(Effect::shadow(2, 2, Paint::dithered(Rgb::hex(0), 0.6)));
-            layers[2].effect(Effect::gap(1.5)).effect(Effect::outline(1.0, Rgb::hex(0x8a94a6)));
+            layers[1].effect(Effect::shadow(2, 2).paint(Paint::dithered(Rgb::hex(0), 0.6)));
+            layers[2].effect(Effect::gap(1.5)).effect(Effect::outline(1.0).paint(Rgb::hex(0x8a94a6)));
             layers[3]
-                .effect(Effect::glow(4.0, Rgb::hex(0xe45cc4)))
-                .effect(Effect::rim(1.0, Paint::dithered(0u32, 0.5)));
+                .effect(Effect::glow(4.0).paint(Rgb::hex(0xe45cc4)))
+                .effect(Effect::rim(1.0).paint(Paint::dithered(0u32, 0.5)));
         }
         let mut phase = 0.0f32;
         let draw_layers = |layers: &mut Layers, phase: f32| {

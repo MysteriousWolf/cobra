@@ -300,8 +300,7 @@ layers[0].fill_rect(0.0, 0.0, 120.0, 60.0, Paint::dithered(grid, 0.4));
 let card = layers.push();                          // a new layer on top; derefs to its Canvas
 card.fill_round_rect(10.0, 8.0, 40.0, 24.0, 4.0, panel);
 card.print(7, 3, "front", ink);
-card.effect(Effect::shadow(2, 2, Paint::dithered(shadow, 0.6)))
-    .effect(Effect::gap(1.0));
+card.effect(Effect::shadow(2, 2)).effect(Effect::gap(1.0));
 
 renderer.render(layers.flatten(), &mut std::io::stdout())?;   // a plain Canvas
 ```
@@ -321,12 +320,15 @@ dots and printed cells): positive outside, negative inside, rounded to the neare
 
 | Effect | Paints |
 |---|---|
-| `Effect::shadow(dx, dy, paint)` | the silhouette moved by `(dx, dy)`, beneath the layer |
-| `Effect::outline(width, paint)` | a border `width` dots thick around it |
+| `Effect::shadow(dx, dy)` | the silhouette moved by `(dx, dy)`, beneath the layer, in a mid grey that reads on any background |
+| `Effect::outline(width)` | a border `width` dots thick around it, in the foreground colour |
 | `Effect::gap(width)` | nothing: clears the layers beneath within `width` dots |
-| `Effect::glow(width, paint)` | a halo fading out over `width` dots, never solid, so the shape stays distinct from a glow in its own colour |
-| `Effect::rim(depth, paint)` | the `depth` dots just inside the edge |
+| `Effect::glow(width)` | a halo fading out over `width` dots in a darker shade of its paint, so the shape stays the brightest thing; give it the shape's colour with `.paint(...)` |
+| `Effect::rim(depth)` | the `depth` dots just inside the edge, dithered dark |
 | `Effect::shader(reach, depth, f)` | whatever `f` returns, within `reach` outside and `depth` inside |
+
+Every effect that paints has a default that reads on dark and light terminals; `.paint(p)`
+replaces it with any colour or dithered `Paint`.
 
 Effects run after the layer's own dots are down, in the order they were added, each
 only within its band, so a later one paints over an earlier one where they overlap.

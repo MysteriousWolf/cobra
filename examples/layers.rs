@@ -24,9 +24,6 @@ struct Theme {
     ink: Rgb,
     stripe: Rgb,
     label: Rgb,
-    /// What a shadow is cast in. Black vanishes on a dark terminal, so there it
-    /// is a grey a step lighter than the background.
-    shadow: Rgb,
     /// A panel fill a little off the background, for the bubble.
     panel: Rgb,
 }
@@ -36,7 +33,6 @@ const DARK: Theme = Theme {
     ink: Rgb::hex(0xf0f6fc),
     stripe: Rgb::hex(0x3d4451),
     label: Rgb::hex(0x8a94a6),
-    shadow: Rgb::hex(0x6b7380),
     panel: Rgb::hex(0x161b22),
 };
 const LIGHT: Theme = Theme {
@@ -44,7 +40,6 @@ const LIGHT: Theme = Theme {
     ink: Rgb::hex(0x0b0e14),
     stripe: Rgb::hex(0xb8c0cc),
     label: Rgb::hex(0x6b7380),
-    shadow: Rgb::hex(0x000000),
     panel: Rgb::hex(0xf0f3f6),
 };
 
@@ -54,7 +49,10 @@ fn main() -> io::Result<()> {
         true => (LIGHT, Some(LIGHT.bg)),
         false => (DARK, args.iter().any(|a| a == "dark").then_some(DARK.bg)),
     };
-    let style = export::Style { background, ..export::Style::default() };
+    // Effects default to the terminal's foreground, so a file needs to know it.
+    let mut style = export::Style { background, ..export::Style::default() };
+    style.palette.foreground = theme.ink;
+    style.palette.background = theme.bg;
     let mut layers = Layers::new(COLS, ROWS);
     draw(&mut layers, theme);
     let flat = layers.flatten();
@@ -75,13 +73,14 @@ fn main() -> io::Result<()> {
 /// The background layer has stripes in every panel; each panel's shape sits on a
 /// layer of its own, so every effect is seen against the same busy backdrop.
 fn draw(layers: &mut Layers, theme: Theme) {
-    let dark = Paint::dithered(theme.shadow, 0.6);
+    // Shadow, outline and rim use their default paints, which read on dark and
+    // light terminals alike; a glow wants the shape's own colour.
     let panels: [(&str, u32, Effect); 6] = [
-        ("shadow", 0xff8c1a, Effect::shadow(2, 2, dark)),
-        ("outline", 0x5ec33a, Effect::outline(1.0, theme.label)),
+        ("shadow", 0xff8c1a, Effect::shadow(2, 2)),
+        ("outline", 0x5ec33a, Effect::outline(1.0)),
         ("gap", 0x3aa0ff, Effect::gap(1.5)),
-        ("glow", 0xe45cc4, Effect::glow(4.0, Rgb::hex(0xe45cc4))),
-        ("rim", 0xffd21e, Effect::rim(1.5, Paint::dithered(Rgb::hex(0x000000), 0.5))),
+        ("glow", 0xe45cc4, Effect::glow(4.0).paint(Rgb::hex(0xe45cc4))),
+        ("rim", 0xffd21e, Effect::rim(1.5)),
         // A shadow that darkens what it falls on instead of painting a colour.
         (
             "shader",
@@ -110,7 +109,7 @@ fn draw(layers: &mut Layers, theme: Theme) {
 
     // A bubble on its own layer, across two panels, carrying two effects at once.
     let top = layers.push();
-    top.effect(Effect::gap(1.0)).effect(Effect::shadow(2, 1, dark));
+    top.effect(Effect::gap(1.0)).effect(Effect::shadow(2, 1));
     Bubble::speech("layers").fill(theme.panel).border(1.0, theme.label).ink(theme.ink).draw(
         top,
         1.5 * PANEL_W,

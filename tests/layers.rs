@@ -78,7 +78,7 @@ fn effects_show_up_in_frames_and_exports() {
     l[0].fill_rect(0.0, 0.0, 16.0, 16.0, Paint::dithered(BACK, 0.5));
     let card = l.push();
     card.fill_rect(4.0, 4.0, 6.0, 6.0, FRONT);
-    card.effect(Effect::gap(1.0)).effect(Effect::shadow(2, 2, INK));
+    card.effect(Effect::gap(1.0)).effect(Effect::shadow(2, 2).paint(INK));
     let image = parse_kitty(&frame(Protocol::Kitty, &mut l)).image();
     let ink = [INK.r, INK.g, INK.b, 255];
     assert_eq!(dot(&image, 11, 11), ink, "the shadow shows past the corner");
