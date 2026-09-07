@@ -18,10 +18,10 @@ use cobra::{
     export,
 };
 
-/// 4 x 6 panels of 36 x 36 dots each, with two rows spare for the tails at the bottom.
-const COLS: u16 = 72;
+/// 4 x 6 panels of 38 x 36 dots each, with two rows spare for the tails at the bottom.
+const COLS: u16 = 76;
 const ROWS: u16 = 56;
-const PANEL_W: i32 = 36;
+const PANEL_W: i32 = 38;
 const PANEL_H: i32 = 36;
 
 /// The few colours that depend on what is behind the canvas: a dark terminal by
@@ -274,21 +274,23 @@ fn thought(c: &mut Canvas, x: f32, y: f32, color: Rgb, theme: Theme) {
     let cloud = Bubble::thought("hm").fill(color.dim(0.4)).border(1.0, color).ink(theme.on_fill);
     let (w, _) = cloud.size();
     cloud.draw(c, x, y);
-    Bubble::shout("HEY").fill(color).ink(theme.bg).draw(c, x + w + 1.0, y);
+    Bubble::shout("HEY").fill(color).ink(theme.bg).draw(c, x + w, y);
 }
 
-/// A tail can leave any side, at any point along it, in any of three kinds.
+/// A tail can leave any side, at any point along it, in any of three kinds. This
+/// panel is on the bottom row, which has two spare rows for the tails to hang into.
 fn tails(c: &mut Canvas, x: f32, y: f32, color: Rgb, theme: Theme) {
     let corners = [
-        (0.0, 2.0, Side::Left, TailKind::Point),
-        (20.0, 2.0, Side::Top, TailKind::Curve),
-        (0.0, 16.0, Side::Bottom, TailKind::Bubbles),
-        (20.0, 16.0, Side::Right, TailKind::Point),
+        (8.0, 1.0, Side::Left, TailKind::Point),
+        (24.0, 9.0, Side::Top, TailKind::Curve),
+        (2.0, 15.0, Side::Bottom, TailKind::Bubbles),
+        (20.0, 22.0, Side::Right, TailKind::Point),
     ];
     for (dx, dy, side, kind) in corners {
         Bubble::new("hi")
             .shape(Shape::Round(3.0))
-            .tail(Tail::new(side, 0.5, kind).len(6.0))
+            .pad(1, 1)
+            .tail(Tail::new(side, 0.5, kind).len(8.0).width(5.0))
             .fill(theme.shade(color, 0.5))
             .ink(theme.on_fill)
             .draw(c, x + dx, y + dy);

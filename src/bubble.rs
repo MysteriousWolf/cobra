@@ -201,7 +201,7 @@ impl<'a> Bubble<'a> {
     pub fn thought(text: &'a str) -> Self {
         Self {
             shape: Shape::Cloud,
-            tail: Some(Tail { kind: TailKind::Bubbles, len: 14.0, width: 6.0, ..Tail::default() }),
+            tail: Some(Tail { kind: TailKind::Bubbles, len: 14.0, width: 8.0, ..Tail::default() }),
             align: Align::Center,
             pad: (1, 1),
             ..Self::new(text)
@@ -212,7 +212,7 @@ impl<'a> Bubble<'a> {
     pub fn shout(text: &'a str) -> Self {
         Self {
             shape: Shape::Burst,
-            tail: Some(Tail { width: 7.0, ..Tail::default() }),
+            tail: Some(Tail { len: 8.0, ..Tail::default() }),
             align: Align::Center,
             pad: (1, 1),
             ..Self::new(text)
@@ -328,8 +328,10 @@ impl<'a> Bubble<'a> {
                 cols = (cols as f32 * 1.6).ceil().max(rows as f32 * 2.0).ceil() as i32;
             }
             Shape::Burst => {
-                cols = (cols as f32 * 1.8).ceil() as i32;
-                rows = (rows + 1).max((rows as f32 * 1.8).ceil() as i32);
+                // A burst is wide and squat: the spikes need width to read as spikes,
+                // and the notches only have to clear the text by a row.
+                cols = (cols as f32 * 2.0).ceil() as i32;
+                rows += 2;
             }
             _ => {}
         }
@@ -585,8 +587,10 @@ impl<'a> Bubble<'a> {
                 }
             }
             Shape::Burst => {
-                // Few, deep spikes read as a shout; many shallow ones just look noisy.
-                let spikes = ((body.w + body.h) / 16.0).clamp(5.0, 12.0) as u32;
+                // A spike every few dots of outline, deep enough to read as spikes
+                // rather than bumps; too many and it is just a noisy edge.
+                let around = std::f32::consts::PI * (body.w + body.h) / 2.0;
+                let spikes = (around / 8.0).round().clamp(6.0, 16.0) as u32;
                 let mut pts = [(0.0f32, 0.0f32); 32];
                 let n = (spikes * 2) as usize;
                 let (rx, ry) = (body.w / 2.0, body.h / 2.0);
@@ -629,7 +633,7 @@ fn offset_polygon(pts: &mut [Point], d: f32) {
 }
 
 /// How far in from the points a burst's notches sit, as a fraction of its radius.
-const BURST_NOTCH: f32 = 0.75;
+const BURST_NOTCH: f32 = 0.55;
 
 /// Radius of a cloud's lobes: a good fraction of the body, or the outline reads as a
 /// rounded box.
@@ -689,7 +693,7 @@ fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint
         // last and the first clear of the body, centred the same in every pass so
         // their borders stay even. Snapped to dot centres, so a disc a few dots
         // across is round, not lopsided.
-        for (t, scale) in [(0.25, 0.8), (0.62, 0.5), (0.95, 0.3)] {
+        for (t, scale) in [(0.28, 0.8), (0.66, 0.5), (0.96, 0.3)] {
             let r = hw * scale + grow;
             if r <= 0.0 {
                 continue; // too small to have an inside: the border pass is the whole disc
