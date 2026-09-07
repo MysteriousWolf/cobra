@@ -1,0 +1,44 @@
+name: Docs
+
+on:
+  # Regenerate the reference by hand; the result is committed to main if it changed.
+  workflow_dispatch:
+  # Or from another workflow (the release regenerates before it tags).
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: docs
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    name: regenerate the reference
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install fish
+        run: sudo apt-get update && sudo apt-get install -y fish
+
+      - name: Configure the committer
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Regenerate and commit
+        id: docs
+        run: ci/docs.fish commit >> "$GITHUB_OUTPUT"
+
+      # Pushes made with GITHUB_TOKEN do not start new workflow runs, and the
+      # commit says `[skip ci]` besides.
+      - name: Push
+        if: steps.docs.outputs.changed == 'true'
+        run: git push origin HEAD:main
