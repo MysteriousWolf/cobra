@@ -287,13 +287,20 @@ impl Font {
     /// A copy `n` times larger: every dot becomes an `n × n` block, and spacing,
     /// line gap and height scale with it. Glyphs are capped at 64 dots wide.
     pub fn scale(&self, n: u8) -> Font {
-        let n = n.max(1) as usize;
+        self.scale_xy(n, n)
+    }
+
+    /// A copy scaled `nx` times horizontally and `ny` times vertically: every dot
+    /// becomes an `nx × ny` block. A cell is two dots wide and four tall, so
+    /// `scale_xy(1, 2)` is what makes a glyph as tall in cells as it is wide.
+    pub fn scale_xy(&self, nx: u8, ny: u8) -> Font {
+        let (nx, ny) = (nx.max(1) as usize, ny.max(1) as usize);
         let mut out = Font {
-            height: (self.height as usize * n).min(255) as u8,
-            spacing: (self.spacing as usize * n).min(255) as u8,
-            line_gap: (self.line_gap as usize * n).min(255) as u8,
+            height: (self.height as usize * ny).min(255) as u8,
+            spacing: (self.spacing as usize * nx).min(255) as u8,
+            line_gap: (self.line_gap as usize * ny).min(255) as u8,
             glyphs: Vec::with_capacity(self.glyphs.len()),
-            rows: Vec::with_capacity(self.rows.len() * n),
+            rows: Vec::with_capacity(self.rows.len() * ny),
         };
         let mut rows = Vec::new();
         for &(ch, s) in &self.glyphs {
@@ -301,16 +308,16 @@ impl Font {
             rows.clear();
             for y in 0..g.height {
                 let mut bits = 0u64;
-                for x in 0..(s.width as usize).min(MAX_GLYPH_WIDTH / n) {
+                for x in 0..(s.width as usize).min(MAX_GLYPH_WIDTH / nx) {
                     if g.dot(x as u8, y) {
-                        bits |= ((1u64 << n) - 1) << (x * n);
+                        bits |= ((1u64 << nx) - 1) << (x * nx);
                     }
                 }
-                for _ in 0..n {
+                for _ in 0..ny {
                     rows.push(bits);
                 }
             }
-            out.insert(ch, (s.width as usize * n).min(MAX_GLYPH_WIDTH) as u8, &rows[..rows.len().min(255)]);
+            out.insert(ch, (s.width as usize * nx).min(MAX_GLYPH_WIDTH) as u8, &rows[..rows.len().min(255)]);
         }
         out
     }
@@ -320,33 +327,34 @@ impl Canvas {
     /// Draws `text` with its top-left corner at dot `(x, y)`. Newlines start a new
     /// line; characters the font lacks leave a space. Returns the size drawn.
     pub fn text(&mut self, x: i32, y: i32, text: &str, font: &Font, paint: impl Into<Paint>) -> (i32, i32) {
-        let paint = paint.into();
-        let (mut cx, mut cy) = (x, y);
-        for ch in text.chars() {
-            if ch == '\n' {
-                cx = x;
-                cy += font.line_height();
-                continue;
-            }
-            if let Some(g) = font.glyph(ch)
-                && cy < self.height()
-                && cy + g.height as i32 > 0
-                && cx < self.width()
-                && cx + g.width as i32 > 0
-            {
-                for row in 0..g.height {
-                    let mut bits = g.row(row);
-                    // Runs of set bits become spans.
-                    while bits != 0 {
-                        let start = bits.trailing_zeros();
-                        let len = (bits >> start).trailing_ones();
-                        self.span(cy + row as i32, cx + start as i32, cx + (start + len) as i32, paint);
-                        bits &= u64::MAX.checked_shl(start + len).unwrap_or(0);
+        self.shaped(paint.into(), |c, paint| {
+            let (mut cx, mut cy) = (x, y);
+            for ch in text.chars() {
+                if ch == '\n' {
+                    cx = x;
+                    cy += font.line_height();
+                    continue;
+                }
+                if let Some(g) = font.glyph(ch)
+                    && cy < c.height()
+                    && cy + g.height as i32 > 0
+                    && cx < c.width()
+                    && cx + g.width as i32 > 0
+                {
+                    for row in 0..g.height {
+                        let mut bits = g.row(row);
+                        // Runs of set bits become spans.
+                        while bits != 0 {
+                            let start = bits.trailing_zeros();
+                            let len = (bits >> start).trailing_ones();
+                            c.span(cy + row as i32, cx + start as i32, cx + (start + len) as i32, paint);
+                            bits &= u64::MAX.checked_shl(start + len).unwrap_or(0);
+                        }
                     }
                 }
+                cx += font.advance(ch);
             }
-            cx += font.advance(ch);
-        }
+        });
         font.measure(text)
     }
 }
@@ -399,6 +407,9 @@ mod tests {
         assert_eq!(g.row(5), 0b111111);
         assert_eq!(big.height(), 6);
         assert_eq!(big.spacing(), 3);
+        let tall = f.scale_xy(1, 2);
+        let g = tall.glyph('o').unwrap();
+        assert_eq!((g.width, g.height, tall.spacing(), tall.height()), (2, 4, 1, 4));
         f.add('o', &["#"]);
         assert_eq!(f.glyph('o').unwrap().width, 1);
         assert_eq!(f.len(), 1);

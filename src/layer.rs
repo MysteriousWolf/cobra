@@ -5,9 +5,11 @@
 //! one plain canvas: a set dot hides whatever is under it, a printed character owns
 //! its cell, and each layer's [`Effect`]s decorate its silhouette on the way — a drop
 //! shadow, an outline, a cleared gap that separates it from what is behind, a glow,
-//! a shaded rim, or a shader of your own. Everything downstream (the renderer, the
-//! ratatui widget, the exporters, [`Canvas::to_text`]) takes the flattened canvas as
-//! it would any other.
+//! a shaded rim, or a shader of your own. A [matte](Layer::matte) layer hides what is
+//! beneath it without painting anything itself. Everything downstream (the renderer,
+//! the ratatui widget, the exporters, [`Canvas::to_text`]) takes the flattened canvas
+//! as it would any other, and [`Canvas::effects`] runs the same effects around any
+//! mask on any canvas, without a stack.
 //!
 //! ```
 //! use cobra::{Effect, Layers, Paint, Rgb};
@@ -303,11 +305,17 @@ pub struct Layer {
     pub effects: Vec<Effect>,
     /// Hidden layers are skipped by [`Layers::flatten`]. Default `true`.
     pub visible: bool,
+    /// A matte hides instead of shows: wherever it has a dot or a character, the
+    /// layers beneath are erased and nothing is painted, so the flattened canvas is
+    /// transparent there. Effects still run around its silhouette. A ring around a
+    /// hole in the picture, or a hollow shape whose inside must stay clear, is a
+    /// shape on a matte. Default `false`.
+    pub matte: bool,
 }
 
 impl Layer {
     fn new(cols: u16, rows: u16) -> Self {
-        Self { canvas: Canvas::new(cols, rows), effects: Vec::new(), visible: true }
+        Self { canvas: Canvas::new(cols, rows), effects: Vec::new(), visible: true, matte: false }
     }
 
     /// Adds an effect after the ones already there.
@@ -327,21 +335,21 @@ impl Layer {
     pub fn canvas_mut(&mut self) -> &mut Canvas {
         &mut self.canvas
     }
+}
 
-    /// The widest reach of the layer's effects, and whether any wants a distance
-    /// field outside and inside the silhouette.
-    fn needs(&self) -> Needs {
-        let mut n = Needs::default();
-        for e in &self.effects {
-            let (reach, depth) = e.band();
-            n.reach = n.reach.max(reach);
-            if e.needs_distance() {
-                n.outside |= reach > 0.0;
-                n.inside |= depth > 0.0;
-            }
+/// The widest reach of `effects`, and whether any wants a distance field outside
+/// and inside the silhouette.
+fn needs(effects: &[Effect]) -> Needs {
+    let mut n = Needs::default();
+    for e in effects {
+        let (reach, depth) = e.band();
+        n.reach = n.reach.max(reach);
+        if e.needs_distance() {
+            n.outside |= reach > 0.0;
+            n.inside |= depth > 0.0;
         }
-        n
     }
+    n
 }
 
 impl Deref for Layer {
@@ -382,12 +390,7 @@ pub struct Layers {
     flat: Canvas,
     /// Something changed since the last flatten. Every `&mut` path sets it.
     dirty: bool,
-    /// Silhouette of the layer being flattened, over the effect window (`1` = covered).
-    mask: Vec<u8>,
-    /// Squared distance fields over the window, outside and inside the silhouette.
-    outside: Vec<f32>,
-    inside: Vec<f32>,
-    edt: Edt,
+    field: Field,
 }
 
 impl Layers {
@@ -399,10 +402,7 @@ impl Layers {
             layers: vec![Layer::new(cols, rows)],
             flat: Canvas::new(cols, rows),
             dirty: true,
-            mask: Vec::new(),
-            outside: Vec::new(),
-            inside: Vec::new(),
-            edt: Edt::default(),
+            field: Field::default(),
         }
     }
 
@@ -528,40 +528,59 @@ impl Layers {
             let layer = &self.layers[i];
             for ((f, p), &d) in self.flat.dots.iter_mut().zip(&mut self.flat.prio).zip(&layer.canvas.dots) {
                 if d != 0 {
-                    (*f, *p) = (d, prio);
+                    (*f, *p) = if layer.matte { (0, 0) } else { (d, prio) };
                 }
             }
             if layer.canvas.has_text() {
                 for row in 0..self.rows as i32 {
                     for col in 0..self.cols as i32 {
                         if let Some(cell) = layer.canvas.text_cell(col, row) {
-                            self.flat.put(col, row, cell);
+                            if layer.matte {
+                                self.flat.erase_text(col, row, 1);
+                                let (x, y) = (col as f32 * DOTS_X as f32, row as f32 * DOTS_Y as f32);
+                                self.flat.fill_rect(x, y, DOTS_X as f32, DOTS_Y as f32, Paint::erase());
+                            } else {
+                                self.flat.put(col, row, cell);
+                            }
                         }
                     }
                 }
             }
             if !layer.effects.is_empty() {
-                self.apply(i, prio);
+                self.field.apply(&mut self.flat, prio, &layer.canvas, &layer.effects);
             }
         }
         &self.flat
     }
+}
 
-    /// Runs the effects of layer `i` over the flattened canvas.
-    fn apply(&mut self, i: usize, prio: u8) {
-        let needs = self.layers[i].needs();
-        let Some((x0, y0, x1, y1)) = bounds(&self.layers[i].canvas) else { return };
+/// Scratch for running effects around a silhouette: the silhouette over the effect
+/// window (`1` = covered) and the squared distance fields outside and inside it.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Field {
+    mask: Vec<u8>,
+    outside: Vec<f32>,
+    inside: Vec<f32>,
+    edt: Edt,
+}
+
+impl Field {
+    /// Runs `effects` around the silhouette of `layer` over `target`, tagging the dots
+    /// they paint with `prio` where the target keeps layer tags.
+    fn apply(&mut self, target: &mut Canvas, prio: u8, layer: &Canvas, effects: &[Effect]) {
+        let needs = needs(effects);
+        let Some((x0, y0, x1, y1)) = bounds(layer) else { return };
         // The window: the silhouette's box grown by the widest reach, on the canvas,
         // plus a one-dot frame the distance fields use for what lies beyond it.
+        let (width, height) = (target.width(), target.height());
         let m = (needs.reach + 0.5).ceil() as i32;
         let (wx0, wy0) = ((x0 - m).max(0), (y0 - m).max(0));
-        let (wx1, wy1) = ((x1 + m).min(self.width()), (y1 + m).min(self.height()));
+        let (wx1, wy1) = ((x1 + m).min(width), (y1 + m).min(height));
         let (gw, gh) = ((wx1 - wx0 + 2) as usize, (wy1 - wy0 + 2) as usize);
-        let layer = &self.layers[i].canvas;
 
         // The window follows the content, so the scratch is sized for the whole
         // canvas the first time round rather than growing frame by frame.
-        let full = (self.width() as usize + 2) * (self.height() as usize + 2);
+        let full = (width as usize + 2) * (height as usize + 2);
         self.mask.clear();
         self.mask.reserve(full);
         self.mask.resize(gw * gh, 0);
@@ -586,8 +605,7 @@ impl Layers {
             self.edt.run(&mut self.inside, gw, gh);
         }
 
-        let effects = &self.layers[i].effects;
-        let w = self.flat.width() as usize;
+        let w = width as usize;
         for y in wy0..wy1 {
             for x in wx0..wx1 {
                 let g = (y - wy0 + 1) as usize * gw + (x - wx0 + 1) as usize;
@@ -611,18 +629,39 @@ impl Layers {
                     if !admitted {
                         continue;
                     }
-                    let current = self.flat.dots[d];
+                    let current = target.dots[d];
                     let color = (current != 0).then(|| Color::from_packed(current));
                     let sample = Sample { x, y, dist, color, layer };
-                    if let Some(paint) = effect.shade(&sample)
-                        && paint.covers(x, y)
-                    {
-                        self.flat.dots[d] = paint.packed();
-                        self.flat.prio[d] = if paint.packed() == 0 { 0 } else { prio };
+                    if let Some(v) = effect.shade(&sample).and_then(|paint| paint.sample(x, y)) {
+                        target.dots[d] = v;
+                        if let Some(p) = target.prio.get_mut(d) {
+                            *p = if v == 0 { 0 } else { prio };
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+impl Canvas {
+    /// Runs `effects` around the silhouette of `mask` (its set dots and printed
+    /// cells) on this canvas, exactly as [`Layers::flatten`] would around a layer:
+    /// an outline, a glow, a rim or a shadow against any mask you hand in, with no
+    /// stack involved. The mask is usually a scratch canvas of the same size that a
+    /// shape was drawn on.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Effect, Rgb};
+    ///
+    /// let mut canvas = Canvas::new(10, 5);
+    /// canvas.fill_rect(0.0, 0.0, 20.0, 20.0, Rgb::hex(0x203040));
+    /// let mut mask = Canvas::new(10, 5);
+    /// mask.disc(10.0, 10.0, 5.0, Rgb::hex(0xffffff));
+    /// canvas.effects(&mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(Rgb::hex(0xffffff))]);
+    /// ```
+    pub fn effects(&mut self, mask: &Canvas, effects: &[Effect]) {
+        Field::default().apply(self, 0, mask, effects);
     }
 }
 
@@ -653,13 +692,7 @@ fn covered(canvas: &Canvas, x: i32, y: i32) -> bool {
 /// `canvas`, `None` when it is empty.
 fn bounds(canvas: &Canvas) -> Option<(i32, i32, i32, i32)> {
     let (w, h) = (canvas.width(), canvas.height());
-    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
-    for (y, row) in canvas.dots.chunks_exact(w as usize).enumerate() {
-        let Some(first) = row.iter().position(|&d| d != 0) else { continue };
-        let last = row.iter().rposition(|&d| d != 0).unwrap_or(first);
-        (x0, x1) = (x0.min(first as i32), x1.max(last as i32 + 1));
-        (y0, y1) = (y0.min(y as i32), y as i32 + 1);
-    }
+    let (mut x0, mut y0, mut x1, mut y1) = canvas.dot_bounds().unwrap_or((w, h, 0, 0));
     if canvas.has_text() {
         for row in 0..canvas.rows() as i32 {
             for col in 0..canvas.cols() as i32 {
@@ -676,12 +709,12 @@ fn bounds(canvas: &Canvas) -> Option<(i32, i32, i32, i32)> {
 
 /// Squared distance standing in for "no source anywhere": far beyond any canvas,
 /// finite so the transform's arithmetic stays finite.
-const INF: f32 = 1e10;
+pub(crate) const INF: f32 = 1e10;
 
 /// Scratch for the exact Euclidean distance transform (Felzenszwalb–Huttenlocher):
 /// a lower envelope of parabolas per line, in two separable passes.
 #[derive(Clone, Debug, Default)]
-struct Edt {
+pub(crate) struct Edt {
     f: Vec<f32>,
     d: Vec<f32>,
     v: Vec<usize>,
@@ -691,7 +724,7 @@ struct Edt {
 impl Edt {
     /// Replaces `grid` (`0` at sources, [`INF`] elsewhere, `w × h` row-major) with
     /// the squared distance of every entry to its nearest source.
-    fn run(&mut self, grid: &mut [f32], w: usize, h: usize) {
+    pub(crate) fn run(&mut self, grid: &mut [f32], w: usize, h: usize) {
         let n = w.max(h);
         self.f.resize(n, 0.0);
         self.d.resize(n, 0.0);
@@ -926,9 +959,9 @@ mod tests {
             (
                 l.flat.dots.capacity(),
                 l.flat.text.capacity(),
-                l.mask.capacity(),
-                l.outside.capacity(),
-                l.inside.capacity(),
+                l.field.mask.capacity(),
+                l.field.outside.capacity(),
+                l.field.inside.capacity(),
             )
         };
         let a = frame(&mut l, -8.0);
@@ -952,5 +985,36 @@ mod tests {
         let mut none = vec![INF; 4];
         Edt::default().run(&mut none, 2, 2);
         assert!(none.iter().all(|&d| d >= INF - 8.0));
+    }
+
+    #[test]
+    fn mattes_hide_without_painting() {
+        let mut l = Layers::new(4, 2);
+        l[0].fill_rect(0.0, 0.0, 8.0, 8.0, A);
+        l[0].print(3, 1, "x", B);
+        let matte = l.push();
+        matte.disc(4.0, 4.0, 2.5, B);
+        matte.print(3, 1, " ", B);
+        matte.matte = true;
+        matte.effect(Effect::outline(1.0).paint(B));
+        let flat = l.flatten();
+        assert_eq!(flat.get(4, 4), None, "the matte's dots are holes");
+        assert_eq!(flat.get(0, 0), Some(Color::Rgb(A)));
+        assert_eq!(flat.get(4, 1), Some(Color::Rgb(B)), "the outline runs around the hole");
+        assert!(flat.text_cell(3, 1).is_none(), "a printed cell on a matte clears the cell");
+        assert_eq!(flat.get(6, 4), None);
+    }
+
+    #[test]
+    fn effects_run_against_any_mask() {
+        let mut c = Canvas::new(8, 4);
+        c.fill_rect(0.0, 0.0, 16.0, 16.0, A);
+        let mut mask = Canvas::new(8, 4);
+        mask.fill_rect(6.0, 6.0, 4.0, 4.0, B);
+        c.effects(&mask, &[Effect::gap(1.0), Effect::rim(1.0).paint(B)]);
+        assert_eq!(c.get(5, 5), None, "gap around the mask");
+        assert_eq!(c.get(6, 6), Some(Color::Rgb(B)), "rim inside it");
+        assert_eq!(c.get(4, 4), Some(Color::Rgb(A)));
+        assert_eq!(c.get(8, 8), Some(Color::Rgb(A)), "the mask itself is not painted");
     }
 }

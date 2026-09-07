@@ -50,8 +50,11 @@
 //! primitives (`fill_rect`, `fill_round_rect`, `fill_polygon`, `fill_ellipse`,
 //! `fill_ngon`, `fill_star`, `fill_pie`, `ring`, `arrow`, stroked `rect`,
 //! `round_rect`, `polygon`, `polyline`, `ellipse`, `ngon`, `star`, `arc`, `bezier`,
-//! `spline`) that take a [`Paint`]: a colour, a dithered coverage, or
-//! [`Paint::erase`].
+//! `spline`) and a [`Path`] of lines, curves and arcs. Every shape takes a
+//! [`Paint`]: a colour, a dither, a [`Pattern`], a gradient, an edge gradient, a
+//! shader or [`Paint::erase`]; every stroke takes a [`Pen`], optionally dashed.
+//! Masks: [`Canvas::stencil`], [`Canvas::clip`], [`Canvas::cut`] and
+//! [`Canvas::effects`].
 //!
 //! ## Text
 //!
@@ -116,6 +119,7 @@ mod encode;
 pub mod export;
 mod font;
 pub mod layer;
+mod path;
 mod raster;
 mod render;
 mod term;
@@ -128,9 +132,10 @@ pub mod ratatui;
 pub use bubble::{Bubble, Shape, Side, Tail, TailKind};
 pub use canvas::{Canvas, Cell, DOTS_X, DOTS_Y, bayer, braille};
 pub use color::{Color, Depth, Palette, Rgb};
-pub use draw::{Paint, Point, Rect};
+pub use draw::{Paint, Pattern, Pen, Point, Probe, Rect, Shader};
 pub use font::{Font, FontError, Glyph};
 pub use layer::{Effect, Layer, Layers, Sample};
+pub use path::Path;
 pub use render::{Options, Placement, Renderer};
 pub use term::{CellSize, Protocol, Terminal};
 pub use text::{Align, Attrs, TextCell, TextStyle};

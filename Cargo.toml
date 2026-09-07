@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["terminal", "braille", "canvas", "kitty", "sixel"]
 categories = ["command-line-interface", "graphics", "visualization"]
 # CI plumbing has no business in the published tarball.
-exclude = [".github/", "ci/"]
+exclude = [".github/", "ci/", "docs/"]
 
 [package.metadata.docs.rs]
 all-features = true

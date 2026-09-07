@@ -4,6 +4,7 @@ mod iterm2;
 mod kitty;
 mod text;
 
+use text::History;
 #[cfg_attr(not(feature = "ratatui"), allow(unused_imports))]
 pub(crate) use text::Quantizer;
 
@@ -65,6 +66,8 @@ pub struct Renderer {
     scratch: Vec<u8>,
     payload: Vec<u8>,
     out: Vec<u8>,
+    /// The last text frame, for [`Placement::At`] to send only what changed.
+    history: History,
 }
 
 impl Renderer {
@@ -84,6 +87,7 @@ impl Renderer {
             scratch: Vec::new(),
             payload: Vec::new(),
             out: Vec::new(),
+            history: History::default(),
         }
     }
 
@@ -108,6 +112,14 @@ impl Renderer {
     #[inline]
     pub fn image_id(&self) -> u32 {
         self.id
+    }
+
+    /// Forgets the last frame drawn with [`render_at`](Self::render_at), so the next
+    /// one is sent in full. Text-protocol frames at a fixed position send only the
+    /// cells that changed since the previous frame at the same position; call this
+    /// after the screen was cleared or drawn over by something else.
+    pub fn invalidate(&mut self) {
+        self.history.forget();
     }
 
     /// Renders `canvas` at the cursor and leaves the cursor at the start of the line
@@ -139,10 +151,13 @@ impl Renderer {
         let (depth, palette) = (self.term.depth, &self.term.palette);
         if self.term.protocol == Protocol::Text {
             match placement {
-                Placement::Flow => text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out),
+                Placement::Flow => {
+                    text::frame(canvas, cols, rows, placement, depth, palette, None, &mut self.out);
+                }
                 Placement::At(..) => {
                     self.out.extend_from_slice(b"\x1b7");
-                    text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out);
+                    let history = Some(&mut self.history);
+                    text::frame(canvas, cols, rows, placement, depth, palette, history, &mut self.out);
                     self.out.extend_from_slice(b"\x1b8");
                 }
                 Placement::Virtual => {}
@@ -167,7 +182,7 @@ impl Renderer {
                 }
                 text::step(rows, b'A', &mut self.out);
                 if self.opts.copy_text {
-                    text::frame(canvas, cols, rows, Placement::Flow, depth, palette, &mut self.out);
+                    text::frame(canvas, cols, rows, Placement::Flow, depth, palette, None, &mut self.out);
                     text::step(rows, b'A', &mut self.out);
                 }
             }
@@ -176,7 +191,7 @@ impl Renderer {
                 // for the image would lose the caller's position.
                 self.out.extend_from_slice(b"\x1b7");
                 if self.opts.copy_text {
-                    text::frame(canvas, cols, rows, placement, depth, palette, &mut self.out);
+                    text::frame(canvas, cols, rows, placement, depth, palette, None, &mut self.out);
                 }
                 text::cursor_to(row + 1, col + 1, &mut self.out);
             }
@@ -238,10 +253,28 @@ mod tests {
     fn text_frames() {
         let mut r = Renderer::with_options(Terminal::text(), Options::default());
         let s = String::from_utf8(r.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
-        assert_eq!(s, "\x1b[38;2;255;0;0m⠁⠀⠀\x1b[0m\r\n⠀⠀\x1b[38;2;0;255;0m⢀\x1b[0m\r\n");
+        assert_eq!(s, "\x1b[38;2;255;0;0m⠁\x1b[0m\x1b[K\r\n⠀⠀\x1b[38;2;0;255;0m⢀\x1b[0m\r\n");
         let s = String::from_utf8(r.encode(&canvas(), Placement::At(4, 2)).to_vec()).unwrap();
         assert!(s.starts_with("\x1b7\x1b[3;5H") && s.ends_with("\x1b8"));
         assert!(r.encode(&canvas(), Placement::Virtual).is_empty());
+    }
+
+    #[test]
+    fn fixed_frames_send_only_what_changed() {
+        let mut r = Renderer::with_options(Terminal::text(), Options::default());
+        let mut c = canvas();
+        let full = String::from_utf8(r.encode(&c, Placement::At(4, 2)).to_vec()).unwrap();
+        assert!(full.contains("\x1b[3;5H") && full.contains("\x1b[4;5H"), "both rows: {full:?}");
+        let same = String::from_utf8(r.encode(&c, Placement::At(4, 2)).to_vec()).unwrap();
+        assert_eq!(same, "\x1b7\x1b8", "nothing changed, nothing sent");
+        c.set(5, 0, Rgb::hex(0x0000ff));
+        let diff = String::from_utf8(r.encode(&c, Placement::At(4, 2)).to_vec()).unwrap();
+        assert_eq!(diff, "\x1b7\x1b[3;7H\x1b[38;2;0;0;255m⠈\x1b[0m\x1b8", "just the changed cell");
+        let moved = String::from_utf8(r.encode(&c, Placement::At(0, 0)).to_vec()).unwrap();
+        assert!(moved.contains("\x1b[1;1H") && moved.contains("\x1b[2;1H"), "another place is a full frame");
+        r.invalidate();
+        let again = String::from_utf8(r.encode(&c, Placement::At(0, 0)).to_vec()).unwrap();
+        assert_eq!(again, moved);
     }
 
     #[test]

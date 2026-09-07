@@ -7,7 +7,7 @@
 //! together rather than splitting the vote.
 
 use crate::render::Placement;
-use crate::text::{Attrs, TextStyle};
+use crate::text::{Attrs, TextCell, TextStyle};
 use crate::{Canvas, Color, Depth, Palette, Rgb};
 
 /// Quantises packed dots to a colour depth, remembering recent answers. Frames use a
@@ -68,6 +68,44 @@ impl<'a> Quantizer<'a> {
     }
 }
 
+/// One cell of a text frame as it was sent, so the next frame can skip what has
+/// not changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Sent {
+    ch: char,
+    style: TextStyle,
+}
+
+/// What a frame remembers of the last one: the cells it sent, and where.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct History {
+    cells: Vec<Sent>,
+    /// `(col, row, cols, rows)` of the last frame; another placement is a full
+    /// redraw.
+    at: Option<(u16, u16, u16, u16)>,
+    next: Vec<Sent>,
+}
+
+impl History {
+    /// Forgets the last frame, so the next one is drawn in full.
+    pub(crate) fn forget(&mut self) {
+        self.at = None;
+    }
+
+    /// After a frame: what was just sent is now the last frame.
+    fn commit(&mut self) {
+        std::mem::swap(&mut self.cells, &mut self.next);
+    }
+}
+
+/// Encodes the frame.
+///
+/// In [`Placement::Flow`] a run of two or more blank cells at the end of a row is
+/// one *erase to end of line* instead of one glyph per cell. With
+/// [`Placement::At`] and a `history` of the previous frame at the same place, only
+/// the rows that changed are sent, each from its first changed cell to its last;
+/// the rest of the screen is left alone.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn frame(
     canvas: &Canvas,
     cols: u16,
@@ -75,42 +113,110 @@ pub(super) fn frame(
     placement: Placement,
     depth: Depth,
     palette: &Palette,
+    history: Option<&mut History>,
+    out: &mut Vec<u8>,
+) {
+    let mut scratch = Vec::new();
+    match history {
+        Some(h) => {
+            let key = match placement {
+                Placement::At(c, r) => Some((c, r, cols, rows)),
+                _ => None,
+            };
+            let same = key.is_some() && h.at == key;
+            h.at = key;
+            h.next.clear();
+            encode(canvas, cols, rows, placement, depth, palette, same.then_some(&h.cells), &mut h.next, out);
+            h.commit();
+        }
+        None => encode(canvas, cols, rows, placement, depth, palette, None, &mut scratch, out),
+    }
+}
+
+/// [`frame`], given the cells of the previous frame at the same place (if any) and
+/// room for this frame's.
+#[allow(clippy::too_many_arguments)]
+fn encode(
+    canvas: &Canvas,
+    cols: u16,
+    rows: u16,
+    placement: Placement,
+    depth: Depth,
+    palette: &Palette,
+    prev: Option<&Vec<Sent>>,
+    next: &mut Vec<Sent>,
     out: &mut Vec<u8>,
 ) {
     let mut buf = [0u8; 4];
     let mut q = Quantizer::new(depth, palette);
+    // The cells as they will look, one pass, so a row can be compared and trimmed
+    // before anything is written.
     for row in 0..rows {
-        if let Placement::At(c, r) = placement {
-            cursor_to(r + row + 1, c + 1, out);
-        }
-        let mut current = TextStyle::default();
         for col in 0..cols {
             let text = canvas.text_at(col as i32, row as i32);
-            if text.is_continuation() {
+            next.push(if text.is_continuation() {
+                Sent { ch: TextCell::CONTINUATION, style: TextStyle::default() }
+            } else if text.is_empty() {
+                let cell = q.cell(canvas, col, row);
+                let style =
+                    cell.color.map_or(TextStyle::default(), |c| TextStyle { fg: Some(c), ..TextStyle::default() });
+                Sent { ch: cell.glyph(), style }
+            } else {
+                Sent { ch: text.ch, style: q.style(text.style) }
+            });
+        }
+    }
+    let blank = Sent { ch: '\u{2800}', style: TextStyle::default() };
+    for row in 0..rows {
+        let line = &next[row as usize * cols as usize..][..cols as usize];
+        let (mut from, mut to) = (0, cols as usize);
+        match placement {
+            Placement::At(c, r) => {
+                if let Some(prev) = prev {
+                    let old = &prev[row as usize * cols as usize..][..cols as usize];
+                    let Some(first) = line.iter().zip(old).position(|(a, b)| a != b) else { continue };
+                    to = line.iter().zip(old).rposition(|(a, b)| a != b).unwrap_or(first) + 1;
+                    // A change on the second half of a wide character rewrites the
+                    // character.
+                    from = first;
+                    while from > 0 && line[from].ch == TextCell::CONTINUATION {
+                        from -= 1;
+                    }
+                }
+                cursor_to(r + row + 1, c + from as u16 + 1, out);
+            }
+            Placement::Flow => {
+                let trailing = line.iter().rev().take_while(|&&s| s == blank).count();
+                if trailing >= 2 {
+                    to = cols as usize - trailing;
+                }
+            }
+            Placement::Virtual => {}
+        }
+        let mut current = TextStyle::default();
+        for sent in &line[from..to] {
+            if sent.ch == TextCell::CONTINUATION {
                 continue; // the double-width character before it already covered this cell
             }
-            let (ch, style) = if text.is_empty() {
-                let cell = q.cell(canvas, col, row);
-                let Some(color) = cell.color else {
-                    // A blank cell shows nothing, so it keeps the current colour and
-                    // costs no SGR — but a background or an attribute would bleed
-                    // across it, so those are dropped.
-                    if current.bg.is_some() || current.attrs != Attrs::NONE {
-                        out.extend_from_slice(b"\x1b[0m");
-                        current = TextStyle::default();
-                    }
-                    out.extend_from_slice(cell.glyph().encode_utf8(&mut buf).as_bytes());
-                    continue;
-                };
-                (cell.glyph(), TextStyle { fg: Some(color), ..TextStyle::default() })
-            } else {
-                (text.ch, q.style(text.style))
-            };
-            apply(&mut current, style, out);
-            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            if *sent == blank {
+                // A blank cell shows nothing, so it keeps the current colour and
+                // costs no SGR — but a background or an attribute would bleed
+                // across it, so those are dropped.
+                if current.bg.is_some() || current.attrs != Attrs::NONE {
+                    out.extend_from_slice(b"\x1b[0m");
+                    current = TextStyle::default();
+                }
+                out.extend_from_slice(sent.ch.encode_utf8(&mut buf).as_bytes());
+                continue;
+            }
+            apply(&mut current, sent.style, out);
+            out.extend_from_slice(sent.ch.encode_utf8(&mut buf).as_bytes());
         }
         out.extend_from_slice(b"\x1b[0m");
         if placement == Placement::Flow {
+            if to < cols as usize {
+                out.extend_from_slice(b"\x1b[K");
+            }
             out.extend_from_slice(b"\r\n");
         }
     }

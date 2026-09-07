@@ -192,8 +192,8 @@ impl Canvas {
     }
 
     /// Fills a disc of radius `r` (in dots) centred on `(cx, cy)`.
-    pub fn disc(&mut self, cx: f32, cy: f32, r: f32, color: impl Into<Color>) {
-        self.fill_ellipse(cx, cy, r, r, color.into());
+    pub fn disc(&mut self, cx: f32, cy: f32, r: f32, paint: impl Into<Paint>) {
+        self.fill_ellipse(cx, cy, r, r, paint);
     }
 
     /// Fills a disc like [`disc`](Self::disc) but only `coverage` (`0..=1`) of its
@@ -206,6 +206,20 @@ impl Canvas {
     /// ring around a shape separates it from what is behind it on any background.
     pub fn clear_disc(&mut self, cx: f32, cy: f32, r: f32) {
         self.fill_ellipse(cx, cy, r, r, Paint::erase());
+    }
+
+    /// The box `(x0, y0, x1, y1)` (exclusive on the far side) around the set dots,
+    /// `None` when there are none.
+    pub(crate) fn dot_bounds(&self) -> Option<(i32, i32, i32, i32)> {
+        let (w, h) = (self.width(), self.height());
+        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+        for (y, row) in self.dots.chunks_exact(w as usize).enumerate() {
+            let Some(first) = row.iter().position(|&d| d != 0) else { continue };
+            let last = row.iter().rposition(|&d| d != 0).unwrap_or(first);
+            (x0, x1) = (x0.min(first as i32), x1.max(last as i32 + 1));
+            (y0, y1) = (y0.min(y as i32), y as i32 + 1);
+        }
+        (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
     }
 
     /// Packed colours of the eight dots of cell `(col, row)`, row-major (`0` = unset).
