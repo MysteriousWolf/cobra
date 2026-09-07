@@ -5,8 +5,8 @@
 use std::f32::consts::{PI, TAU};
 
 use cobra::{
-    Align, Attrs, Bubble, Canvas, Color, Effect, Font, Layers, Paint, Path, Pattern, Pen, Rgb, Shape, Side, Tail,
-    TailKind, TextStyle,
+    Align, Attrs, Bubble, Canvas, Color, Effect, Field, Font, Layers, Paint, Path, Pattern, Pen, Rect, Rgb, Shape,
+    Side, Tail, TailKind, TextStyle,
 };
 
 /// The colours that depend on what is behind the picture.
@@ -188,6 +188,13 @@ demos! {
         let mut mask = Canvas::new(24, 4);
         mask.text(1, 1, "MASK", &Font::tiny().scale_xy(3, 3), t.ink);
         c.stencil(&mask, Paint::linear((0.0, 0.0), (48.0, 0.0), RED, BLUE));
+    }
+    "Canvas::stencil_in", 24 x 4 => |c, t| {
+        let mut mask = Canvas::new(24, 4);
+        mask.fill_rect(0.0, 0.0, 48.0, 16.0, t.ink);
+        // Only the box is painted, and it is the gradient's frame: the mask's
+        // extent is never looked at.
+        c.stencil_in(&mask, Rect::new(4.0, 2.0, 40.0, 12.0), Paint::edge(BLUE, t.panel, 4.0));
     }
     "Canvas::clip", 24 x 4 => |c, t| {
         c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::pattern(GREEN, Pattern::Diagonal(3)));
@@ -400,11 +407,62 @@ demos! {
         hole.effect(Effect::outline(1.0).paint(RED));
         *c = layers.flatten().clone();
     }
+    "Layer::offset", 24 x 4 => |c, t| {
+        // One ridge, drawn once on each of three layers, each moved by its own
+        // amount: the further back, the less it moves. Scroll them every frame and
+        // the scene has depth.
+        let mut layers = Layers::new(24, 4);
+        let ridge = [(0.0, 12.0), (8.0, 4.0), (14.0, 9.0), (22.0, 2.0), (30.0, 10.0), (38.0, 5.0), (48.0, 12.0)];
+        let shades = [t.panel, BLUE.dim(0.5), BLUE];
+        for (i, shade) in shades.into_iter().enumerate() {
+            let layer = if i == 0 { &mut layers[0] } else { layers.push() };
+            let mut hill: Vec<(f32, f32)> = ridge.iter().map(|&(x, y)| (x, y + 2.0 * i as f32)).collect();
+            hill.extend([(48.0, 16.0), (0.0, 16.0)]);
+            layer.fill_polygon(&hill, shade);
+            layer.wrap = true;
+            layer.offset = (-6 * i as i32, 0);
+        }
+        *c = layers.flatten().clone();
+    }
+    "Layer::wrap", 24 x 4 => |c, t| {
+        let mut layers = Layers::new(24, 4);
+        layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+        let train = layers.push();
+        for i in 0..4 {
+            train.fill_round_rect(2.0 + 12.0 * i as f32, 4.0, 9.0, 8.0, 2.0, [RED, ORANGE, YELLOW, GREEN][i]);
+        }
+        train.wrap = true;
+        train.offset = (7, 0); // the last car comes back on the left
+        *c = layers.flatten().clone();
+    }
+    "Layer::scroll", 24 x 4 => |c, t| {
+        let mut layers = Layers::new(24, 4);
+        layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+        let comet = layers.push();
+        comet.disc(6.0, 8.0, 3.0, CYAN);
+        comet.effect(Effect::glow(3.0).paint(CYAN));
+        // Ten frames on, the comet is further right; each frame moved it by four dots.
+        for _ in 0..10 {
+            comet.scroll(4, 0);
+        }
+        *c = layers.flatten().clone();
+    }
     "Canvas::effects", 24 x 4 => |c, t| {
         c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
         let mut mask = Canvas::new(24, 4);
         mask.text(3, 3, "MASK", &Font::tiny().scale(2), t.ink);
         c.effects(&mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(GREEN)]);
+    }
+    "Field", 24 x 4 => |c, t| {
+        c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+        // One scratch for every ring: nothing is allocated after the first.
+        let mut field = Field::new();
+        let mut mask = Canvas::new(24, 4);
+        for (i, color) in [RED, YELLOW, GREEN, CYAN, PURPLE].into_iter().enumerate() {
+            mask.clear();
+            mask.disc(6.0 + 9.0 * i as f32, 8.0, 3.0, color);
+            field.effects(c, &mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(color)]);
+        }
     }
     // ----- bubble ---------------------------------------------------------------
     "Bubble::new", 24 x 5 => |c, t| {

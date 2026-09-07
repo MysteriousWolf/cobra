@@ -10,10 +10,13 @@ one plain canvas: a set dot hides whatever is under it, a printed character owns
 its cell, and each layer's [`Effect`](layer.md#effect)s decorate its silhouette on the way — a drop
 shadow, an outline, a cleared gap that separates it from what is behind, a glow,
 a shaded rim, or a shader of your own. A [matte](layer.md#layer) layer hides what is
-beneath it without painting anything itself. Everything downstream (the renderer,
-the ratatui widget, the exporters, [`Canvas::to_text`](canvas.md#canvasto_text)) takes the flattened canvas
-as it would any other, and [`Canvas::effects`](layer.md#canvaseffects) runs the same effects around any
-mask on any canvas, without a stack.
+beneath it without painting anything itself. A layer can sit [offset](layer.md#layer)
+from the stack, and [wrap](layer.md#layer) around it, so a background that scrolls
+slower than the foreground (parallax) is a matter of moving each layer by its own
+amount. Everything downstream (the renderer, the ratatui widget, the exporters,
+[`Canvas::to_text`](canvas.md#canvasto_text)) takes the flattened canvas as it would any other, and
+[`Canvas::effects`](layer.md#canvaseffects) runs the same effects around any mask on any canvas, without
+a stack; a [`Field`](layer.md#field) of your own keeps the scratch that takes between calls.
 
 ```rust
 use cobra::{Effect, Layers, Paint, Rgb};
@@ -52,10 +55,12 @@ read as solid in that fallback where it falls on another shape.
 - [`Effect`](#effect)
 - [`Layer`](#layer)
 - [`Layers`](#layers)
+- [`Field`](#field)
 - `Sample`: [`Sample::inside`](layer.md#sampleinside), [`Sample::layer`](layer.md#samplelayer), [`Sample::covered`](layer.md#samplecovered)
 - `Effect`: [`Effect::shadow`](layer.md#effectshadow), [`Effect::outline`](layer.md#effectoutline), [`Effect::glow`](layer.md#effectglow), [`Effect::gap`](layer.md#effectgap), [`Effect::rim`](layer.md#effectrim), [`Effect::paint`](layer.md#effectpaint), [`Effect::shader`](layer.md#effectshader)
-- `Layer`: [`Layer::effect`](layer.md#layereffect), [`Layer::canvas`](layer.md#layercanvas), [`Layer::canvas_mut`](layer.md#layercanvas_mut)
+- `Layer`: [`Layer::effect`](layer.md#layereffect), [`Layer::scroll`](layer.md#layerscroll), [`Layer::canvas`](layer.md#layercanvas), [`Layer::canvas_mut`](layer.md#layercanvas_mut)
 - `Layers`: [`Layers::new`](layer.md#layersnew), [`Layers::cols`](layer.md#layerscols), [`Layers::rows`](layer.md#layersrows), [`Layers::width`](layer.md#layerswidth), [`Layers::height`](layer.md#layersheight), [`Layers::len`](layer.md#layerslen), [`Layers::is_empty`](layer.md#layersis_empty), [`Layers::push`](layer.md#layerspush), [`Layers::insert`](layer.md#layersinsert), [`Layers::remove`](layer.md#layersremove), [`Layers::swap`](layer.md#layersswap), [`Layers::get`](layer.md#layersget), [`Layers::get_mut`](layer.md#layersget_mut), [`Layers::iter`](layer.md#layersiter), [`Layers::iter_mut`](layer.md#layersiter_mut), [`Layers::clear`](layer.md#layersclear), [`Layers::flat`](layer.md#layersflat), [`Layers::flatten`](layer.md#layersflatten)
+- `Field`: [`Field::new`](layer.md#fieldnew), [`Field::effects`](layer.md#fieldeffects)
 - `Canvas`: [`Canvas::effects`](layer.md#canvaseffects)
 
 ## `Sample`
@@ -112,6 +117,8 @@ around it when the stack is flattened, and whether it is shown at all.
 - `pub effects: Vec<Effect>` — Effects, applied in order; see [`Effect`](layer.md#effect).
 - `pub visible: bool` — Hidden layers are skipped by [`Layers::flatten`](layer.md#layersflatten). Default `true`.
 - `pub matte: bool` — A matte hides instead of shows: wherever it has a dot or a character, the layers beneath are erased and nothing is painted, so the flattened canvas is transparent there. Effects still run around its silhouette. A ring around a hole in the picture, or a hollow shape whose inside must stay clear, is a shape on a matte. Default `false`.
+- `pub offset: (i32, i32)` — Where the layer sits over the stack, in dots: everything on it is moved right by `.0` and down by `.1` when the stack is flattened, effects included, and what moves off the stack is lost unless the layer [wraps](layer.md#layer). Printed characters move by whole cells, the offset rounded to the nearest. Layers moving by different amounts per frame are a parallax; see [`scroll`](layer.md#layerscroll). Default `(0, 0)`.
+- `pub wrap: bool` — Whether the layer repeats: what its offset moves off one edge of the stack comes back on the opposite edge, so a background drawn once scrolls forever. Effects see the wrapped silhouette, and so does [`Sample::covered`](layer.md#samplecovered). Default `false`.
 
 **`matte`**
 
@@ -127,6 +134,50 @@ let hole = layers.push();
 hole.disc(24.0, 8.0, 6.0, t.ink); // the colour does not matter
 hole.matte = true;
 hole.effect(Effect::outline(1.0).paint(RED));
+*c = layers.flatten().clone();
+```
+
+**`offset`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer-offset.svg">
+  <img src="img/layer-offset-light.svg" alt="Layer::offset" width="384">
+</picture>
+
+```rust
+// One ridge, drawn once on each of three layers, each moved by its own
+// amount: the further back, the less it moves. Scroll them every frame and
+// the scene has depth.
+let mut layers = Layers::new(24, 4);
+let ridge = [(0.0, 12.0), (8.0, 4.0), (14.0, 9.0), (22.0, 2.0), (30.0, 10.0), (38.0, 5.0), (48.0, 12.0)];
+let shades = [t.panel, BLUE.dim(0.5), BLUE];
+for (i, shade) in shades.into_iter().enumerate() {
+    let layer = if i == 0 { &mut layers[0] } else { layers.push() };
+    let mut hill: Vec<(f32, f32)> = ridge.iter().map(|&(x, y)| (x, y + 2.0 * i as f32)).collect();
+    hill.extend([(48.0, 16.0), (0.0, 16.0)]);
+    layer.fill_polygon(&hill, shade);
+    layer.wrap = true;
+    layer.offset = (-6 * i as i32, 0);
+}
+*c = layers.flatten().clone();
+```
+
+**`wrap`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer-wrap.svg">
+  <img src="img/layer-wrap-light.svg" alt="Layer::wrap" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let train = layers.push();
+for i in 0..4 {
+    train.fill_round_rect(2.0 + 12.0 * i as f32, 4.0, 9.0, 8.0, 2.0, [RED, ORANGE, YELLOW, GREEN][i]);
+}
+train.wrap = true;
+train.offset = (7, 0); // the last car comes back on the left
 *c = layers.flatten().clone();
 ```
 
@@ -157,6 +208,48 @@ layers.push().disc(28.0, 8.0, 7.0, RED);
 *c = layers.flatten().clone();
 ```
 
+## `Field`
+
+```rust
+pub struct Field
+```
+
+The scratch that running [`Effect`](layer.md#effect)s takes: the silhouette over the effect
+window and the distance fields outside and inside it, sized for the canvas the
+first time and kept. A [`Layers`](layer.md#layers) owns one; [`Canvas::effects`](layer.md#canvaseffects) makes one per
+call. Keep your own to run effects against masks every frame without allocating:
+
+```rust
+use cobra::{Canvas, Effect, Field, Rgb};
+
+let mut field = Field::new();
+let mut canvas = Canvas::new(20, 5);
+let mut mask = Canvas::new(20, 5);
+for frame in 0..3 {
+    canvas.clear();
+    mask.clear();
+    mask.disc(10.0 + frame as f32, 10.0, 5.0, Rgb::hex(0xffffff));
+    field.effects(&mut canvas, &mask, &[Effect::outline(1.0).paint(Rgb::hex(0x3aa0ff))]);
+}
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/field.svg">
+  <img src="img/field-light.svg" alt="Field" width="384">
+</picture>
+
+```rust
+c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+// One scratch for every ring: nothing is allocated after the first.
+let mut field = Field::new();
+let mut mask = Canvas::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN, PURPLE].into_iter().enumerate() {
+    mask.clear();
+    mask.disc(6.0 + 9.0 * i as f32, 8.0, 3.0, color);
+    field.effects(c, &mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(color)]);
+}
+```
+
 ## `Sample` methods
 
 ## `Sample::inside`
@@ -173,7 +266,9 @@ Whether the dot is part of the silhouette.
 pub fn layer(&self) -> &Canvas
 ```
 
-The layer being shaded.
+The layer being shaded. Its dots are in its own coordinates; the sample's
+`x` and `y` are in the flattened canvas's, which differ by the layer's
+[offset](layer.md#layer).
 
 ## `Sample::covered`
 
@@ -181,8 +276,9 @@ The layer being shaded.
 pub fn covered(&self, x: i32, y: i32) -> bool
 ```
 
-Whether dot `(x, y)` of the layer is in its silhouette: set, or in a cell
-that holds a character. This is how a shadow finds itself.
+Whether dot `(x, y)` of the flattened canvas is in the layer's silhouette:
+set, or in a cell that holds a character, once the layer's offset is
+applied. This is how a shadow finds itself.
 
 ## `Effect` methods
 
@@ -362,6 +458,52 @@ pub fn effect(&mut self, effect: Effect) -> &mut Self
 
 Adds an effect after the ones already there.
 
+## `Layer::scroll`
+
+```rust
+pub fn scroll(&mut self, dx: i32, dy: i32) -> &mut Self
+```
+
+Moves the layer by `(dx, dy)` dots from where it is: adds to its
+[`offset`](layer.md#layer). A wrapping layer's offset is kept within the size
+of the stack, so scrolling it for hours never overflows.
+
+```rust
+use cobra::Layers;
+
+let mut layers = Layers::new(40, 10);
+layers[0].wrap = true; // the far hills, drawn once
+let _near = layers.push(); // the near ones
+// Every frame the near layer moves a dot, the far one a dot every third frame.
+for frame in 0..30 {
+    layers[1].scroll(-1, 0);
+    if frame % 3 == 0 {
+        layers[0].scroll(-1, 0);
+    }
+    layers.flatten();
+}
+assert_eq!(layers[1].offset, (-30, 0));
+assert_eq!(layers[0].offset, (70, 0), "ten dots left, modulo the width");
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer-scroll.svg">
+  <img src="img/layer-scroll-light.svg" alt="Layer::scroll" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let comet = layers.push();
+comet.disc(6.0, 8.0, 3.0, CYAN);
+comet.effect(Effect::glow(3.0).paint(CYAN));
+// Ten frames on, the comet is further right; each frame moved it by four dots.
+for _ in 0..10 {
+    comet.scroll(4, 0);
+}
+*c = layers.flatten().clone();
+```
+
 ## `Layer::canvas`
 
 ```rust
@@ -529,6 +671,25 @@ pub fn flatten(&mut self) -> &Canvas
 Composites the layers, bottom to top, into one canvas and returns it. Does
 nothing when nothing changed since the last call.
 
+## `Field` methods
+
+## `Field::new`
+
+```rust
+pub fn new() -> Self
+```
+
+An empty scratch; the first call grows it to fit and later ones reuse it.
+
+## `Field::effects`
+
+```rust
+pub fn effects(&mut self, target: &mut Canvas, mask: &Canvas, effects: &[Effect])
+```
+
+Runs `effects` around the silhouette of `mask` on `target`, exactly as
+[`Canvas::effects`](layer.md#canvaseffects) does, with this scratch instead of a fresh one.
+
 ## `Canvas` methods
 
 ## `Canvas::effects`
@@ -541,7 +702,8 @@ Runs `effects` around the silhouette of `mask` (its set dots and printed
 cells) on this canvas, exactly as [`Layers::flatten`](layer.md#layersflatten) would around a layer:
 an outline, a glow, a rim or a shadow against any mask you hand in, with no
 stack involved. The mask is usually a scratch canvas of the same size that a
-shape was drawn on.
+shape was drawn on. This allocates the scratch the effects run in; a kept
+[`Field`](layer.md#field) does not.
 
 ```rust
 use cobra::{Canvas, Effect, Rgb};

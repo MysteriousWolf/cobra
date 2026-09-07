@@ -77,7 +77,8 @@ speaker while dodging the areas you want kept clear.
 **Layers.** [`Layers`](docs/layer.md) stacks canvases and flattens them: what is in front
 hides what is behind, and each layer can carry effects around its silhouette (a drop
 shadow, an outline, a cleared gap, a glow, a shaded rim, a shader of your own). A matte
-layer hides what is beneath it without painting anything.
+layer hides what is beneath it without painting anything. Layers can be offset from the
+stack and wrap around it: scroll each by its own amount and the scene is a parallax.
 
 <p align="center">
   <img src="assets/layers.svg" alt="six layers over a striped background, one effect each" width="49%">
