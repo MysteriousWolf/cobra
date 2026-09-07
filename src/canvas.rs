@@ -151,12 +151,22 @@ impl Canvas {
 
     /// Draws a one-dot-wide line with Bresenham's algorithm.
     pub fn line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: impl Into<Color>) {
-        let color = color.into();
+        let packed = color.into().packed();
+        self.bresenham(x0, y0, x1, y1, |c, x, y| {
+            if let Some(i) = c.index(x, y) {
+                c.dots[i] = packed;
+            }
+        });
+    }
+
+    /// Walks Bresenham's line from `(x0, y0)` to `(x1, y1)`, calling `plot` per dot.
+    #[inline]
+    pub(crate) fn bresenham(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, mut plot: impl FnMut(&mut Self, i32, i32)) {
         let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
         let (sx, sy) = ((x1 - x0).signum(), (y1 - y0).signum());
         let (mut x, mut y, mut err) = (x0, y0, dx + dy);
         loop {
-            self.set(x, y, color);
+            plot(self, x, y);
             if x == x1 && y == y1 {
                 break;
             }

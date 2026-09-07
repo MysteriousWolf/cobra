@@ -4,8 +4,8 @@
 //! Everything here reduces to horizontal spans ([`Canvas::span`]): a fill is one
 //! clipped `slice::fill` per dot row rather than a bounds check per dot, and a stroke
 //! is a chain of Bresenham lines (width ≤ 1) or convex quads plus round joins. Curves
-//! are flattened on the fly, one segment at a time, so nothing here allocates except
-//! [`Canvas::fill_polygon`], which sorts its edge crossings.
+//! are flattened on the fly, one segment at a time, so nothing here allocates
+//! (except [`Canvas::fill_polygon`] on a polygon with more than 128 vertices).
 //!
 //! Coordinates are in dots, `f32`, with dot `(x, y)` covering the unit square from
 //! `(x, y)` to `(x + 1, y + 1)`. A fill includes every dot whose centre is inside the
@@ -149,6 +149,14 @@ fn first(v: f32) -> i32 {
     (v - 0.5).ceil() as i32
 }
 
+/// One past the last dot whose centre is at or before `v`. A span `first(a)..last(b)`
+/// takes the dots on both its edges, so a shape rounds the same way on its left and
+/// its right (an exclusive `first(b)` would drop a centre that lands exactly on `b`).
+#[inline]
+fn last(v: f32) -> i32 {
+    (v - 0.5).floor() as i32 + 1
+}
+
 #[inline]
 fn dist(a: Point, b: Point) -> f32 {
     ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
@@ -241,7 +249,7 @@ impl Canvas {
         for y in first(cy - ry)..first(cy + ry) {
             let ey = (y as f32 + 0.5 - cy) / ry;
             let half = rx * (1.0 - ey * ey).max(0.0).sqrt();
-            self.span(y, first(cx - half), (cx + half - 0.5).floor() as i32 + 1, paint);
+            self.span(y, first(cx - half), last(cx + half), paint);
         }
     }
 
@@ -283,19 +291,29 @@ impl Canvas {
             lo = lo.min(p.1);
             hi = hi.max(p.1);
         }
-        let mut xs: Vec<f32> = Vec::with_capacity(pts.len());
+        // A scan line crosses at most one edge per vertex, so the crossings of any
+        // generated shape fit on the stack; only a caller's huge polygon allocates.
+        let mut stack = [0.0f32; MAX_POINTS];
+        let mut heap = Vec::new();
+        let xs: &mut [f32] = if pts.len() <= MAX_POINTS {
+            &mut stack[..pts.len()]
+        } else {
+            heap.resize(pts.len(), 0.0);
+            &mut heap
+        };
         for y in first(lo).max(0)..first(hi).min(self.height()) {
             let sy = y as f32 + 0.5;
-            xs.clear();
+            let mut n = 0;
             for (i, &a) in pts.iter().enumerate() {
                 let b = pts[(i + 1) % pts.len()];
                 if (a.1 <= sy) != (b.1 <= sy) {
-                    xs.push(a.0 + (sy - a.1) * (b.0 - a.0) / (b.1 - a.1));
+                    xs[n] = a.0 + (sy - a.1) * (b.0 - a.0) / (b.1 - a.1);
+                    n += 1;
                 }
             }
-            xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            for pair in xs.as_chunks::<2>().0 {
-                self.span(y, first(pair[0]), first(pair[1]), paint);
+            xs[..n].sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            for pair in xs[..n].as_chunks::<2>().0 {
+                self.span(y, first(pair[0]), last(pair[1]), paint);
             }
         }
     }
@@ -393,10 +411,10 @@ impl Canvas {
             let ho = (outer * outer - dy * dy).max(0.0).sqrt();
             let hi = (inner * inner - dy * dy).max(0.0).sqrt();
             if hi > 0.0 {
-                self.span(y, first(cx - ho), first(cx - hi), paint);
-                self.span(y, first(cx + hi), first(cx + ho), paint);
+                self.span(y, first(cx - ho), last(cx - hi), paint);
+                self.span(y, first(cx + hi), last(cx + ho), paint);
             } else {
-                self.span(y, first(cx - ho), first(cx + ho), paint);
+                self.span(y, first(cx - ho), last(cx + ho), paint);
             }
         }
     }
@@ -417,7 +435,6 @@ impl Canvas {
 
     /// Fills the regular `sides`-gon inscribed in radius `r` around `(cx, cy)`,
     /// rotated by `rot` radians (`0` puts a vertex to the right).
-    #[allow(clippy::too_many_arguments)]
     pub fn fill_ngon(&mut self, cx: f32, cy: f32, r: f32, sides: u32, rot: f32, paint: impl Into<Paint>) {
         let (pts, n) = ngon_points(cx, cy, r, r, sides, rot);
         self.fill_polygon(&pts[..n], paint);
@@ -536,31 +553,14 @@ impl Canvas {
                 }
             }
             if xmin <= xmax {
-                self.span(y, first(xmin), first(xmax), paint);
+                self.span(y, first(xmin), last(xmax), paint);
             }
         }
     }
 
     /// Bresenham line with a [`Paint`] (so it can dither or erase).
     pub(crate) fn line_paint(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, paint: Paint) {
-        let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
-        let (sx, sy) = ((x1 - x0).signum(), (y1 - y0).signum());
-        let (mut x, mut y, mut err) = (x0, y0, dx + dy);
-        loop {
-            self.span(y, x, x + 1, paint);
-            if x == x1 && y == y1 {
-                break;
-            }
-            let e2 = 2 * err;
-            if e2 >= dy {
-                err += dy;
-                x += sx;
-            }
-            if e2 <= dx {
-                err += dx;
-                y += sy;
-            }
-        }
+        self.bresenham(x0, y0, x1, y1, |c, x, y| c.span(y, x, x + 1, paint));
     }
 }
 

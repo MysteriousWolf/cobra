@@ -38,6 +38,10 @@
 use crate::text::{Align, TextStyle};
 use crate::{Canvas, Font, Paint, Point, Rect, text};
 
+/// A cell in dots, as the `f32` the geometry works in.
+const CELL_W: f32 = crate::DOTS_X as f32;
+const CELL_H: f32 = crate::DOTS_Y as f32;
+
 /// An edge of a bubble.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Side {
@@ -147,11 +151,10 @@ impl Tail {
         self
     }
 
-    /// Base centre and tip for a body.
-    fn geometry(&self, body: Rect) -> (Point, Point) {
-        let base = self.side.along(body, self.at);
-        let out = self.side.out();
-        (base, self.tip.unwrap_or((base.0 + out.0 * self.len, base.1 + out.1 * self.len)))
+    /// The tip for a tail leaving the body at `base`: straight out unless one was set.
+    fn tip_from(&self, base: Point) -> Point {
+        let (ox, oy) = self.side.out();
+        self.tip.unwrap_or((base.0 + ox * self.len, base.1 + oy * self.len))
     }
 }
 
@@ -198,7 +201,7 @@ impl<'a> Bubble<'a> {
     pub fn thought(text: &'a str) -> Self {
         Self {
             shape: Shape::Cloud,
-            tail: Some(Tail { kind: TailKind::Bubbles, len: 9.0, width: 4.0, ..Tail::default() }),
+            tail: Some(Tail { kind: TailKind::Bubbles, len: 10.0, width: 6.0, ..Tail::default() }),
             align: Align::Center,
             pad: (1, 1),
             ..Self::new(text)
@@ -216,7 +219,7 @@ impl<'a> Bubble<'a> {
         }
     }
 
-    /// A rounded box with a curling tail, drawn dithered: an aside.
+    /// A rounded box with a curling comic tail: an aside.
     pub fn whisper(text: &'a str) -> Self {
         Self {
             shape: Shape::Round(3.0),
@@ -324,16 +327,21 @@ impl<'a> Bubble<'a> {
             }
             _ => {}
         }
-        (cols.max(1) as f32 * crate::DOTS_X as f32, rows.max(1) as f32 * crate::DOTS_Y as f32)
+        (cols.max(1) as f32 * CELL_W, rows.max(1) as f32 * CELL_H)
+    }
+
+    /// The body's box with its top-left at `(x, y)`, snapped to the cell grid.
+    fn body_at(&self, x: f32, y: f32) -> Rect {
+        let (w, h) = self.size();
+        Rect::new(snap(x, CELL_W), snap(y, CELL_H), w, h)
     }
 
     /// Everything the bubble would cover if drawn at `(x, y)`: the body and its tail.
     /// Useful as a keep-out zone for the next bubble.
     pub fn bounds(&self, x: f32, y: f32) -> Rect {
-        let (w, h) = self.size();
-        let body = Rect::new(snap(x, crate::DOTS_X as f32), snap(y, crate::DOTS_Y as f32), w, h);
+        let body = self.body_at(x, y);
         let Some(tail) = self.tail else { return body };
-        let (_, tip) = tail.geometry(body);
+        let tip = tail.tip_from(self.tail_anchor(body, &tail).base);
         let (x0, y0) = (body.x.min(tip.0), body.y.min(tip.1));
         Rect::new(x0, y0, body.right().max(tip.0) - x0, body.bottom().max(tip.1) - y0)
     }
@@ -341,34 +349,18 @@ impl<'a> Bubble<'a> {
     /// Draws the bubble with the top-left of its body at dot `(x, y)`, snapped to the
     /// cell grid, and returns the body's box. The tail may reach outside it.
     pub fn draw(&self, canvas: &mut Canvas, x: f32, y: f32) -> Rect {
-        let (w, h) = self.size();
-        let body = Rect::new(snap(x, crate::DOTS_X as f32), snap(y, crate::DOTS_Y as f32), w, h);
-        let border = self.border.map_or(0.0, |(t, _)| t);
+        let body = self.body_at(x, y);
         if self.clear_behind {
-            self.paint_body(canvas, body, border, Paint::erase());
-            if let Some(t) = self.tail {
-                paint_tail(canvas, body, &t, border, Paint::erase());
-            }
+            self.paint(canvas, body, self.border_width(), Paint::erase());
         }
         // Border first, then the fill inset by it: one path draws every shape, and an
         // unfilled body carves its inside back out.
         match (self.border, self.fill) {
-            (Some((t, bp)), fill) => {
-                self.paint_body(canvas, body, 0.0, bp);
-                if let Some(tail) = self.tail {
-                    paint_tail(canvas, body, &tail, 0.0, bp);
-                }
-                self.paint_body(canvas, body, -t, fill.unwrap_or(Paint::erase()));
-                if let Some(tail) = self.tail {
-                    paint_tail(canvas, body, &tail, -t, fill.unwrap_or(Paint::erase()));
-                }
+            (Some((t, border)), fill) => {
+                self.paint(canvas, body, 0.0, border);
+                self.paint(canvas, body, -t, fill.unwrap_or(Paint::erase()));
             }
-            (None, Some(fill)) => {
-                self.paint_body(canvas, body, 0.0, fill);
-                if let Some(tail) = self.tail {
-                    paint_tail(canvas, body, &tail, 0.0, fill);
-                }
-            }
+            (None, Some(fill)) => self.paint(canvas, body, 0.0, fill),
             (None, None) => {}
         }
         self.paint_text(canvas, body);
@@ -402,8 +394,8 @@ impl<'a> Bubble<'a> {
                 Side::Right => (mouth.0 - gap - w, mouth.1 - h / 2.0),
                 Side::Left => (mouth.0 + gap, mouth.1 - h / 2.0),
             };
-            let x = snap(corner.0.clamp(area.x, (area.right() - w).max(area.x)), crate::DOTS_X as f32);
-            let y = snap(corner.1.clamp(area.y, (area.bottom() - h).max(area.y)), crate::DOTS_Y as f32);
+            let x = snap(corner.0.clamp(area.x, (area.right() - w).max(area.x)), CELL_W);
+            let y = snap(corner.1.clamp(area.y, (area.bottom() - h).max(area.y)), CELL_H);
             let body = Rect::new(x, y, w, h);
             // Everything is an area in dots², so the terms compare directly; the lean
             // is charged the strip of body it drags the tail across.
@@ -428,14 +420,20 @@ impl<'a> Bubble<'a> {
         (Self { tail: Some(tail), ..*self }, at)
     }
 
+    /// Border thickness in dots, `0.0` without one.
+    fn border_width(&self) -> f32 {
+        self.border.map_or(0.0, |(t, _)| t)
+    }
+
     /// Text size in cells.
     fn content_cells(&self) -> (i32, i32) {
         match self.font {
             Some(f) => {
-                let text = self.wrapped(f);
-                let (w, h) = f.measure(&text);
-                let cell = (crate::DOTS_X as i32, crate::DOTS_Y as i32);
-                ((w + cell.0 - 1) / cell.0, (h + cell.1 - 1) / cell.1)
+                // Dots, not cells: the border needs its own room here, since nothing
+                // else keeps the glyphs off it.
+                let (w, h) = self.measure_font(f);
+                let t = 2 * self.border_width().ceil() as i32;
+                ((w + t + CELL_W as i32 - 1) / CELL_W as i32, (h + t + CELL_H as i32 - 1) / CELL_H as i32)
             }
             None => {
                 let (mut w, mut lines) = (0, 0);
@@ -448,21 +446,20 @@ impl<'a> Bubble<'a> {
         }
     }
 
-    /// The text with wrapping applied, for font drawing (which measures in dots).
-    fn wrapped(&self, font: &Font) -> String {
-        if self.wrap == 0 {
-            return self.text.to_string();
+    /// Characters per line when drawing in `font`: a cell is two dots wide, so a
+    /// `wrap` in cells is that many dots of glyphs.
+    fn font_wrap(&self, font: &Font) -> i32 {
+        if self.wrap == 0 { 0 } else { (self.wrap * CELL_W as i32 / font.advance('n').max(1)).max(1) }
+    }
+
+    /// Size of the wrapped text in dots when drawn in `font`.
+    fn measure_font(&self, font: &Font) -> (i32, i32) {
+        let (mut w, mut lines) = (0, 0);
+        for line in text::wrap(self.text, self.font_wrap(font)) {
+            w = w.max(font.measure(line).0);
+            lines += 1;
         }
-        // A cell is two dots wide, so a `wrap` in cells is that many dots of glyphs.
-        let cols = (self.wrap * crate::DOTS_X as i32 / font.advance('n').max(1)).max(1);
-        let mut out = String::with_capacity(self.text.len() + 8);
-        for (i, line) in text::wrap(self.text, cols).enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            out.push_str(line);
-        }
-        out
+        (w, lines.max(1) * font.line_height() - font.line_gap() as i32)
     }
 
     /// The text style to print with: a character hides the dots in its cell, so unless
@@ -480,20 +477,16 @@ impl<'a> Bubble<'a> {
         ink
     }
 
+    /// Prints or draws the text, centred in the body.
     fn paint_text(&self, canvas: &mut Canvas, body: Rect) {
         let (cw, ch) = self.content_cells();
-        let cols = (body.w / crate::DOTS_X as f32) as i32;
-        let rows = (body.h / crate::DOTS_Y as f32) as i32;
-        let col = body.x as i32 / crate::DOTS_X as i32 + (cols - cw) / 2;
-        let row = body.y as i32 / crate::DOTS_Y as i32 + (rows - ch) / 2;
         match self.font {
             Some(f) => {
-                let text = self.wrapped(f);
-                let (w, h) = f.measure(&text);
+                let (w, h) = self.measure_font(f);
                 let x = body.x as i32 + ((body.w as i32 - w) / 2).max(0);
                 let y = body.y as i32 + ((body.h as i32 - h) / 2).max(0);
-                let ink = self.ink.fg.map_or(Paint::new(crate::Color::Foreground), Paint::new);
-                for (i, line) in text.lines().enumerate() {
+                let ink = Paint::new(self.ink.fg.unwrap_or(crate::Color::Foreground));
+                for (i, line) in text::wrap(self.text, self.font_wrap(f)).enumerate() {
                     let dx = match self.align {
                         Align::Left => 0,
                         Align::Center => (w - f.measure(line).0) / 2,
@@ -503,21 +496,59 @@ impl<'a> Bubble<'a> {
                 }
             }
             None => {
-                self.paint_wrapped(canvas, col, row, cw);
+                let col = body.x as i32 / CELL_W as i32 + ((body.w as i32 / CELL_W as i32) - cw) / 2;
+                let row = body.y as i32 / CELL_H as i32 + ((body.h as i32 / CELL_H as i32) - ch) / 2;
+                // Every line already fits `cw`, so wrapping to it only aligns.
+                canvas.print_wrapped(col, row, cw, self.text, self.text_style(), self.align);
             }
         }
     }
 
-    fn paint_wrapped(&self, canvas: &mut Canvas, col: i32, row: i32, width: i32) {
-        for (line_no, line) in text::wrap(self.text, self.wrap).enumerate() {
-            let w = text::width(line);
-            let dx = match self.align {
-                Align::Left => 0,
-                Align::Center => (width - w) / 2,
-                Align::Right => width - w,
-            };
-            canvas.print(col + dx, row + line_no as i32, line, self.text_style());
+    /// Fills the body and the tail grown by `grow` dots (negative shrinks them).
+    fn paint(&self, canvas: &mut Canvas, body: Rect, grow: f32, paint: Paint) {
+        self.paint_body(canvas, body, grow, paint);
+        if let Some(tail) = self.tail {
+            paint_tail(canvas, &tail, self.tail_anchor(body, &tail), grow, paint);
         }
+    }
+
+    /// Where a tail joins the body. Its `base` is on the side, slid along it if the
+    /// body is not solid right to the ends there; its `root` is `depth` inside, where
+    /// the body is solid across the whole width the tail needs, so the tail's sides
+    /// run in through a rounded corner, a scallop or a notch and meet the outline
+    /// wherever it is. A box is solid at its edge; a rounded one a radius in; an
+    /// ellipse or burst at the rectangle inscribed in it; a cloud at its inner box,
+    /// which the corner lobes complete.
+    ///
+    /// Every pass roots the tail on the same line, at least a border's width plus a
+    /// dot inside the outline: the fill then overlaps the body's fill (no seam), and
+    /// its inset tail always lies within the border pass's (no leak).
+    fn tail_anchor(&self, body: Rect, tail: &Tail) -> Anchor {
+        const CORE: f32 = 1.0 - std::f32::consts::FRAC_1_SQRT_2;
+        let (len, across) = if tail.side.horizontal() { (body.w, body.h) } else { (body.h, body.w) };
+        let (depth, margin) = match self.shape {
+            Shape::Rect => (0.0, 0.0),
+            Shape::Round(r) => (r.clamp(0.0, across / 2.0), 0.0),
+            Shape::Ellipse => (across / 2.0 * CORE, len / 2.0 * CORE),
+            Shape::Cloud => (cloud_lobe(body), 0.0),
+            Shape::Burst => {
+                let core = 1.0 - BURST_NOTCH * std::f32::consts::FRAC_1_SQRT_2;
+                (across / 2.0 * core, len / 2.0 * core)
+            }
+        };
+        // How far out the tail goes is the same wherever it leaves the side, so it
+        // is known before the base is: the root is widened in proportion, so the
+        // tail is still `width` where it crosses the outline.
+        let depth = depth.max(self.border_width() + 1.0).min(across / 2.0);
+        let (ox, oy) = tail.side.out();
+        let mid = tail.side.along(body, 0.5);
+        let tip = tail.tip_from(mid);
+        let reach = ((tip.0 - mid.0) * ox + (tip.1 - mid.1) * oy).max(depth).max(1.0);
+        let half = tail.width / 2.0 * (reach + depth) / reach;
+        let (lo, hi) = (margin + half, len - margin - half);
+        let at = if lo <= hi { (tail.at * len).clamp(lo, hi) / len } else { 0.5 };
+        let base = tail.side.along(body, at);
+        Anchor { base, root: (base.0 - ox * depth, base.1 - oy * depth), half }
     }
 
     /// Fills the body shape grown by `grow` dots (negative shrinks it).
@@ -532,9 +563,8 @@ impl<'a> Bubble<'a> {
             Shape::Round(rad) => canvas.fill_round_rect(r.x, r.y, r.w, r.h, rad + grow, paint),
             Shape::Ellipse => canvas.fill_ellipse(cx, cy, r.w / 2.0, r.h / 2.0, paint),
             Shape::Cloud => {
-                // Lobes strung around an inner box, plus the box itself. They have to
-                // be a good fraction of the body or the outline reads as a rounded box.
-                let lobe = (body.w.min(body.h) / 3.0).clamp(3.0, 12.0);
+                // Lobes strung around an inner box, plus the box itself.
+                let lobe = cloud_lobe(body);
                 let inner = body.inset(lobe);
                 canvas.fill_round_rect(
                     inner.x - grow,
@@ -544,7 +574,7 @@ impl<'a> Bubble<'a> {
                     lobe,
                     paint,
                 );
-                for (px, py) in perimeter(inner, lobe * 1.5) {
+                for (px, py) in perimeter(inner, lobe * 1.9) {
                     canvas.fill_ellipse(px, py, lobe + grow, lobe + grow, paint);
                 }
             }
@@ -553,15 +583,52 @@ impl<'a> Bubble<'a> {
                 let spikes = ((body.w + body.h) / 16.0).clamp(5.0, 12.0) as u32;
                 let mut pts = [(0.0f32, 0.0f32); 32];
                 let n = (spikes * 2) as usize;
+                let (rx, ry) = (body.w / 2.0, body.h / 2.0);
                 for (i, p) in pts[..n].iter_mut().enumerate() {
                     let a = std::f32::consts::TAU * i as f32 / n as f32 - std::f32::consts::FRAC_PI_2;
-                    let k = if i % 2 == 0 { 1.0 } else { 0.75 };
-                    *p = (cx + (r.w / 2.0) * k * a.cos(), cy + (r.h / 2.0) * k * a.sin());
+                    let k = if i % 2 == 0 { 1.0 } else { BURST_NOTCH };
+                    *p = (cx + rx * k * a.cos(), cy + ry * k * a.sin());
                 }
+                offset_polygon(&mut pts[..n], grow);
                 canvas.fill_polygon(&pts[..n], paint);
             }
         }
     }
+}
+
+/// Moves every edge of the polygon `pts` out by `d` (in when negative), sliding each
+/// vertex along the bisector of its two edges, so a border drawn as the difference
+/// of two offsets is the same thickness at a point and in a notch. `pts` must wind
+/// clockwise on screen.
+fn offset_polygon(pts: &mut [Point], d: f32) {
+    let n = pts.len();
+    if n < 3 || d == 0.0 {
+        return;
+    }
+    let mut src = [(0.0f32, 0.0f32); 32];
+    src[..n].copy_from_slice(pts);
+    let normal = |a: Point, b: Point| {
+        let (ex, ey) = (b.0 - a.0, b.1 - a.1);
+        let l = (ex * ex + ey * ey).sqrt().max(1e-6);
+        (ey / l, -ex / l)
+    };
+    for i in 0..n {
+        let (p, q, r) = (src[(i + n - 1) % n], src[i], src[(i + 1) % n]);
+        let (n1, n2) = (normal(p, q), normal(q, r));
+        // The bisector `n1 + n2` scaled so the edges move by exactly `d`; the floor
+        // keeps a hairpin vertex from flying off.
+        let k = d / (1.0 + n1.0 * n2.0 + n1.1 * n2.1).max(0.05);
+        pts[i] = (q.0 + (n1.0 + n2.0) * k, q.1 + (n1.1 + n2.1) * k);
+    }
+}
+
+/// How far in from the points a burst's notches sit, as a fraction of its radius.
+const BURST_NOTCH: f32 = 0.75;
+
+/// Radius of a cloud's lobes: a good fraction of the body, or the outline reads as a
+/// rounded box.
+fn cloud_lobe(body: Rect) -> f32 {
+    (body.w.min(body.h) / 3.0).clamp(3.0, 12.0)
 }
 
 /// Where the tail should leave `side` to reach `mouth`, kept away from the corners.
@@ -586,31 +653,67 @@ fn perimeter(r: Rect, step: f32) -> impl Iterator<Item = Point> {
     horizontal.chain(vertical)
 }
 
-/// Fills a tail grown by `grow` dots, the same way [`Bubble::paint_body`] does.
-fn paint_tail(canvas: &mut Canvas, body: Rect, tail: &Tail, grow: f32, paint: Paint) {
-    let (base, tip) = tail.geometry(body);
-    let half = (tail.width / 2.0 + grow).max(0.5);
-    let (dx, dy) = (tip.0 - base.0, tip.1 - base.1);
+/// Where a tail meets its body; see [`Bubble::tail_anchor`].
+#[derive(Clone, Copy, Debug)]
+struct Anchor {
+    /// Where the tail crosses the body's outline.
+    base: Point,
+    /// Where its base line really is, inside the body.
+    root: Point,
+    /// Half its width at the root.
+    half: f32,
+}
+
+/// Fills a tail grown by `grow` dots, the same way [`Bubble::paint_body`] does: the
+/// same tail drawn at `0.0` and then at `-t` leaves a border `t` thick all round.
+fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint: Paint) {
+    let Anchor { base, root, half } = anchor;
+    let tip = tail.tip_from(base);
+    let (ox, oy) = tail.side.out();
+    let (sx, sy) = if tail.side.horizontal() { (1.0, 0.0) } else { (0.0, 1.0) };
+    let hw = tail.width / 2.0;
+    let (dx, dy) = (tip.0 - root.0, tip.1 - root.1);
     let len = (dx * dx + dy * dy).sqrt();
     if len <= 0.0 {
         return;
     }
-    // Along the side, so the base stays flush with the body edge.
-    let (sx, sy) = if tail.side.horizontal() { (1.0, 0.0) } else { (0.0, 1.0) };
-    let (ox, oy) = tail.side.out();
-    // Sink the base a dot into the body so no seam shows between them.
-    let (bx, by) = (base.0 - ox * (grow + 1.0), base.1 - oy * (grow + 1.0));
-    let (tx, ty) = (tip.0 + ox * grow, tip.1 + oy * grow);
-    match tail.kind {
-        TailKind::Point => {
-            canvas.fill_polygon(&[(bx - sx * half, by - sy * half), (bx + sx * half, by + sy * half), (tx, ty)], paint);
+    if tail.kind == TailKind::Bubbles {
+        // Three shrinking discs on the line from base to tip, centred the same in
+        // every pass so their borders stay even.
+        // Snapped to dot centres, so a disc a few dots across is round, not lopsided.
+        for (t, scale) in [(0.2, 1.0), (0.55, 0.7), (0.85, 0.45)] {
+            let r = (hw * scale + grow).max(0.5);
+            let (cx, cy) = (base.0 + (tip.0 - base.0) * t, base.1 + (tip.1 - base.1) * t);
+            canvas.fill_ellipse(cx.floor() + 0.5, cy.floor() + 0.5, r, r, paint);
         }
+        return;
+    }
+    // Offsetting the triangle's sides by `grow` moves its tip along the axis by
+    // `grow · hyp / half`; the base line stays at the root, inside the body, and the
+    // corners are where the shifted sides cross it. A thin tail's inset vanishes
+    // well before the tip, which is what keeps its border even right to the point.
+    let (ux, uy) = (dx / len, dy / len);
+    let hyp = (half * half + len * len).sqrt();
+    let apex = (tip.0 + ux * grow * hyp / half, tip.1 + uy * grow * hyp / half);
+    if (apex.0 - root.0) * ox + (apex.1 - root.1) * oy <= 0.0 {
+        return;
+    }
+    let corner = |sign: f32| {
+        // The shifted side runs through the apex parallel to the original one.
+        let (vx, vy) = (root.0 + sx * half * sign - tip.0, root.1 + sy * half * sign - tip.1);
+        let along = vx * ox + vy * oy;
+        let s = if along.abs() < 1e-3 { 0.0 } else { ((root.0 - apex.0) * ox + (root.1 - apex.1) * oy) / along };
+        (apex.0 + vx * s, apex.1 + vy * s)
+    };
+    let (b0, b1) = (corner(-1.0), corner(1.0));
+    match tail.kind {
+        TailKind::Point | TailKind::Bubbles => canvas.fill_polygon(&[b0, b1, apex], paint),
         TailKind::Curve => {
-            // Two quadratics from the base corners to the tip, bowed the same way:
-            // the tail leaves the body at full width and curls to a point.
-            let (b0, b1) = ((bx - sx * half, by - sy * half), (bx + sx * half, by + sy * half));
+            // Two quadratics from the base corners to the tip, bowed the same way: the
+            // tail leaves the body at full width and curls to a point. The curl is
+            // set by the tail's true width, so every pass follows the same curve.
             let c0 = (b0.0 + ox * len * 0.35, b0.1 + oy * len * 0.35);
-            let c1 = (b1.0 + ox * len * 0.6 + sx * half * 1.5, b1.1 + oy * len * 0.6 + sy * half * 1.5);
+            let c1 = (b1.0 + ox * len * 0.6 + sx * hw * 1.5, b1.1 + oy * len * 0.6 + sy * hw * 1.5);
             let q = |a: Point, c: Point, b: Point, t: f32| {
                 let u = 1.0 - t;
                 (u * u * a.0 + 2.0 * u * t * c.0 + t * t * b.0, u * u * a.1 + 2.0 * u * t * c.1 + t * t * b.1)
@@ -619,19 +722,10 @@ fn paint_tail(canvas: &mut Canvas, body: Rect, tail: &Tail, grow: f32, paint: Pa
             let mut pts = [(0.0f32, 0.0f32); 2 * N + 2];
             for i in 0..=N {
                 let t = i as f32 / N as f32;
-                pts[i] = q(b0, c0, (tx, ty), t);
-                pts[2 * N + 1 - i] = q(b1, c1, (tx, ty), t);
+                pts[i] = q(b0, c0, apex, t);
+                pts[2 * N + 1 - i] = q(b1, c1, apex, t);
             }
             canvas.fill_polygon(&pts, paint);
-        }
-        TailKind::Bubbles => {
-            let (ux, uy) = (dx / len, dy / len);
-            for i in 0..3 {
-                let t = 0.25 + 0.35 * i as f32;
-                let r = half * (1.0 - 0.25 * i as f32);
-                let r = r.max(0.6);
-                canvas.fill_ellipse(bx + ux * len * t, by + uy * len * t, r, r, paint);
-            }
         }
     }
 }
@@ -697,6 +791,35 @@ mod tests {
             let (px, py) = (body.center().0 + ox * (body.w / 2.0 + 2.0), body.center().1 + oy * (body.h / 2.0 + 2.0));
             assert!(c.get(px as i32, py as i32).is_some(), "{side:?} tail missing at {px},{py}");
         }
+    }
+
+    #[test]
+    fn tails_join_the_body_without_a_seam() {
+        let fill = Rgb::hex(0x102030);
+        let mut c = Canvas::new(20, 8);
+        let tail = Tail::new(Side::Bottom, 0.5, TailKind::Point).len(6.0).width(6.0);
+        let body = Bubble::new("hi").tail(tail).fill(fill).border(1.0, INK).ink(INK).draw(&mut c, 4.0, 4.0);
+        let x = body.center().0 as i32;
+        // The border row of the body and the first row of the tail are both fill
+        // where the tail leaves: no border line across its base.
+        for y in [body.bottom() as i32 - 1, body.bottom() as i32] {
+            assert_eq!(c.get(x, y), Some(crate::Color::Rgb(fill)), "seam at {x},{y}");
+        }
+        // The tail's own edges are border.
+        assert_eq!(c.get(x - 3, body.bottom() as i32), Some(crate::Color::Rgb(INK)));
+    }
+
+    #[test]
+    fn dot_font_text_keeps_off_the_border() {
+        let red = Rgb::hex(0xff0000);
+        let mut c = Canvas::new(20, 6);
+        let body = Bubble::new("no cells").font(Font::tiny()).wrap(6).border(1.0, INK).ink(red).draw(&mut c, 0.0, 0.0);
+        let (top, bottom) = (body.y as i32, body.bottom() as i32 - 1);
+        for x in body.x as i32..body.right() as i32 {
+            assert_ne!(c.get(x, top), Some(crate::Color::Rgb(red)), "text on the top border at {x}");
+            assert_ne!(c.get(x, bottom), Some(crate::Color::Rgb(red)), "text on the bottom border at {x}");
+        }
+        assert!(c.cells().any(|cell| cell.bits != 0), "and the text is drawn");
     }
 
     #[test]
