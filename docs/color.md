@@ -1,6 +1,6 @@
 # `color`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · **color** · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · **color** · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Colour types: truecolor [`Rgb`](color.md#rgb), the terminal-palette aware [`Color`](color.md#color), and the
 [`Palette`](color.md#palette) that maps one onto the other.
@@ -229,5 +229,5 @@ pub fn nearest_ansi(&self, c: Rgb) -> u8
 
 Index of the ANSI colour (`0..=15`) closest to `c` in this palette.
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · **color** · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · **color** · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

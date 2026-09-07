@@ -20,7 +20,7 @@ use std::cell::RefCell;
 
 use crate::canvas::bayer;
 use crate::layer::{Edt, INF};
-use crate::{Canvas, Color, Path};
+use crate::{Canvas, Color, Path, Silhouette, Transform};
 
 /// A repeating dot pattern for [`Paint::pattern`], with its period in dots. Patterns
 /// are anchored at the canvas origin unless the paint is [anchored](Paint::anchor)
@@ -71,6 +71,11 @@ impl Pattern {
 pub type Shader = fn(&Probe) -> Option<Paint>;
 
 /// One dot as a [`Paint::shader`] sees it: where it is, and where in the shape.
+///
+/// The shape-relative fields (`u`, `v`, `dist`, `normal`) come from the shape the
+/// paint is filling: its bounding box and its distance field. With
+/// [`Paint::per_cell`] they are those of one dot per cell, so what a shader decides
+/// is decided per cell.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Probe {
     /// The dot, relative to the paint's [anchor](Paint::anchor).
@@ -81,8 +86,14 @@ pub struct Probe {
     pub u: f32,
     /// Where the dot sits down the shape's bounding box, `0..1` top to bottom.
     pub v: f32,
-    /// Distance in dots to the nearest dot outside the shape: `1` on its edge.
-    pub edge: f32,
+    /// Signed distance in dots to the shape's edge: `-1` on the edge, more negative
+    /// deeper inside. (A paint only ever fills the inside, so it is never positive.)
+    pub dist: f32,
+    /// The unit normal of the shape's surface at this dot, pointing outwards: the
+    /// direction to the nearest edge, which for a rounded shape is the direction it
+    /// faces. `(0, 0)` on a ridge equidistant from two edges. Dot it with a light
+    /// direction and the shape is lit.
+    pub normal: (f32, f32),
     /// The paint's first colour.
     pub a: Color,
     /// The paint's second colour.
@@ -94,21 +105,70 @@ impl Probe {
     /// an ordered dither between the two for palette colours.
     #[inline]
     pub fn mix(&self, t: f32) -> Paint {
-        Paint::new(Color::from_packed(mix(self.a.packed(), self.b.packed(), t, self.x, self.y)))
+        Paint::new(Color::from_packed(mix(self.a.packed(), self.b.packed(), t, bayer(self.y, self.x))))
+    }
+
+    /// How much the surface faces `light`, a direction towards the light: `1`
+    /// facing it, `0` side on, `-1` facing away. This is `normal · light` with
+    /// `light` normalised, the number every kind of shading starts from.
+    #[inline]
+    pub fn lit(&self, light: Point) -> f32 {
+        let (lx, ly) = unit(light);
+        self.normal.0 * lx + self.normal.1 * ly
     }
 }
 
-/// Blends two packed colours, or picks one of them through a dither when either is
-/// a palette colour that cannot be blended.
+/// `v` scaled to unit length, or `(0, 0)`.
 #[inline]
-fn mix(a: u32, b: u32, t: f32, x: i32, y: i32) -> u32 {
+fn unit(v: Point) -> Point {
+    let len = (v.0 * v.0 + v.1 * v.1).sqrt();
+    if len > 0.0 { (v.0 / len, v.1 / len) } else { (0.0, 0.0) }
+}
+
+/// Blends two packed colours, or picks one of them against a threshold when either
+/// is a palette colour that cannot be blended.
+#[inline]
+fn mix(a: u32, b: u32, t: f32, threshold: f32) -> u32 {
     match (Color::from_packed(a), Color::from_packed(b)) {
         (Color::Rgb(p), Color::Rgb(q)) => Color::Rgb(p.lerp(q, t.clamp(0.0, 1.0))).packed(),
-        // Transposed so it does not line up with the coverage dither of the same paint.
-        _ if t > bayer(y, x) => b,
+        _ if t > threshold => b,
         _ => a,
     }
 }
+
+/// A well-mixed hash of a dot position in `0..1`: a dither threshold with no
+/// lattice in it.
+#[inline]
+fn hash(x: i32, y: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2c1b_3c6d);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297a_2d39);
+    h ^= h >> 15;
+    (h >> 8) as f32 / 16_777_216.0
+}
+
+/// How a paint spreads partial coverage over dots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dither {
+    /// The 4×4 Bayer lattice: even, and visibly a lattice.
+    Ordered,
+    /// A hash of the dot position: the same number of dots, with no grain.
+    Hashed,
+}
+
+/// One band of a cel paint: everything at or above `above` gets its ink.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Band {
+    above: f32,
+    packed: u32,
+    coverage: f32,
+    pattern: Option<Pattern>,
+}
+
+/// Bands a cel paint can hold.
+const MAX_BANDS: usize = 4;
 
 /// How a paint decides the colour of a dot.
 #[derive(Clone, Copy, Debug)]
@@ -123,6 +183,8 @@ enum Kind {
     Radial { cx: f32, cy: f32, r: f32, b: u32 },
     /// A blend from the paint's colour on the shape's edge to `b` `depth` dots in.
     Edge { depth: f32, b: u32 },
+    /// Flat bands by how much the surface faces a light.
+    Cel { lx: f32, ly: f32, bands: [Band; MAX_BANDS], n: u8, soft: f32 },
     /// A function of the dot.
     Shader { f: Shader, b: u32 },
 }
@@ -139,6 +201,9 @@ impl PartialEq for Kind {
                 (cx, cy, r, b) == (p, q, s, t)
             }
             (Kind::Edge { depth, b }, Kind::Edge { depth: d, b: c }) => (depth, b) == (d, c),
+            (Kind::Cel { lx, ly, bands, n, soft }, Kind::Cel { lx: p, ly: q, bands: r, n: m, soft: t }) => {
+                (lx, ly, n, soft) == (p, q, m, t) && bands[..*n as usize] == r[..*m as usize]
+            }
             (Kind::Shader { f, b }, Kind::Shader { f: g, b: c }) => std::ptr::fn_addr_eq(*f, *g) && b == c,
             _ => false,
         }
@@ -150,23 +215,28 @@ impl PartialEq for Kind {
 /// The simplest paint is a colour ([`Paint::new`], or any colour converted with
 /// `into()`), and [`Paint::erase`] unsets dots instead. On top of that:
 ///
-/// * [`dithered`](Self::dithered) draws a fraction of the dots in an ordered pattern;
+/// * [`dithered`](Self::dithered) draws a fraction of the dots in an ordered pattern
+///   ([`hashed`](Self::hashed) spreads them without the pattern);
 /// * [`pattern`](Self::pattern) draws hatching, grids, checkers or dots;
 /// * [`linear`](Self::linear) and [`radial`](Self::radial) blend between two colours
 ///   across the canvas;
 /// * [`edge`](Self::edge) blends from the edge of the shape inwards;
-/// * [`shader`](Self::shader) is a function of your own, given the dot's position
-///   and where it lies in the shape.
+/// * [`cel`](Self::cel) lights the shape from a direction in flat bands;
+/// * [`shader`](Self::shader) is a function of your own, given the dot's position,
+///   where it lies in the shape and which way the shape faces there.
 ///
 /// Dithers, patterns and gradients are laid out in canvas coordinates, so a shape
 /// drawn in the same paint at another position shows another slice of the texture.
 /// [`anchor`](Self::anchor) moves the paint's origin to a point of the shape, so the
 /// texture moves with it.
 ///
-/// Edge and shader paints are *shape-relative*: the shape is first rasterised into a
-/// scratch mask (one kept per thread, so it costs an allocation once), and the paint
-/// is then evaluated per dot of that mask with its position in the shape's bounding
-/// box and its distance to the shape's edge.
+/// Edge, cel and shader paints are *shape-relative*: the shape is first rasterised
+/// into a scratch mask (one kept per thread, so it costs an allocation once), its
+/// distance field is computed, and the paint is then evaluated per dot with its
+/// position in the shape's bounding box, its distance to the edge and the surface
+/// normal there. [`per_cell`](Self::per_cell) evaluates once per cell instead, so
+/// that whatever the paint decides lands on cell boundaries and survives the text
+/// fallback, where a cell has one colour.
 ///
 /// ```
 /// use cobra::{Canvas, Paint, Pattern, Rgb};
@@ -182,13 +252,22 @@ pub struct Paint {
     packed: u32,
     coverage: f32,
     anchor: (i32, i32),
+    dither: Dither,
+    per_cell: bool,
     kind: Kind,
 }
 
 impl Paint {
     /// Solid `color`.
     pub fn new(color: impl Into<Color>) -> Self {
-        Self { packed: color.into().packed(), coverage: 1.0, anchor: (0, 0), kind: Kind::Flat }
+        Self {
+            packed: color.into().packed(),
+            coverage: 1.0,
+            anchor: (0, 0),
+            dither: Dither::Ordered,
+            per_cell: false,
+            kind: Kind::Flat,
+        }
     }
 
     /// `color` on `coverage` (`0..=1`) of the dots, in the ordered Bayer pattern of
@@ -199,7 +278,7 @@ impl Paint {
 
     /// Unsets dots instead of colouring them.
     pub const fn erase() -> Self {
-        Self { packed: 0, coverage: 1.0, anchor: (0, 0), kind: Kind::Flat }
+        Self { packed: 0, coverage: 1.0, anchor: (0, 0), dither: Dither::Ordered, per_cell: false, kind: Kind::Flat }
     }
 
     /// `color` on the dots of `pattern`.
@@ -226,18 +305,53 @@ impl Paint {
         Self { kind: Kind::Edge { depth: depth.max(f32::EPSILON), b: b.into().packed() }, ..Self::new(a) }
     }
 
+    /// Cel shading: `base` where the shape faces away from `light` (a direction
+    /// towards the light, such as `(-1.0, -1.0)` for light from the upper left), and
+    /// each of `bands` where the surface faces it at least as much as the band's
+    /// threshold, `-1..=1` as [`Probe::lit`] gives it. A band's paint lends its
+    /// colour, coverage and pattern, so a band can be a flat ink, a dither or a
+    /// hatch. Up to four bands, in any order. Shape-relative; see the [type
+    /// docs](Self), and [`per_cell`](Self::per_cell) for bands that survive the text
+    /// fallback, [`soften`](Self::soften) for band edges that dissolve instead of
+    /// stepping.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Paint, Rgb};
+    ///
+    /// let (dark, mid, light) = (Rgb::hex(0x7a3e00), Rgb::hex(0xff8c1a), Rgb::hex(0xffe08a));
+    /// let ball = Paint::cel(dark, (-1.0, -1.0), &[(-0.2, mid), (0.5, light)]).per_cell();
+    /// let mut canvas = Canvas::new(10, 5);
+    /// canvas.disc(10.0, 10.0, 9.0, ball);
+    /// ```
+    pub fn cel<P: Into<Paint> + Copy>(base: impl Into<Color>, light: Point, bands: &[(f32, P)]) -> Self {
+        let (lx, ly) = unit(light);
+        let mut sorted = [Band { above: 0.0, packed: 0, coverage: 1.0, pattern: None }; MAX_BANDS];
+        let n = bands.len().min(MAX_BANDS);
+        for (slot, &(above, p)) in sorted.iter_mut().zip(bands) {
+            let p: Paint = p.into();
+            let pattern = match p.kind {
+                Kind::Pattern(pat) => Some(pat),
+                _ => None,
+            };
+            *slot = Band { above, packed: p.packed, coverage: p.coverage, pattern };
+        }
+        sorted[..n].sort_by(|a, b| a.above.total_cmp(&b.above));
+        Self { kind: Kind::Cel { lx, ly, bands: sorted, n: n as u8, soft: 0.0 }, ..Self::new(base) }
+    }
+
     /// A paint computed per dot by `f`, given a [`Probe`] carrying the dot's
-    /// position, its place in the shape and the two colours `a` and `b`. `f` returns
-    /// the paint for the dot (its colour and coverage are used) or `None` to leave
-    /// the dot as it is. Shape-relative; see the [type docs](Self).
+    /// position, its place in the shape, the surface normal there and the two
+    /// colours `a` and `b`. `f` returns the paint for the dot (its colour, coverage
+    /// and pattern are used) or `None` to leave the dot as it is. Shape-relative;
+    /// see the [type docs](Self).
     ///
     /// ```
     /// use cobra::{Canvas, Paint, Rgb};
     ///
     /// // Horizontal bands of the two colours, four dots tall.
     /// let bands = Paint::shader(Rgb::hex(0xffffff), Rgb::hex(0x808080), |p| Some(p.mix((p.y / 4 % 2) as f32)));
-    /// // Lit from the top left: `b` in the corner, `a` far from it.
-    /// let lit = Paint::shader(Rgb::hex(0x203040), Rgb::hex(0x80c0ff), |p| Some(p.mix(1.0 - (p.u + p.v) / 2.0)));
+    /// // Lit from the top left, smoothly: the surface normal against the light.
+    /// let lit = Paint::shader(Rgb::hex(0x203040), Rgb::hex(0x80c0ff), |p| Some(p.mix(p.lit((-1.0, -1.0)))));
     /// let mut canvas = Canvas::new(10, 5);
     /// canvas.disc(10.0, 10.0, 8.0, lit);
     /// canvas.fill_rect(0.0, 0.0, 20.0, 4.0, bands);
@@ -253,6 +367,36 @@ impl Paint {
         self
     }
 
+    /// Spreads the paint's coverage by a hash of each dot's position instead of the
+    /// Bayer lattice: the same share of dots, with no visible grid. Ordered dither
+    /// is right for a gradient, where the eye wants regularity; this is right for a
+    /// texture, where it reads regularity as a material.
+    pub fn hashed(mut self) -> Self {
+        self.dither = Dither::Hashed;
+        self
+    }
+
+    /// Evaluates the paint once per cell, at the covered dot nearest the cell's
+    /// centre, and gives every dot of the cell the answer: gradients, cel bands and
+    /// shaders then change colour only on cell boundaries, so a band is never
+    /// thinner than the one colour a cell has in the text fallback. The coverage
+    /// dither stays per dot.
+    pub fn per_cell(mut self) -> Self {
+        self.per_cell = true;
+        self
+    }
+
+    /// For a [`cel`](Self::cel) paint: within `width` (in units of [`Probe::lit`],
+    /// so about `0.1`–`0.3`) of a band's threshold, dither between the two bands
+    /// instead of stepping, so the terminator dissolves over a few dots. Ignored by
+    /// other paints.
+    pub fn soften(mut self, width: f32) -> Self {
+        if let Kind::Cel { soft, .. } = &mut self.kind {
+            *soft = width.max(0.0);
+        }
+        self
+    }
+
     /// Moves the paint's origin to dot `(x, y)`: the dither, the pattern and the
     /// gradient geometry are evaluated relative to it, so a texture drawn at a
     /// shape's own corner follows the shape when it moves.
@@ -262,7 +406,7 @@ impl Paint {
     }
 
     /// The colour, `None` for [`erase`](Self::erase). For a gradient or a shader, the
-    /// first of its two colours.
+    /// first of its two colours; for a cel paint, its base.
     pub fn color(&self) -> Option<Color> {
         (self.packed != 0).then(|| Color::from_packed(self.packed))
     }
@@ -281,51 +425,112 @@ impl Paint {
     /// Whether the paint needs the shape it fills rasterised first.
     #[inline]
     pub(crate) fn needs_shape(&self) -> bool {
-        matches!(self.kind, Kind::Edge { .. } | Kind::Shader { .. })
+        matches!(self.kind, Kind::Edge { .. } | Kind::Shader { .. } | Kind::Cel { .. }) || self.per_cell
     }
 
-    /// Whether the paint's coverage dither lands on dot `(x, y)`.
+    /// The dither threshold for a dot, in the paint's own coordinates.
     #[inline]
-    pub(crate) fn covers(&self, x: i32, y: i32) -> bool {
-        self.coverage >= 1.0 || self.coverage > bayer(x - self.anchor.0, y - self.anchor.1)
+    fn threshold(&self, x: i32, y: i32) -> f32 {
+        match self.dither {
+            Dither::Ordered => bayer(x, y),
+            Dither::Hashed => hash(x, y),
+        }
     }
 
     /// What the paint writes at dot `(x, y)` when nothing is known about the shape:
     /// `None` to leave the dot alone, `Some(0)` to erase it.
     #[inline]
     pub(crate) fn sample(&self, x: i32, y: i32) -> Option<u32> {
-        self.sample_in(x, y, 0.0, 0.0, INF)
+        self.sample_in(x, y, &Shaped { x, y, u: 0.0, v: 0.0, dist: -INF, normal: (0.0, 0.0) })
     }
 
-    /// [`sample`](Self::sample) for a dot at `(u, v)` of its shape's box and `edge`
-    /// dots inside the shape.
+    /// [`sample`](Self::sample) for dot `(x, y)` with what is known of the shape at
+    /// `at` (the dot itself, or the cell's representative under `per_cell`).
     #[inline]
-    fn sample_in(&self, x: i32, y: i32, u: f32, v: f32, edge: f32) -> Option<u32> {
+    fn sample_in(&self, x: i32, y: i32, at: &Shaped) -> Option<u32> {
         let (x, y) = (x - self.anchor.0, y - self.anchor.1);
-        if self.coverage < 1.0 && self.coverage <= bayer(x, y) {
+        let thr = self.threshold(x, y);
+        if self.coverage < 1.0 && self.coverage <= thr {
             return None;
         }
+        let (px, py) = (at.x - self.anchor.0, at.y - self.anchor.1);
         match self.kind {
             Kind::Flat => Some(self.packed),
             Kind::Pattern(p) => p.on(x, y).then_some(self.packed),
             Kind::Linear { x0, y0, x1, y1, b } => {
                 let (dx, dy) = (x1 - x0, y1 - y0);
                 let len2 = dx * dx + dy * dy;
-                let t = if len2 > 0.0 { ((x as f32 + 0.5 - x0) * dx + (y as f32 + 0.5 - y0) * dy) / len2 } else { 1.0 };
-                Some(mix(self.packed, b, t, x, y))
+                let t =
+                    if len2 > 0.0 { ((px as f32 + 0.5 - x0) * dx + (py as f32 + 0.5 - y0) * dy) / len2 } else { 1.0 };
+                Some(mix(self.packed, b, t, bayer(y, x)))
             }
             Kind::Radial { cx, cy, r, b } => {
-                let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
-                Some(mix(self.packed, b, if r > 0.0 { d / r } else { 1.0 }, x, y))
+                let d = ((px as f32 + 0.5 - cx).powi(2) + (py as f32 + 0.5 - cy).powi(2)).sqrt();
+                Some(mix(self.packed, b, if r > 0.0 { d / r } else { 1.0 }, bayer(y, x)))
             }
-            Kind::Edge { depth, b } => Some(mix(self.packed, b, (edge - 1.0) / depth, x, y)),
+            Kind::Edge { depth, b } => Some(mix(self.packed, b, (-at.dist - 1.0) / depth, bayer(y, x))),
+            Kind::Cel { lx, ly, bands, n, soft } => {
+                let n = n as usize;
+                let t = at.normal.0 * lx + at.normal.1 * ly;
+                let mut k = bands[..n].iter().take_while(|band| band.above <= t).count();
+                if soft > 0.0 {
+                    // Near a threshold, the two bands share the dots.
+                    if k < n && t > bands[k].above - soft {
+                        if (t - bands[k].above + soft) / (2.0 * soft) > thr {
+                            k += 1;
+                        }
+                    } else if k > 0
+                        && t < bands[k - 1].above + soft
+                        && (t - bands[k - 1].above + soft) / (2.0 * soft) <= thr
+                    {
+                        k -= 1;
+                    }
+                }
+                // A band's dither or pattern leaves its off dots to the band below.
+                while k > 0 {
+                    let band = bands[k - 1];
+                    if (band.coverage >= 1.0 || band.coverage > thr) && band.pattern.is_none_or(|p| p.on(x, y)) {
+                        return Some(band.packed);
+                    }
+                    k -= 1;
+                }
+                Some(self.packed)
+            }
             Kind::Shader { f, b } => {
-                let probe = Probe { x, y, u, v, edge, a: Color::from_packed(self.packed), b: Color::from_packed(b) };
+                let probe = Probe {
+                    x: px,
+                    y: py,
+                    u: at.u,
+                    v: at.v,
+                    dist: at.dist,
+                    normal: at.normal,
+                    a: Color::from_packed(self.packed),
+                    b: Color::from_packed(b),
+                };
                 let p = f(&probe)?;
-                p.covers(x, y).then_some(p.packed)
+                // The returned paint is read at the dot in this paint's frame.
+                p.sample(x + p.anchor.0, y + p.anchor.1)
             }
         }
     }
+}
+
+/// Where an axis-aligned box lands under a canvas's transform.
+enum Boxed {
+    Same,
+    Moved(f32, f32, f32, f32),
+    Turned,
+}
+
+/// What a shape-relative paint knows about one dot of its shape.
+#[derive(Clone, Copy)]
+struct Shaped {
+    x: i32,
+    y: i32,
+    u: f32,
+    v: f32,
+    dist: f32,
+    normal: (f32, f32),
 }
 
 impl From<Color> for Paint {
@@ -520,13 +725,27 @@ fn ngon_points(cx: f32, cy: f32, r1: f32, r2: f32, n: u32, rot: f32) -> ([Point;
 }
 
 thread_local! {
-    /// The mask a shape-relative paint rasterises into, kept between calls.
+    /// A canvas kept per thread for drawing a shape before painting through it.
     static SCRATCH: RefCell<Option<Canvas>> = const { RefCell::new(None) };
+}
+
+/// Runs `f` with an empty scratch canvas of `cols × rows` cells and clears it after.
+/// The canvas is kept per thread, so this allocates once per size change.
+pub(crate) fn with_scratch<R>(cols: u16, rows: u16, f: impl FnOnce(&mut Canvas) -> R) -> R {
+    let mut scratch = SCRATCH.with(|s| s.borrow_mut().take()).unwrap_or_else(|| Canvas::new(0, 0));
+    if (scratch.cols(), scratch.rows()) != (cols, rows) {
+        scratch = Canvas::new(cols, rows);
+    }
+    let out = f(&mut scratch);
+    scratch.clear();
+    scratch.transform = Transform::IDENTITY;
+    SCRATCH.with(|s| *s.borrow_mut() = Some(scratch));
+    out
 }
 
 impl Canvas {
     /// Paints dots `x0..x1` of row `y`, clipped to the canvas. This is the primitive
-    /// every fill and stroke ends up in.
+    /// every fill and stroke ends up in. It is not transformed by [`with`](Self::with).
     pub fn span(&mut self, y: i32, x0: i32, x1: i32, paint: Paint) {
         if y < 0 || y >= self.height() {
             return;
@@ -535,6 +754,7 @@ impl Canvas {
         if x0 >= x1 {
             return;
         }
+        self.mark(x0, y, x1, y + 1);
         let start = y as usize * self.width() as usize + x0 as usize;
         let row = &mut self.dots[start..start + (x1 - x0) as usize];
         if paint.is_solid() {
@@ -554,31 +774,30 @@ impl Canvas {
         if !paint.needs_shape() {
             return draw(self, paint);
         }
-        let mut mask = SCRATCH.with(|s| s.borrow_mut().take()).unwrap_or_else(|| Canvas::new(0, 0));
-        if (mask.cols(), mask.rows()) != (self.cols(), self.rows()) {
-            mask = Canvas::new(self.cols(), self.rows());
-        }
-        draw(&mut mask, Paint::new(Color::Foreground));
-        self.stencil(&mask, paint);
-        mask.clear();
-        SCRATCH.with(|s| *s.borrow_mut() = Some(mask));
+        let transform = self.transform;
+        with_scratch(self.cols(), self.rows(), |mask| {
+            mask.transform = transform;
+            draw(mask, Paint::new(Color::Foreground));
+            if let Some((x0, y0, x1, y1)) = mask.dot_bounds() {
+                self.stencil_box(&*mask, x0, y0, x1, y1, paint);
+            }
+        });
     }
 
-    /// Paints every dot that is set in `mask` (a canvas of the same size). This is
-    /// how a shape-relative [`Paint`] is applied, and it works for any paint: the
-    /// mask is the shape, whatever drew it. The mask is scanned for the box around
-    /// its dots first; [`stencil_in`](Self::stencil_in) takes that box from you.
-    pub fn stencil(&mut self, mask: &Canvas, paint: impl Into<Paint>) {
-        let Some((x0, y0, x1, y1)) = mask.dot_bounds() else { return };
+    /// Paints every dot that `mask` covers: a [`Mask`](crate::Mask), or a canvas of
+    /// the same size (its set dots and printed cells). This is how a shape-relative
+    /// [`Paint`] is applied, and it works for any paint: the mask is the shape,
+    /// whatever drew it. [`stencil_in`](Self::stencil_in) limits it to a box.
+    pub fn stencil(&mut self, mask: &impl Silhouette, paint: impl Into<Paint>) {
+        let Some((x0, y0, x1, y1)) = mask.extent() else { return };
         self.stencil_box(mask, x0, y0, x1, y1, paint.into());
     }
 
     /// [`stencil`](Self::stencil) within `area` only. The dots of `mask` outside it
-    /// are neither painted nor looked at, so a caller that knows where its shape is
-    /// (it drew it a moment ago) skips the scan over the whole mask. The area is
-    /// also the frame a shape-relative paint works in: a gradient runs across it,
-    /// and an edge paint measures to its border as to the mask's own. It covers the
-    /// dots [`fill_rect`](Self::fill_rect) would with the same box.
+    /// are neither painted nor looked at. The area is also the frame a
+    /// shape-relative paint works in: a gradient runs across it, and an edge paint
+    /// measures to its border as to the mask's own. It covers the dots
+    /// [`fill_rect`](Self::fill_rect) would with the same box.
     ///
     /// ```
     /// use cobra::{Canvas, Paint, Rect, Rgb};
@@ -588,76 +807,165 @@ impl Canvas {
     /// let mut canvas = Canvas::new(20, 5);
     /// canvas.stencil_in(&mask, Rect::new(4.0, 4.0, 12.0, 12.0), Paint::edge(Rgb::hex(0x3aa0ff), Rgb::hex(0x0b2a4a), 3.0));
     /// ```
-    pub fn stencil_in(&mut self, mask: &Canvas, area: Rect, paint: impl Into<Paint>) {
+    pub fn stencil_in(&mut self, mask: &impl Silhouette, area: Rect, paint: impl Into<Paint>) {
         let (x0, y0) = (first(area.x), first(area.y));
         let (x1, y1) = (first(area.right()), first(area.bottom()));
         self.stencil_box(mask, x0, y0, x1, y1, paint.into());
     }
 
-    /// Paints the dots of `mask` within `x0..x1 × y0..y1`, clipped to both canvases.
-    fn stencil_box(&mut self, mask: &Canvas, x0: i32, y0: i32, x1: i32, y1: i32, paint: Paint) {
+    /// Paints the dots of `mask` within `x0..x1 × y0..y1`, clipped to the canvas.
+    fn stencil_box(&mut self, mask: &impl Silhouette, x0: i32, y0: i32, x1: i32, y1: i32, paint: Paint) {
         let (x0, y0) = (x0.max(0), y0.max(0));
-        let (x1, y1) = (x1.min(self.width()).min(mask.width()), y1.min(self.height()).min(mask.height()));
+        let (x1, y1) = (x1.min(self.width()), y1.min(self.height()));
         if x0 >= x1 || y0 >= y1 {
             return;
         }
+        self.mark(x0, y0, x1, y1);
+        let stride = self.width() as usize;
+        if !paint.needs_shape() {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    if mask.covers(x, y)
+                        && let Some(d) = paint.sample(x, y)
+                    {
+                        self.dots[y as usize * stride + x as usize] = d;
+                    }
+                }
+            }
+            return;
+        }
         let (w, h) = ((x1 - x0) as f32, (y1 - y0) as f32);
-        // Distance to the nearest unset dot, with a one-dot frame of unset dots so
-        // the mask's edge (and the canvas's) counts as an edge.
+        // Distance to the nearest uncovered dot, with a one-dot frame of uncovered
+        // dots so the mask's edge (and the box's) counts as an edge; its gradient is
+        // the surface normal.
         let gw = (x1 - x0 + 2) as usize;
-        let field = matches!(paint.kind, Kind::Edge { .. } | Kind::Shader { .. }).then(|| {
+        let field = matches!(paint.kind, Kind::Edge { .. } | Kind::Shader { .. } | Kind::Cel { .. }).then(|| {
             let mut grid = vec![0.0f32; gw * (y1 - y0 + 2) as usize];
             for y in y0..y1 {
                 for x in x0..x1 {
                     grid[(y - y0 + 1) as usize * gw + (x - x0 + 1) as usize] =
-                        if mask.get(x, y).is_some() { INF } else { 0.0 };
+                        if mask.covers(x, y) { INF } else { 0.0 };
                 }
             }
             Edt::default().run(&mut grid, gw, (y1 - y0 + 2) as usize);
+            for d in &mut grid {
+                *d = d.sqrt();
+            }
             grid
         });
-        let stride = self.width() as usize;
+        let shaped = |x: i32, y: i32| -> Shaped {
+            let (u, v) = ((x - x0) as f32 / w, (y - y0) as f32 / h);
+            let Some(f) = &field else { return Shaped { x, y, u, v, dist: -INF, normal: (0.0, 0.0) } };
+            let at = |dx: i32, dy: i32| f[(y - y0 + 1 + dy) as usize * gw + (x - x0 + 1 + dx) as usize];
+            let dist = -at(0, 0);
+            // Distance grows inwards, so the outward normal is minus its gradient.
+            let normal = unit((at(-1, 0) - at(1, 0), at(0, -1) - at(0, 1)));
+            Shaped { x, y, u, v, dist, normal }
+        };
+        // Under `per_cell`, the covered dot nearest the cell's centre speaks for the
+        // cell; these are the dots of a cell in that order.
+        const NEAR_CENTRE: [(i32, i32); 8] = [(0, 1), (1, 1), (0, 2), (1, 2), (0, 0), (1, 0), (0, 3), (1, 3)];
         for y in y0..y1 {
             for x in x0..x1 {
-                if mask.get(x, y).is_none() {
+                if !mask.covers(x, y) {
                     continue;
                 }
-                let edge = field.as_ref().map_or(INF, |f| f[(y - y0 + 1) as usize * gw + (x - x0 + 1) as usize].sqrt());
-                let (u, v) = ((x - x0) as f32 / w, (y - y0) as f32 / h);
-                if let Some(d) = paint.sample_in(x, y, u, v, edge) {
+                let at = if paint.per_cell {
+                    let (cx, cy) = (x & !1, y & !3);
+                    let mut rep = NEAR_CENTRE.iter().map(|&(dx, dy)| (cx + dx, cy + dy));
+                    let (rx, ry) = rep
+                        .find(|&(rx, ry)| (x0..x1).contains(&rx) && (y0..y1).contains(&ry) && mask.covers(rx, ry))
+                        .unwrap_or((x, y));
+                    shaped(rx, ry)
+                } else {
+                    shaped(x, y)
+                };
+                if let Some(d) = paint.sample_in(x, y, &at) {
                     self.dots[y as usize * stride + x as usize] = d;
                 }
             }
         }
     }
 
-    /// Keeps only the dots that are also set in `mask`: clips the canvas to a shape.
-    pub fn clip(&mut self, mask: &Canvas) {
+    /// Keeps only the dots that `mask` covers: clips the canvas to a shape.
+    pub fn clip(&mut self, mask: &impl Silhouette) {
         let stride = self.width() as usize;
         for (y, row) in self.dots.chunks_exact_mut(stride).enumerate() {
             for (x, d) in row.iter_mut().enumerate() {
-                if mask.get(x as i32, y as i32).is_none() {
+                if !mask.covers(x as i32, y as i32) {
                     *d = 0;
                 }
             }
         }
     }
 
-    /// Unsets every dot that is set in `mask`: cuts a shape out of the canvas.
-    pub fn cut(&mut self, mask: &Canvas) {
+    /// Unsets every dot that `mask` covers: cuts a shape out of the canvas.
+    pub fn cut(&mut self, mask: &impl Silhouette) {
+        let Some((x0, y0, x1, y1)) = mask.extent() else { return };
         let stride = self.width() as usize;
-        for (y, row) in self.dots.chunks_exact_mut(stride).enumerate() {
-            for (x, d) in row.iter_mut().enumerate() {
-                if mask.get(x as i32, y as i32).is_some() {
-                    *d = 0;
+        for y in y0.max(0)..y1.min(self.height()) {
+            for x in x0.max(0)..x1.min(self.width()) {
+                if mask.covers(x, y) {
+                    self.dots[y as usize * stride + x as usize] = 0;
                 }
             }
         }
+    }
+
+    /// Draws everything in `f`, then keeps only what landed inside `mask`: a line
+    /// clipped to a body, a texture that stops at a silhouette. `f` draws on a
+    /// scratch canvas under the current transform, with any primitive and any paint;
+    /// what it erases there does not erase here.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Mask, Rgb};
+    ///
+    /// let mut body = Mask::new(20, 5);
+    /// body.draw(|c| c.fill_ellipse(20.0, 10.0, 14.0, 8.0, Rgb::hex(0)));
+    /// let mut canvas = Canvas::new(20, 5);
+    /// canvas.stencil(&body, Rgb::hex(0xffa657));
+    /// // A crease that cannot escape the body however the points move.
+    /// canvas.clipped(&body, |c| c.spline(&[(2.0, 4.0), (20.0, 14.0), (38.0, 6.0)], false, 1.0, Rgb::hex(0x7a3e00)));
+    /// ```
+    pub fn clipped(&mut self, mask: &impl Silhouette, f: impl FnOnce(&mut Canvas)) {
+        let transform = self.transform;
+        with_scratch(self.cols(), self.rows(), |scratch| {
+            scratch.transform = transform;
+            f(scratch);
+            let (Some((x0, y0, x1, y1)), Some((mx0, my0, mx1, my1))) = (scratch.dot_bounds(), mask.extent()) else {
+                return;
+            };
+            let (x0, y0, x1, y1) = (x0.max(mx0), y0.max(my0), x1.min(mx1), y1.min(my1));
+            if x0 >= x1 || y0 >= y1 {
+                return;
+            }
+            self.mark(x0, y0, x1, y1);
+            let stride = self.width() as usize;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    if let Some(c) = scratch.get(x, y)
+                        && mask.covers(x, y)
+                    {
+                        self.dots[y as usize * stride + x as usize] = c.packed();
+                    }
+                }
+            }
+        });
     }
 
     /// Fills the axis-aligned box from `(x, y)` of size `w × h`.
     pub fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, paint: impl Into<Paint>) {
-        self.shaped(paint.into(), |c, paint| {
+        let paint = paint.into();
+        match self.boxed(x, y, w, h) {
+            Boxed::Same => {}
+            Boxed::Moved(x, y, w, h) => return self.untransformed(|c| c.fill_rect(x, y, w, h, paint)),
+            Boxed::Turned => {
+                let mut p = Path::new();
+                p.rect(x, y, w, h);
+                return self.fill_path(&p, paint);
+            }
+        }
+        self.shaped(paint, |c, paint| {
             let (x0, x1) = (first(x), first(x + w));
             for row in first(y)..first(y + h) {
                 c.span(row, x0, x1, paint);
@@ -665,11 +973,48 @@ impl Canvas {
         })
     }
 
+    /// Where the box `(x, y, w, h)` lands under the transform: unchanged, another
+    /// axis-aligned box, or somewhere a box cannot describe.
+    fn boxed(&self, x: f32, y: f32, w: f32, h: f32) -> Boxed {
+        let t = self.transform;
+        if t.is_identity() {
+            Boxed::Same
+        } else if t.is_axis_aligned() {
+            let (a, b) = (t.apply((x, y)), t.apply((x + w, y + h)));
+            Boxed::Moved(a.0.min(b.0), a.1.min(b.1), (b.0 - a.0).abs(), (b.1 - a.1).abs())
+        } else {
+            Boxed::Turned
+        }
+    }
+
+    /// Runs `draw` with the transform switched off, for a primitive that has already
+    /// mapped its geometry.
+    fn untransformed(&mut self, draw: impl FnOnce(&mut Canvas)) {
+        let t = std::mem::replace(&mut self.transform, Transform::IDENTITY);
+        draw(self);
+        self.transform = t;
+    }
+
     /// Outlines the box from `(x, y)` of size `w × h` with a border `width` dots
     /// thick, drawn inside the box so it covers the same dots as
     /// [`fill_rect`](Self::fill_rect) would.
     pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, paint: impl Into<Paint>) {
-        self.shaped(paint.into(), |c, paint| {
+        let paint = paint.into();
+        match self.boxed(x, y, w, h) {
+            Boxed::Same => {}
+            Boxed::Moved(mx, my, mw, mh) => {
+                let width = width * self.transform.scale_factor();
+                return self.untransformed(|c| c.rect(mx, my, mw, mh, width, paint));
+            }
+            Boxed::Turned => {
+                // The box minus the box inset by the border, even-odd.
+                let t = width.max(1.0).min(w / 2.0).min(h / 2.0);
+                let mut p = Path::new();
+                p.rect(x, y, w, h).rect(x + t, y + t, w - 2.0 * t, h - 2.0 * t);
+                return self.fill_path(&p, paint);
+            }
+        }
+        self.shaped(paint, |c, paint| {
             let t = width.max(1.0).min(w / 2.0).min(h / 2.0);
             c.fill_rect(x, y, w, t, paint);
             c.fill_rect(x, y + h - t, w, t, paint);
@@ -680,7 +1025,19 @@ impl Canvas {
 
     /// Fills the ellipse centred on `(cx, cy)` with radii `rx`, `ry`.
     pub fn fill_ellipse(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, paint: impl Into<Paint>) {
-        self.shaped(paint.into(), |c, paint| c.ellipse_spans(cx, cy, rx, ry, paint))
+        let paint = paint.into();
+        match self.boxed(cx - rx, cy - ry, 2.0 * rx, 2.0 * ry) {
+            Boxed::Same => {}
+            Boxed::Moved(x, y, w, h) => {
+                return self.untransformed(|c| c.fill_ellipse(x + w / 2.0, y + h / 2.0, w / 2.0, h / 2.0, paint));
+            }
+            Boxed::Turned => {
+                let mut p = Path::new();
+                p.ellipse(cx, cy, rx, ry);
+                return self.fill_path(&p, paint);
+            }
+        }
+        self.shaped(paint, |c, paint| c.ellipse_spans(cx, cy, rx, ry, paint))
     }
 
     fn ellipse_spans(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, paint: Paint) {
@@ -760,6 +1117,8 @@ impl Canvas {
     /// Even-odd scanline fill of the shape bounded by `edges`, with `xs` as room for
     /// one crossing per edge.
     fn fill_edges(&mut self, edges: impl Iterator<Item = (Point, Point)> + Clone, xs: &mut [f32], paint: Paint) {
+        let t = self.transform;
+        let edges = edges.map(move |(a, b)| if t.is_identity() { (a, b) } else { (t.apply(a), t.apply(b)) });
         let (mut lo, mut hi) = (f32::MAX, f32::MIN);
         for (a, _) in edges.clone() {
             lo = lo.min(a.1);
@@ -854,7 +1213,20 @@ impl Canvas {
 
     /// Fills the box from `(x, y)` of size `w × h` with corners rounded to radius `r`.
     pub fn fill_round_rect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, paint: impl Into<Paint>) {
-        self.shaped(paint.into(), |c, paint| {
+        let paint = paint.into();
+        match self.boxed(x, y, w, h) {
+            Boxed::Same => {}
+            Boxed::Moved(mx, my, mw, mh) => {
+                let r = r * self.transform.scale_factor();
+                return self.untransformed(|c| c.fill_round_rect(mx, my, mw, mh, r, paint));
+            }
+            Boxed::Turned => {
+                let mut p = Path::new();
+                p.round_rect(x, y, w, h, r);
+                return self.fill_path(&p, paint);
+            }
+        }
+        self.shaped(paint, |c, paint| {
             for row in first(y)..first(y + h) {
                 if let Some((a, b)) = round_rect_span(row as f32 + 0.5, x, y, w, h, r) {
                     c.span(row, first(a), first(b), paint);
@@ -866,7 +1238,21 @@ impl Canvas {
     /// Outlines a rounded box with a border `width` dots thick, drawn inside it.
     #[allow(clippy::too_many_arguments)]
     pub fn round_rect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, width: f32, paint: impl Into<Paint>) {
-        self.shaped(paint.into(), |c, paint| {
+        let paint = paint.into();
+        match self.boxed(x, y, w, h) {
+            Boxed::Same => {}
+            Boxed::Moved(mx, my, mw, mh) => {
+                let k = self.transform.scale_factor();
+                return self.untransformed(|c| c.round_rect(mx, my, mw, mh, r * k, width * k, paint));
+            }
+            Boxed::Turned => {
+                let t = width.max(1.0).min(w / 2.0).min(h / 2.0);
+                let mut p = Path::new();
+                p.round_rect(x, y, w, h, r).round_rect(x + t, y + t, w - 2.0 * t, h - 2.0 * t, r - t);
+                return self.fill_path(&p, paint);
+            }
+        }
+        self.shaped(paint, |c, paint| {
             let t = width.max(1.0).min(w / 2.0).min(h / 2.0);
             for row in first(y)..first(y + h) {
                 let sy = row as f32 + 0.5;
@@ -886,7 +1272,13 @@ impl Canvas {
 
     /// Fills the ring between radii `inner` and `outer`, centred on `(cx, cy)`.
     pub fn ring(&mut self, cx: f32, cy: f32, outer: f32, inner: f32, paint: impl Into<Paint>) {
-        self.shaped(paint.into(), |c, paint| {
+        let paint = paint.into();
+        if !self.transform.is_identity() {
+            let mut p = Path::new();
+            p.ellipse(cx, cy, outer, outer).ellipse(cx, cy, inner.min(outer), inner.min(outer));
+            return self.fill_path(&p, paint);
+        }
+        self.shaped(paint, |c, paint| {
             let (outer, inner) = (outer.max(0.0), inner.clamp(0.0, outer));
             for y in first(cy - outer)..first(cy + outer) {
                 let dy = (y as f32 + 0.5 - cy).abs();
@@ -995,7 +1387,16 @@ impl Canvas {
     /// Strokes the path through `pts`: Bresenham lines for `width ≤ 1`, otherwise a
     /// quad per segment with round joins and caps; dashed if the pen says so.
     pub(crate) fn stroke(&mut self, pts: impl Iterator<Item = Point>, closed: bool, pen: Pen, paint: Paint) {
-        let dash = pen.dash.filter(|&(on, off)| on > 0.0 && off > 0.0);
+        let t = self.transform;
+        let (pen, dash) = if t.is_identity() {
+            (pen, pen.dash)
+        } else {
+            let k = t.scale_factor();
+            let dash = pen.dash.map(|(on, off)| (on * k, off * k));
+            (Pen { width: pen.width * k, dash, phase: pen.phase * k }, dash)
+        };
+        let pts = pts.map(move |p| if t.is_identity() { p } else { t.apply(p) });
+        let dash = dash.filter(|&(on, off)| on > 0.0 && off > 0.0);
         let mut along = pen.phase;
         let mut first_pt = None;
         let mut prev: Option<Point> = None;
@@ -1355,7 +1756,11 @@ mod tests {
         assert!(low.r < 30 && low.b > 225, "v runs down: {low:?}");
         // A shader on a stroke sees the stroke as the shape.
         let mut t = Canvas::new(8, 4);
-        t.polyline(&[(0.0, 8.0), (16.0, 8.0)], 4.0, Paint::shader(a, b, |p| Some(p.mix((p.edge > 1.5) as i32 as f32))));
+        t.polyline(
+            &[(0.0, 8.0), (16.0, 8.0)],
+            4.0,
+            Paint::shader(a, b, |p| Some(p.mix((-p.dist > 1.5) as i32 as f32))),
+        );
         assert_eq!(t.get(8, 6), Some(Color::Rgb(a)), "the rim of the stroke");
         assert_eq!(t.get(8, 8), Some(Color::Rgb(b)), "its core");
     }
@@ -1441,5 +1846,174 @@ mod tests {
         let mut off = Canvas::new(10, 1);
         off.polyline(&[(0.0, 1.0), (19.0, 1.0)], Pen::new(1.0).dash(2.0, 0.0), C);
         assert_eq!(count(&off), 20, "a dash without a gap is a solid line");
+    }
+
+    #[test]
+    fn normals_face_outwards_and_cel_bands_follow_them() {
+        let (dark, mid, light) = (Rgb::hex(0x100000), Rgb::hex(0x800000), Rgb::hex(0xff0000));
+        let mut c = Canvas::new(10, 5);
+        c.disc(10.0, 10.0, 9.0, Paint::cel(dark, (-1.0, -1.0), &[(-0.3, mid), (0.4, light)]));
+        let at = |x: i32, y: i32| c.get(x, y);
+        assert_eq!(at(4, 4), Some(Color::Rgb(light)), "the upper left faces the light");
+        assert_eq!(at(15, 15), Some(Color::Rgb(dark)), "the lower right faces away");
+        assert_eq!(at(15, 4), Some(Color::Rgb(mid)), "side on is the middle band");
+        assert_eq!(at(4, 15), Some(Color::Rgb(mid)));
+        // A shader sees the same normal and can light the shape itself.
+        let mut n = Canvas::new(10, 5);
+        n.disc(10.0, 10.0, 9.0, Paint::shader(dark, light, |p| Some(p.mix((p.lit((0.0, -1.0)) + 1.0) / 2.0))));
+        let red = |x: i32, y: i32| match n.get(x, y) {
+            Some(Color::Rgb(g)) => g.r,
+            other => panic!("{other:?}"),
+        };
+        assert!(red(10, 2) > red(10, 8) && red(10, 8) > red(10, 17), "lit from above: brighter at the top");
+        // Bands and their paints carry coverage and patterns.
+        let mut h = Canvas::new(10, 5);
+        let hatch = Paint::pattern(light, Pattern::Rows(2));
+        h.disc(10.0, 10.0, 9.0, Paint::cel(dark, (-1.0, -1.0), &[(0.3, hatch)]));
+        assert_eq!(h.get(4, 4), Some(Color::Rgb(light)));
+        assert_eq!(h.get(4, 5), Some(Color::Rgb(dark)), "the hatched band leaves its off rows to the base");
+        assert_eq!(
+            Paint::cel(dark, (1.0, 0.0), &[(0.0, mid); 9]).color(),
+            Some(Color::Rgb(dark)),
+            "extra bands are dropped"
+        );
+    }
+
+    #[test]
+    fn per_cell_paints_change_only_on_cell_boundaries() {
+        let (a, b) = (Rgb::hex(0x000000), Rgb::hex(0xffffff));
+        let mut c = Canvas::new(10, 5);
+        c.fill_rect(0.0, 0.0, 20.0, 20.0, Paint::linear((0.0, 0.0), (20.0, 0.0), a, b).per_cell());
+        for y in 0..20 {
+            for x in (0..20).step_by(2) {
+                assert_eq!(c.get(x, y), c.get(x + 1, y), "{x},{y}: both columns of a cell agree");
+                assert_eq!(c.get(x, y & !3), c.get(x, y), "{x},{y}: all four rows of a cell agree");
+            }
+        }
+        assert_ne!(c.get(0, 0), c.get(18, 0), "the gradient still runs");
+        // The coverage dither stays per dot.
+        let mut d = Canvas::new(10, 5);
+        d.fill_rect(0.0, 0.0, 20.0, 20.0, Paint::edge(a, b, 4.0).per_cell().dither(0.5));
+        assert_eq!(count(&d), 200);
+    }
+
+    #[test]
+    fn hashed_dither_keeps_the_count_and_loses_the_lattice() {
+        let mut ordered = Canvas::new(20, 10);
+        ordered.fill_rect(0.0, 0.0, 40.0, 40.0, Paint::dithered(C, 0.25));
+        let mut hashed = Canvas::new(20, 10);
+        hashed.fill_rect(0.0, 0.0, 40.0, 40.0, Paint::dithered(C, 0.25).hashed());
+        let (o, h) = (count(&ordered) as i32, count(&hashed) as i32);
+        assert_eq!(o, 400);
+        assert!((h - 400).abs() < 60, "about a quarter of 1600: {h}");
+        // Every 4×4 tile of an ordered dither is the same; hashed ones differ.
+        let tile = |c: &Canvas, tx: i32, ty: i32| {
+            (0..16).map(|i| c.get(tx * 4 + i % 4, ty * 4 + i / 4).is_some() as u32).sum::<u32>()
+        };
+        assert!((0..10).all(|t| tile(&ordered, t, t) == 4));
+        assert!((0..10).any(|t| tile(&hashed, t, t) != 4));
+        // The anchor moves the hash with the shape.
+        let (mut p, mut q) = (Canvas::new(20, 10), Canvas::new(20, 10));
+        p.fill_rect(0.0, 0.0, 8.0, 8.0, Paint::dithered(C, 0.3).hashed().anchor(0, 0));
+        q.fill_rect(5.0, 3.0, 8.0, 8.0, Paint::dithered(C, 0.3).hashed().anchor(5, 3));
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(p.get(x, y).is_some(), q.get(x + 5, y + 3).is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn soft_cel_edges_dither_between_bands() {
+        let (a, b) = (Rgb::hex(0x000000), Rgb::hex(0xffffff));
+        let mut hard = Canvas::new(12, 6);
+        hard.disc(12.0, 12.0, 11.0, Paint::cel(a, (1.0, 0.0), &[(0.0, b)]));
+        let mut soft = Canvas::new(12, 6);
+        soft.disc(12.0, 12.0, 11.0, Paint::cel(a, (1.0, 0.0), &[(0.0, b)]).soften(0.4));
+        let white = |c: &Canvas, x: i32| (0..24).filter(|&y| c.get(x, y) == Some(Color::Rgb(b))).count();
+        assert_eq!(white(&hard, 9), 0, "left of the terminator nothing is lit");
+        assert!(white(&hard, 11) <= 4, "only the ridge at the centre is undecided: {}", white(&hard, 11));
+        assert!(white(&hard, 13) > 18);
+        // Softened, the columns near it hold both colours.
+        assert!(white(&soft, 10) > 0 && white(&soft, 10) < 20, "{}", white(&soft, 10));
+        assert!(white(&soft, 14) > white(&soft, 10));
+        assert_eq!(white(&soft, 2), 0, "far from it, the bands are as before");
+        assert!(white(&soft, 20) > 10, "{}", white(&soft, 20));
+    }
+
+    #[test]
+    fn clipped_drawing_stays_inside_the_mask() {
+        let mut mask = Canvas::new(10, 5);
+        mask.fill_rect(4.0, 4.0, 8.0, 8.0, C);
+        let mut c = Canvas::new(10, 5);
+        c.clipped(&mask, |c| {
+            c.polyline(&[(0.0, 8.0), (19.0, 8.0)], 1.0, Rgb::hex(0xff0000));
+            c.fill_rect(0.0, 0.0, 20.0, 2.0, C);
+            c.fill_rect(4.0, 4.0, 2.0, 2.0, Paint::erase()); // only the scratch is erased
+        });
+        assert_eq!(count(&c), 8, "the line alone; the erase never touched it");
+        assert_eq!(c.get(4, 8), Some(Color::Rgb(Rgb::hex(0xff0000))));
+        assert!(c.get(3, 8).is_none() && c.get(12, 8).is_none() && c.get(5, 0).is_none());
+        let mut d = Canvas::new(10, 5);
+        d.fill_rect(0.0, 0.0, 20.0, 20.0, C);
+        d.clipped(&mask, |c| c.fill_rect(0.0, 0.0, 20.0, 20.0, Paint::erase()));
+        assert_eq!(count(&d), 400, "erasing inside a clip erases nothing here");
+    }
+
+    #[test]
+    fn transformed_drawing() {
+        use crate::Transform;
+        // A translation and a flip land every primitive where a hand-moved one would.
+        let (mut moved, mut byhand) = (Canvas::new(12, 6), Canvas::new(12, 6));
+        moved.with(Transform::at(10.0, 8.0).flip_x(), |c| {
+            c.fill_rect(0.0, 0.0, 4.0, 2.0, C);
+            c.disc(-6.0, 3.0, 2.0, C);
+            c.polyline(&[(0.0, 5.0), (8.0, 9.0)], 1.0, C);
+            c.fill_polygon(&[(-2.0, 10.0), (-8.0, 10.0), (-5.0, 14.0)], C);
+            c.set(3, 12, C);
+            c.line(0, 15, 6, 15, C);
+        });
+        byhand.fill_rect(6.0, 8.0, 4.0, 2.0, C);
+        byhand.disc(16.0, 11.0, 2.0, C);
+        byhand.polyline(&[(10.0, 13.0), (2.0, 17.0)], 1.0, C);
+        byhand.fill_polygon(&[(12.0, 18.0), (18.0, 18.0), (15.0, 22.0)], C);
+        byhand.set(6, 20, C);
+        byhand.line(9, 23, 3, 23, C);
+        assert_eq!(moved, byhand);
+        assert!(moved.transform().is_identity(), "the transform is restored after `with`");
+        // A rotation turns a box into a diamond, with the same area.
+        let mut turned = Canvas::new(12, 6);
+        turned.with(Transform::at(12.0, 12.0).rotate(std::f32::consts::FRAC_PI_4), |c| {
+            c.fill_rect(-6.0, -6.0, 12.0, 12.0, C)
+        });
+        assert!(turned.get(12, 4).is_some() && turned.get(12, 19).is_some() && turned.get(5, 5).is_none());
+        assert!((count(&turned) as i32 - 144).abs() < 16, "{}", count(&turned));
+        // A scale widens strokes, and nested transforms compose inner first.
+        let mut thick = Canvas::new(12, 6);
+        thick.with(Transform::IDENTITY.scale(3.0, 3.0), |c| {
+            c.polyline(&[(1.0, 2.0), (7.0, 2.0)], 1.0, C);
+            c.with(Transform::at(1.0, 5.0), |c| c.fill_rect(0.0, 0.0, 1.0, 1.0, Rgb::hex(0xff0000)));
+        });
+        assert!(
+            thick.get(12, 4).is_some() && thick.get(12, 6).is_some() && thick.get(12, 7).is_none(),
+            "three dots wide"
+        );
+        assert_eq!(thick.get(4, 16), Some(Color::Rgb(Rgb::hex(0xff0000))), "(1, 5) scaled by three");
+        // Shape-relative paints and text follow the transform too.
+        let mut shaded = Canvas::new(12, 6);
+        shaded.with(Transform::at(12.0, 12.0).rotate(0.5), |c| {
+            c.fill_rect(-6.0, -6.0, 12.0, 12.0, Paint::edge(Rgb::hex(0xff0000), Rgb::hex(0x0000ff), 3.0));
+            c.text(-4, -2, "A", crate::Font::tiny(), C);
+        });
+        let glyph: Vec<(i32, i32)> = (0..24)
+            .flat_map(|y| (0..24).map(move |x| (x, y)))
+            .filter(|&(x, y)| shaded.get(x, y) == Some(Color::Rgb(C)))
+            .collect();
+        assert!(glyph.len() >= 9, "the A is there, give or take a dot of resampling: {glyph:?}");
+        assert!(
+            glyph.iter().all(|&(x, y)| (x - 10).abs() <= 4 && (y - 11).abs() <= 4),
+            "and where the transform put it"
+        );
+        assert!(matches!(shaded.get(12, 8), Some(Color::Rgb(g)) if g.b > 0));
     }
 }

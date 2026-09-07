@@ -50,7 +50,7 @@ use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::sync::Arc;
 
-use crate::{Canvas, Color, DOTS_X, DOTS_Y, Paint};
+use crate::{Canvas, Color, DOTS_X, DOTS_Y, Paint, Silhouette};
 
 /// A user shader: paints a dot near a layer's silhouette, or leaves it alone.
 type ShaderFn = dyn Fn(&Sample) -> Option<Paint> + Send + Sync;
@@ -65,10 +65,14 @@ pub struct Sample<'a> {
     /// Distance in dots to the nearest dot on the other side of the layer's
     /// silhouette: positive outside, negative inside (the edge is at `±1`).
     pub dist: f32,
+    /// The unit normal of the silhouette's edge nearest the dot, pointing outwards:
+    /// which way the shape faces there. `(0, 0)` where no distance field was
+    /// needed (a shadow alone) or on a ridge equidistant from two edges.
+    pub normal: (f32, f32),
     /// What the dot shows right now: the layer's own colour inside the silhouette,
     /// whatever the layers below (and earlier effects) left outside it.
     pub color: Option<Color>,
-    sil: Silhouette<'a>,
+    sil: Placed<'a>,
 }
 
 impl Sample<'_> {
@@ -78,12 +82,21 @@ impl Sample<'_> {
         self.dist < 0.0
     }
 
-    /// The layer being shaded. Its dots are in its own coordinates; the sample's
-    /// `x` and `y` are in the flattened canvas's, which differ by the layer's
+    /// The layer being shaded, `None` when the effects run around a mask that is
+    /// not a canvas. Its dots are in its own coordinates; the sample's `x` and `y`
+    /// are in the flattened canvas's, which differ by the layer's
     /// [offset](Layer::offset).
     #[inline]
-    pub fn layer(&self) -> &Canvas {
+    pub fn layer(&self) -> Option<&Canvas> {
         self.sil.canvas
+    }
+
+    /// How much the edge faces `light`, a direction towards the light: `normal ·
+    /// light`, `1` facing it and `-1` away. See [`Probe::lit`](crate::Probe::lit).
+    #[inline]
+    pub fn lit(&self, light: (f32, f32)) -> f32 {
+        let len = (light.0 * light.0 + light.1 * light.1).sqrt();
+        if len > 0.0 { (self.normal.0 * light.0 + self.normal.1 * light.1) / len } else { 0.0 }
     }
 
     /// Whether dot `(x, y)` of the flattened canvas is in the layer's silhouette:
@@ -97,7 +110,8 @@ impl Sample<'_> {
 
 impl fmt::Debug for Sample<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sample").field("x", &self.x).field("y", &self.y).field("dist", &self.dist).finish()
+        let mut d = f.debug_struct("Sample");
+        d.field("x", &self.x).field("y", &self.y).field("dist", &self.dist).field("normal", &self.normal).finish()
     }
 }
 
@@ -575,6 +589,7 @@ impl Layers {
         self.dirty = false;
         self.flat.clear();
         self.flat.prio.resize(self.flat.dots.len(), 0);
+        self.flat.mark(0, 0, self.width(), self.height());
         let (width, height) = (self.width() as usize, self.height() as usize);
         for i in 0..self.layers.len() {
             if !self.layers[i].visible {
@@ -582,7 +597,7 @@ impl Layers {
             }
             let prio = i.min(u8::MAX as usize) as u8;
             let layer = &self.layers[i];
-            let sil = Silhouette::new(&layer.canvas, layer.offset, layer.wrap);
+            let sil = Placed::layer(&layer.canvas, layer.offset, layer.wrap);
             // Every row of the stack takes the layer row the offset puts there, in one
             // run without wrapping and up to two with it.
             for y in 0..height {
@@ -615,7 +630,7 @@ impl Layers {
                 }
             }
             if !layer.effects.is_empty() {
-                self.field.apply(&mut self.flat, prio, sil, &layer.effects);
+                self.field.apply(&mut self.flat, prio, sil, &layer.effects, None);
             }
         }
         &self.flat
@@ -625,34 +640,44 @@ impl Layers {
 /// A layer's silhouette as the flattened canvas sees it: the layer's dots and printed
 /// cells, moved by its offset and, when it wraps, repeated. Coordinates go in as the
 /// stack's and come out as the layer's.
-#[derive(Clone, Copy, Debug)]
-struct Silhouette<'a> {
-    canvas: &'a Canvas,
+#[derive(Clone, Copy)]
+struct Placed<'a> {
+    shape: &'a dyn Silhouette,
+    /// The canvas behind `shape`, when it is one.
+    canvas: Option<&'a Canvas>,
+    width: i32,
+    height: i32,
     dx: i32,
     dy: i32,
     wrap: bool,
 }
 
-impl<'a> Silhouette<'a> {
-    fn new(canvas: &'a Canvas, (dx, dy): (i32, i32), wrap: bool) -> Self {
+impl<'a> Placed<'a> {
+    /// A layer's canvas, at its offset.
+    fn layer(canvas: &'a Canvas, (dx, dy): (i32, i32), wrap: bool) -> Self {
         let (w, h) = (canvas.width(), canvas.height());
         // A wrapping offset is a phase: take it modulo the layer once, here, so the
         // runs below are simple and an empty canvas cannot divide by zero.
         let wrap = wrap && w > 0 && h > 0;
         let (dx, dy) = if wrap { (dx.rem_euclid(w), dy.rem_euclid(h)) } else { (dx, dy) };
-        Self { canvas, dx, dy, wrap }
+        Self { shape: canvas, canvas: Some(canvas), width: w, height: h, dx, dy, wrap }
+    }
+
+    /// Any silhouette, where it is.
+    fn shape(shape: &'a dyn Silhouette) -> Self {
+        Self { shape, canvas: None, width: i32::MAX, height: i32::MAX, dx: 0, dy: 0, wrap: false }
     }
 
     /// The layer row that lands on stack row `y`.
     #[inline]
     fn row(&self, y: i32) -> Option<i32> {
-        let (sy, h) = (y - self.dy, self.canvas.height());
+        let (sy, h) = (y - self.dy, self.height);
         if self.wrap { Some(sy.rem_euclid(h)) } else { (0..h).contains(&sy).then_some(sy) }
     }
 
     /// The runs of a row, `(stack x, layer x, length)`, that the layer lands on.
     fn runs(&self) -> [Option<(usize, usize, usize)>; 2] {
-        let w = self.canvas.width();
+        let w = self.width;
         let run = |x0: i32, sx0: i32, len: i32| (len > 0).then_some((x0 as usize, sx0 as usize, len as usize));
         if self.wrap {
             // The offset is in `0..w`, so the row is the layer's tail, then its head.
@@ -667,7 +692,7 @@ impl<'a> Silhouette<'a> {
     #[inline]
     fn source(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         let (sx, sy) = (x - self.dx, y - self.dy);
-        let (w, h) = (self.canvas.width(), self.canvas.height());
+        let (w, h) = (self.width, self.height);
         if self.wrap {
             Some((sx.rem_euclid(w), sy.rem_euclid(h)))
         } else {
@@ -678,13 +703,13 @@ impl<'a> Silhouette<'a> {
     /// Whether stack dot `(x, y)` is in the silhouette.
     #[inline]
     fn covered(&self, x: i32, y: i32) -> bool {
-        self.source(x, y).is_some_and(|(sx, sy)| covered(self.canvas, sx, sy))
+        self.source(x, y).is_some_and(|(sx, sy)| self.shape.covers(sx, sy))
     }
 
     /// The stack cell that layer cell `(col, row)` lands on: the offset rounded to
     /// whole cells, since a character cannot straddle two.
     fn cell(&self, col: i32, row: i32) -> Option<(i32, i32)> {
-        let (cols, rows) = (self.canvas.cols() as i32, self.canvas.rows() as i32);
+        let (cols, rows) = (self.width / DOTS_X as i32, self.height / DOTS_Y as i32);
         let (cw, ch) = (DOTS_X as i32, DOTS_Y as i32);
         let (col, row) = (col + (2 * self.dx + cw).div_euclid(2 * cw), row + (2 * self.dy + ch).div_euclid(2 * ch));
         if self.wrap {
@@ -697,7 +722,7 @@ impl<'a> Silhouette<'a> {
     /// The box around the silhouette on a stack of `width × height` dots, `None`
     /// when it is empty or entirely off the stack.
     fn bounds(&self, width: i32, height: i32) -> Option<(i32, i32, i32, i32)> {
-        let (x0, y0, x1, y1) = bounds(self.canvas)?;
+        let (x0, y0, x1, y1) = self.shape.extent()?;
         if self.wrap {
             return Some((0, 0, width, height));
         }
@@ -741,21 +766,47 @@ impl Field {
 
     /// Runs `effects` around the silhouette of `mask` on `target`, exactly as
     /// [`Canvas::effects`] does, with this scratch instead of a fresh one.
-    pub fn effects(&mut self, target: &mut Canvas, mask: &Canvas, effects: &[Effect]) {
-        self.apply(target, 0, Silhouette::new(mask, (0, 0), false), effects);
+    pub fn effects(&mut self, target: &mut Canvas, mask: &impl Silhouette, effects: &[Effect]) {
+        self.apply(target, 0, Placed::shape(mask), effects, None);
+    }
+
+    /// [`effects`](Self::effects) painting only inside `within`; see
+    /// [`Canvas::effects_in`].
+    pub fn effects_in(
+        &mut self,
+        target: &mut Canvas,
+        within: &impl Silhouette,
+        mask: &impl Silhouette,
+        effects: &[Effect],
+    ) {
+        self.apply(target, 0, Placed::shape(mask), effects, Some(within));
     }
 
     /// Runs `effects` around `sil` over `target`, tagging the dots they paint with
-    /// `prio` where the target keeps layer tags.
-    fn apply(&mut self, target: &mut Canvas, prio: u8, sil: Silhouette, effects: &[Effect]) {
+    /// `prio` where the target keeps layer tags, and only where `clip` covers when
+    /// there is one.
+    fn apply(&mut self, target: &mut Canvas, prio: u8, sil: Placed, effects: &[Effect], clip: Option<&dyn Silhouette>) {
         let needs = needs(effects);
         let (width, height) = (target.width(), target.height());
         let Some((x0, y0, x1, y1)) = sil.bounds(width, height) else { return };
         // The window: the silhouette's box grown by the widest reach, on the canvas,
         // plus a one-dot frame the distance fields use for what lies beyond it.
         let m = (needs.reach + 0.5).ceil() as i32;
-        let (wx0, wy0) = ((x0 - m).max(0), (y0 - m).max(0));
-        let (wx1, wy1) = ((x1 + m).min(width), (y1 + m).min(height));
+        let (mut wx0, mut wy0) = ((x0 - m).max(0), (y0 - m).max(0));
+        let (mut wx1, mut wy1) = ((x1 + m).min(width), (y1 + m).min(height));
+        // Nothing outside the clip is painted, and nothing further than the reach
+        // from it can be the nearest edge of what is, so the window stops there.
+        match clip.map(|c| c.extent()) {
+            None => {}
+            Some(Some((cx0, cy0, cx1, cy1))) => {
+                (wx0, wy0) = (wx0.max(cx0 - m), wy0.max(cy0 - m));
+                (wx1, wy1) = (wx1.min(cx1 + m), wy1.min(cy1 + m));
+            }
+            Some(None) => return,
+        }
+        if wx0 >= wx1 || wy0 >= wy1 {
+            return;
+        }
         let (gw, gh) = ((wx1 - wx0 + 2) as usize, (wy1 - wy0 + 2) as usize);
 
         // The window follows the content, so the scratch is sized for the whole
@@ -785,18 +836,23 @@ impl Field {
             self.edt.run(&mut self.inside, gw, gh);
         }
 
+        target.mark(wx0, wy0, wx1, wy1);
         let w = width as usize;
         for y in wy0..wy1 {
             for x in wx0..wx1 {
+                if clip.is_some_and(|c| !c.covers(x, y)) {
+                    continue;
+                }
                 let g = (y - wy0 + 1) as usize * gw + (x - wx0 + 1) as usize;
                 let inside = self.mask[g] != 0;
                 // Without a field the distance is only a side: far enough out or in
-                // that no band admits it, which is what a shadow wants.
-                let dist = match (inside, needs.outside, needs.inside) {
-                    (false, true, _) => self.outside[g].sqrt(),
-                    (false, false, _) => INF,
-                    (true, _, true) => -self.inside[g].sqrt(),
-                    (true, _, false) => -INF,
+                // that no band admits it, which is what a shadow wants. With one, its
+                // gradient is the normal: outwards, which is downhill inside.
+                let (dist, normal) = match (inside, needs.outside, needs.inside) {
+                    (false, true, _) => (self.outside[g].sqrt(), gradient(&self.outside, g, gw, 1.0)),
+                    (false, false, _) => (INF, (0.0, 0.0)),
+                    (true, _, true) => (-self.inside[g].sqrt(), gradient(&self.inside, g, gw, -1.0)),
+                    (true, _, false) => (-INF, (0.0, 0.0)),
                 };
                 let d = y as usize * w + x as usize;
                 for effect in effects {
@@ -811,7 +867,7 @@ impl Field {
                     }
                     let current = target.dots[d];
                     let color = (current != 0).then(|| Color::from_packed(current));
-                    let sample = Sample { x, y, dist, color, sil };
+                    let sample = Sample { x, y, dist, normal, color, sil };
                     if let Some(v) = effect.shade(&sample).and_then(|paint| paint.sample(x, y)) {
                         target.dots[d] = v;
                         if let Some(p) = target.prio.get_mut(d) {
@@ -841,9 +897,43 @@ impl Canvas {
     /// mask.disc(10.0, 10.0, 5.0, Rgb::hex(0xffffff));
     /// canvas.effects(&mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(Rgb::hex(0xffffff))]);
     /// ```
-    pub fn effects(&mut self, mask: &Canvas, effects: &[Effect]) {
+    pub fn effects(&mut self, mask: &impl Silhouette, effects: &[Effect]) {
         Field::default().effects(self, mask, effects);
     }
+
+    /// [`effects`](Self::effects) around `mask`, painting only where `within`
+    /// covers: shading by proximity to another shape. A figure darkened where it
+    /// meets the ground is a shader around the ground, run within the figure; the
+    /// work is bounded to where the two overlap.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Color, Effect, Mask, Paint, Rgb};
+    ///
+    /// let mut ground = Mask::new(20, 5);
+    /// ground.draw(|c| c.fill_rect(0.0, 16.0, 40.0, 4.0, Rgb::hex(0)));
+    /// let mut figure = Mask::new(20, 5);
+    /// figure.draw(|c| c.fill_ellipse(20.0, 10.0, 6.0, 7.0, Rgb::hex(0)));
+    /// let mut canvas = Canvas::new(20, 5);
+    /// canvas.stencil(&figure, Rgb::hex(0xffa657));
+    /// // Contact shadow: the figure's dots within three of the ground go darker.
+    /// canvas.effects_in(&figure, &ground, &[Effect::shader(3.0, 0.0, |s| match s.color {
+    ///     Some(Color::Rgb(c)) => Some(Paint::new(c.dim(1.0 - 0.6 * (1.0 - s.dist / 4.0)))),
+    ///     _ => None,
+    /// })]);
+    /// ```
+    pub fn effects_in(&mut self, within: &impl Silhouette, mask: &impl Silhouette, effects: &[Effect]) {
+        Field::default().effects_in(self, within, mask, effects);
+    }
+}
+
+/// The unit gradient of the squared-distance grid `d` at `g`, times `sign`, from
+/// central differences of the distances.
+#[inline]
+fn gradient(d: &[f32], g: usize, gw: usize, sign: f32) -> (f32, f32) {
+    let at = |i: usize| d[i].sqrt();
+    let (gx, gy) = (at(g + 1) - at(g - 1), at(g + gw) - at(g - gw));
+    let len = (gx * gx + gy * gy).sqrt();
+    if len > 0.0 { (sign * gx / len, sign * gy / len) } else { (0.0, 0.0) }
 }
 
 impl Index<usize> for Layers {
@@ -860,32 +950,6 @@ impl IndexMut<usize> for Layers {
         self.dirty = true;
         &mut self.layers[index]
     }
-}
-
-/// Whether dot `(x, y)` is in `canvas`'s silhouette: set, or in a printed cell.
-#[inline]
-fn covered(canvas: &Canvas, x: i32, y: i32) -> bool {
-    canvas.get(x, y).is_some()
-        || (canvas.has_text() && canvas.text_cell(x.div_euclid(DOTS_X as i32), y.div_euclid(DOTS_Y as i32)).is_some())
-}
-
-/// The box `(x0, y0, x1, y1)` (exclusive on the far side) around the silhouette of
-/// `canvas`, `None` when it is empty.
-fn bounds(canvas: &Canvas) -> Option<(i32, i32, i32, i32)> {
-    let (w, h) = (canvas.width(), canvas.height());
-    let (mut x0, mut y0, mut x1, mut y1) = canvas.dot_bounds().unwrap_or((w, h, 0, 0));
-    if canvas.has_text() {
-        for row in 0..canvas.rows() as i32 {
-            for col in 0..canvas.cols() as i32 {
-                if canvas.text_cell(col, row).is_some() {
-                    let (cx, cy) = (col * DOTS_X as i32, row * DOTS_Y as i32);
-                    (x0, x1) = (x0.min(cx), x1.max(cx + DOTS_X as i32));
-                    (y0, y1) = (y0.min(cy), y1.max(cy + DOTS_Y as i32));
-                }
-            }
-        }
-    }
-    (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
 }
 
 /// Squared distance standing in for "no source anywhere": far beyond any canvas,
@@ -1097,7 +1161,7 @@ mod tests {
         top.effect(Effect::shader(3.0, 2.0, |s| {
             assert!(s.dist.abs() < 3.5, "consulted outside its band: {s:?}");
             assert_eq!(s.inside(), s.covered(s.x, s.y));
-            assert_eq!(s.layer().get(s.x, s.y).is_some(), s.inside());
+            assert_eq!(s.layer().unwrap().get(s.x, s.y).is_some(), s.inside());
             let grey = 0x10 * s.dist.round() as i32;
             Some(Paint::new(Rgb::hex((0x404040 + grey) as u32)))
         }));
@@ -1216,7 +1280,7 @@ mod tests {
         l[1].offset = (4, 4);
         l[1].effects = vec![Effect::shader(1.0, 1.0, |s| {
             assert_eq!(s.inside(), s.covered(s.x, s.y));
-            assert_eq!(s.layer().get(s.x - 4, s.y - 4).is_some(), s.inside());
+            assert_eq!(s.layer().unwrap().get(s.x - 4, s.y - 4).is_some(), s.inside());
             None
         })];
         l.flatten();
@@ -1287,5 +1351,48 @@ mod tests {
         assert_eq!(c.get(6, 6), Some(Color::Rgb(B)), "rim inside it");
         assert_eq!(c.get(4, 4), Some(Color::Rgb(A)));
         assert_eq!(c.get(8, 8), Some(Color::Rgb(A)), "the mask itself is not painted");
+    }
+
+    #[test]
+    fn samples_carry_normals_and_clipped_effects_stay_inside() {
+        let mut ground = Canvas::new(10, 5);
+        ground.fill_rect(0.0, 16.0, 20.0, 4.0, A);
+        let mut figure = Canvas::new(10, 5);
+        figure.fill_rect(6.0, 6.0, 8.0, 10.0, B);
+        let mut c = figure.clone();
+        c.fill_rect(0.0, 16.0, 20.0, 4.0, A);
+        // Everything within three dots of the ground, inside the figure only, is dark.
+        c.effects_in(
+            &figure,
+            &ground,
+            &[Effect::shader(3.0, 0.0, |s| {
+                assert!(s.normal.1 < -0.9, "above the ground the normal points up: {:?}", s.normal);
+                assert!(s.layer().is_none());
+                Some(Paint::new(Rgb::hex(0x111111)))
+            })],
+        );
+        assert_eq!(c.get(8, 15), Some(Color::Rgb(Rgb::hex(0x111111))), "the foot is shaded");
+        assert_eq!(c.get(8, 13), Some(Color::Rgb(Rgb::hex(0x111111))), "three dots up too");
+        assert_eq!(c.get(8, 12), Some(Color::Rgb(B)), "four is past the reach");
+        assert_eq!(c.get(2, 15), None, "beside the figure nothing is painted");
+        assert_eq!(c.get(8, 17), Some(Color::Rgb(A)), "the ground itself is untouched");
+        // Inside a disc, the normal points away from the centre.
+        let mut disc = Canvas::new(10, 5);
+        disc.disc(10.0, 10.0, 8.0, B);
+        let mut lit = Canvas::new(10, 5);
+        lit.effects(
+            &disc,
+            &[
+                Effect::rim(3.0).paint(A),
+                Effect::shader(0.0, 3.0, |s| {
+                    let (dx, dy) = (s.x as f32 + 0.5 - 10.0, s.y as f32 + 0.5 - 10.0);
+                    let along = (s.normal.0 * dx + s.normal.1 * dy) / (dx * dx + dy * dy).sqrt();
+                    assert!(along > 0.7, "at {},{}: normal {:?}", s.x, s.y, s.normal);
+                    (s.lit((0.0, -1.0)) > 0.5).then_some(Paint::new(B))
+                }),
+            ],
+        );
+        assert_eq!(lit.get(10, 3), Some(Color::Rgb(B)), "the top of the disc faces up");
+        assert_eq!(lit.get(10, 16), Some(Color::Rgb(A)), "the bottom does not");
     }
 }

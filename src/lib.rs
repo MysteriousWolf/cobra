@@ -51,10 +51,12 @@
 //! `fill_ngon`, `fill_star`, `fill_pie`, `ring`, `arrow`, stroked `rect`,
 //! `round_rect`, `polygon`, `polyline`, `ellipse`, `ngon`, `star`, `arc`, `bezier`,
 //! `spline`) and a [`Path`] of lines, curves and arcs. Every shape takes a
-//! [`Paint`]: a colour, a dither, a [`Pattern`], a gradient, an edge gradient, a
-//! shader or [`Paint::erase`]; every stroke takes a [`Pen`], optionally dashed.
-//! Masks: [`Canvas::stencil`], [`Canvas::clip`], [`Canvas::cut`] and
-//! [`Canvas::effects`].
+//! [`Paint`]: a colour, a dither, a [`Pattern`], a gradient, an edge gradient, cel
+//! bands, a shader or [`Paint::erase`]; every stroke takes a [`Pen`], optionally
+//! dashed. A [`Mask`] is a shape on its own, to combine, move with a [`Transform`]
+//! and paint through ([`Canvas::stencil`], [`Canvas::clip`], [`Canvas::cut`],
+//! [`Canvas::clipped`], [`Canvas::effects`]); [`Canvas::with`] draws in local
+//! coordinates. See the [`mask`] module.
 //!
 //! ## Text
 //!
@@ -121,11 +123,13 @@ mod encode;
 pub mod export;
 mod font;
 pub mod layer;
+pub mod mask;
 mod path;
 mod raster;
 mod render;
 mod term;
 pub mod text;
+mod transform;
 
 #[cfg(feature = "ratatui")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ratatui")))]
@@ -137,7 +141,9 @@ pub use color::{Color, Depth, Palette, Rgb};
 pub use draw::{Paint, Pattern, Pen, Point, Probe, Rect, Shader};
 pub use font::{Font, FontError, Glyph};
 pub use layer::{Effect, Field, Layer, Layers, Sample};
+pub use mask::{Mask, Silhouette};
 pub use path::Path;
 pub use render::{Options, Placement, Renderer};
 pub use term::{CellSize, Protocol, Terminal};
 pub use text::{Align, Attrs, TextCell, TextStyle};
+pub use transform::Transform;

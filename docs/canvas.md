@@ -1,6 +1,6 @@
 # `canvas`
 
-[Index](README.md) · **canvas** · [draw](draw.md) · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · **canvas** · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 The dot grid.
 
@@ -13,7 +13,7 @@ The dot grid.
 - [`braille`](#braille)
 - [`bayer`](#bayer)
 - `Cell`: [`Cell::glyph`](canvas.md#cellglyph)
-- `Canvas`: [`Canvas::new`](canvas.md#canvasnew), [`Canvas::cols`](canvas.md#canvascols), [`Canvas::rows`](canvas.md#canvasrows), [`Canvas::width`](canvas.md#canvaswidth), [`Canvas::height`](canvas.md#canvasheight), [`Canvas::clear`](canvas.md#canvasclear), [`Canvas::set`](canvas.md#canvasset), [`Canvas::set_dithered`](canvas.md#canvasset_dithered), [`Canvas::unset`](canvas.md#canvasunset), [`Canvas::get`](canvas.md#canvasget), [`Canvas::line`](canvas.md#canvasline), [`Canvas::disc`](canvas.md#canvasdisc), [`Canvas::disc_dithered`](canvas.md#canvasdisc_dithered), [`Canvas::clear_disc`](canvas.md#canvasclear_disc), [`Canvas::cell`](canvas.md#canvascell), [`Canvas::cells`](canvas.md#canvascells), [`Canvas::to_text`](canvas.md#canvasto_text)
+- `Canvas`: [`Canvas::new`](canvas.md#canvasnew), [`Canvas::with`](canvas.md#canvaswith), [`Canvas::transform`](canvas.md#canvastransform), [`Canvas::cols`](canvas.md#canvascols), [`Canvas::rows`](canvas.md#canvasrows), [`Canvas::width`](canvas.md#canvaswidth), [`Canvas::height`](canvas.md#canvasheight), [`Canvas::clear`](canvas.md#canvasclear), [`Canvas::set`](canvas.md#canvasset), [`Canvas::set_dithered`](canvas.md#canvasset_dithered), [`Canvas::unset`](canvas.md#canvasunset), [`Canvas::get`](canvas.md#canvasget), [`Canvas::line`](canvas.md#canvasline), [`Canvas::disc`](canvas.md#canvasdisc), [`Canvas::disc_dithered`](canvas.md#canvasdisc_dithered), [`Canvas::clear_disc`](canvas.md#canvasclear_disc), [`Canvas::cell`](canvas.md#canvascell), [`Canvas::cells`](canvas.md#canvascells), [`Canvas::to_text`](canvas.md#canvasto_text)
 
 ## `DOTS_X`
 
@@ -102,6 +102,57 @@ pub fn new(cols: u16, rows: u16) -> Self
 ```
 
 Creates an empty canvas of `cols × rows` cells.
+
+## `Canvas::with`
+
+```rust
+pub fn with(&mut self, t: Transform, f: impl FnOnce(&mut Canvas))
+```
+
+Draws everything in `f` through `t`: the coordinates every primitive takes
+are local, and `t` says where they land. Nested calls compose, inner first,
+so a hand drawn inside an arm drawn inside a body moves with all three.
+Whole-cell operations ([`print`](text.md#canvasprint), [`span`](draw.md#canvasspan),
+[`set`](canvas.md#canvasset) and the mask operations) are not transformed.
+
+A translation or a flip is exact; under a rotation or a scale, boxes,
+ellipses and rings are drawn as paths, and stroke widths scale with the
+transform.
+
+```rust
+use cobra::{Canvas, Rgb, Transform};
+
+let mut canvas = Canvas::new(20, 5);
+let leg = |c: &mut Canvas| c.fill_rect(-1.0, 0.0, 2.0, 8.0, Rgb::hex(0xffa657));
+for (x, angle) in [(10.0, -0.3), (14.0, 0.3)] {
+    canvas.with(Transform::at(x, 8.0).rotate(angle), leg); // rotated, then placed
+}
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-with.svg">
+  <img src="img/canvas-with-light.svg" alt="Canvas::with" width="384">
+</picture>
+
+```rust
+// A figure drawn about its own origin, facing either way.
+let figure = |c: &mut Canvas| {
+    c.fill_ellipse(0.0, 0.0, 5.0, 3.5, GREEN);      // body
+    c.disc(5.0, -4.0, 2.2, GREEN);                  // head
+    c.polyline(&[(7.0, -4.0), (10.0, -3.0)], 1.0, ORANGE); // beak
+    c.polyline(&[(-1.0, 3.0), (-1.0, 7.0)], 1.0, ORANGE);  // leg
+};
+c.with(Transform::at(12.0, 8.0), figure);
+c.with(Transform::at(36.0, 8.0).flip_x(), figure);
+```
+
+## `Canvas::transform`
+
+```rust
+pub fn transform(&self) -> Transform
+```
+
+The transform drawing currently lands through; the identity by default.
 
 ## `Canvas::cols`
 
@@ -332,5 +383,5 @@ c.disc(12.0, 4.0, 3.5, GREEN);
 c.print(0, 0, "hi", t.ink);
 ```
 
-[Index](README.md) · **canvas** · [draw](draw.md) · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · **canvas** · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

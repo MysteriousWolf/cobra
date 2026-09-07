@@ -1,6 +1,6 @@
 # `term`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
 
 Terminal capability detection.
 
@@ -174,5 +174,5 @@ The text colour depth comes from `COBRA_COLORS` (`mono|16|256|true`) or
 [`Depth::from_env`](color.md#depthfrom_env); a terminal with a graphics protocol is assumed to have
 true colour.
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
 

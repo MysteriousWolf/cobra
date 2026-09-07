@@ -1,7 +1,7 @@
 //! The dot grid.
 
 use crate::text::TextCell;
-use crate::{Color, Paint};
+use crate::{Color, Paint, Transform};
 
 /// Braille bit for dot `(dx, dy)` inside a cell, indexed `[dy][dx]`.
 ///
@@ -65,7 +65,7 @@ pub fn bayer(x: i32, y: i32) -> f32 {
 ///
 /// Several canvases stacked, with occlusion and effects between them, are a
 /// [`Layers`](crate::Layers); flattening one gives back a plain canvas.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Canvas {
     cols: u16,
     rows: u16,
@@ -75,13 +75,72 @@ pub struct Canvas {
     /// Empty, or one entry per dot: the layer each dot was flattened from, which
     /// decides the colour of a cell in the text fallback; see [`crate::layer`].
     pub(crate) prio: Vec<u8>,
+    /// The box `(x0, y0, x1, y1)` every dot written since the last clear lies in:
+    /// a bound on where set dots can be, so a scan for them stays small.
+    pub(crate) dirty: Option<(i32, i32, i32, i32)>,
+    /// Where drawing lands; the identity outside [`with`](Self::with).
+    pub(crate) transform: Transform,
 }
+
+impl PartialEq for Canvas {
+    /// Two canvases are equal when they show the same thing: size, dots and text.
+    fn eq(&self, other: &Self) -> bool {
+        self.cols == other.cols
+            && self.rows == other.rows
+            && self.dots == other.dots
+            && self.text == other.text
+            && self.prio == other.prio
+    }
+}
+
+impl Eq for Canvas {}
 
 impl Canvas {
     /// Creates an empty canvas of `cols × rows` cells.
     pub fn new(cols: u16, rows: u16) -> Self {
         let dots = vec![0; cols as usize * DOTS_X as usize * rows as usize * DOTS_Y as usize];
-        Self { cols, rows, dots, text: Vec::new(), prio: Vec::new() }
+        Self { cols, rows, dots, text: Vec::new(), prio: Vec::new(), dirty: None, transform: Transform::IDENTITY }
+    }
+
+    /// Draws everything in `f` through `t`: the coordinates every primitive takes
+    /// are local, and `t` says where they land. Nested calls compose, inner first,
+    /// so a hand drawn inside an arm drawn inside a body moves with all three.
+    /// Whole-cell operations ([`print`](Self::print), [`span`](Self::span),
+    /// [`set`](Self::set) and the mask operations) are not transformed.
+    ///
+    /// A translation or a flip is exact; under a rotation or a scale, boxes,
+    /// ellipses and rings are drawn as paths, and stroke widths scale with the
+    /// transform.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Rgb, Transform};
+    ///
+    /// let mut canvas = Canvas::new(20, 5);
+    /// let leg = |c: &mut Canvas| c.fill_rect(-1.0, 0.0, 2.0, 8.0, Rgb::hex(0xffa657));
+    /// for (x, angle) in [(10.0, -0.3), (14.0, 0.3)] {
+    ///     canvas.with(Transform::at(x, 8.0).rotate(angle), leg); // rotated, then placed
+    /// }
+    /// ```
+    pub fn with(&mut self, t: Transform, f: impl FnOnce(&mut Canvas)) {
+        let outer = self.transform;
+        self.transform = t.then(&outer);
+        f(self);
+        self.transform = outer;
+    }
+
+    /// The transform drawing currently lands through; the identity by default.
+    #[inline]
+    pub fn transform(&self) -> Transform {
+        self.transform
+    }
+
+    /// Notes that dots in `x0..x1 × y0..y1` may have been written.
+    #[inline]
+    pub(crate) fn mark(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
+        self.dirty = Some(match self.dirty {
+            Some((a, b, c, d)) => (a.min(x0), b.min(y0), c.max(x1), d.max(y1)),
+            None => (x0, y0, x1, y1),
+        });
     }
 
     /// Width in cells.
@@ -110,7 +169,17 @@ impl Canvas {
 
     /// Unsets every dot and empties the text layer. Keeps the allocations.
     pub fn clear(&mut self) {
-        self.dots.fill(0);
+        // Only what may have been written needs unsetting.
+        match self.dirty {
+            Some((x0, y0, x1, y1)) if (x1 - x0) * (y1 - y0) * 2 < self.width() * self.height() => {
+                let w = self.width() as usize;
+                for y in y0..y1 {
+                    self.dots[y as usize * w + x0 as usize..y as usize * w + x1 as usize].fill(0);
+                }
+            }
+            _ => self.dots.fill(0),
+        }
+        self.dirty = None;
         self.text.clear();
         self.prio.clear();
     }
@@ -127,9 +196,21 @@ impl Canvas {
     /// [`Color`] (for palette colours).
     #[inline]
     pub fn set(&mut self, x: i32, y: i32, color: impl Into<Color>) {
+        let (x, y) = self.map_dot(x, y);
         if let Some(i) = self.index(x, y) {
             self.dots[i] = color.into().packed();
+            self.mark(x, y, x + 1, y + 1);
         }
+    }
+
+    /// Where dot `(x, y)` lands under the current transform.
+    #[inline]
+    fn map_dot(&self, x: i32, y: i32) -> (i32, i32) {
+        if self.transform.is_identity() {
+            return (x, y);
+        }
+        let (fx, fy) = self.transform.apply((x as f32 + 0.5, y as f32 + 0.5));
+        (fx.floor() as i32, fy.floor() as i32)
     }
 
     /// Sets dot `(x, y)` to `color` with probability `coverage` (`0..=1`) using an
@@ -161,6 +242,8 @@ impl Canvas {
     /// Draws a one-dot-wide line with Bresenham's algorithm.
     pub fn line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: impl Into<Color>) {
         let packed = color.into().packed();
+        let ((x0, y0), (x1, y1)) = (self.map_dot(x0, y0), self.map_dot(x1, y1));
+        self.mark(x0.min(x1), y0.min(y1), x0.max(x1) + 1, y0.max(y1) + 1);
         self.bresenham(x0, y0, x1, y1, |c, x, y| {
             if let Some(i) = c.index(x, y) {
                 c.dots[i] = packed;
@@ -211,13 +294,15 @@ impl Canvas {
     /// The box `(x0, y0, x1, y1)` (exclusive on the far side) around the set dots,
     /// `None` when there are none.
     pub(crate) fn dot_bounds(&self) -> Option<(i32, i32, i32, i32)> {
-        let (w, h) = (self.width(), self.height());
-        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
-        for (y, row) in self.dots.chunks_exact(w as usize).enumerate() {
+        let (bx0, by0, bx1, by1) = self.dirty?;
+        let w = self.width() as usize;
+        let (mut x0, mut y0, mut x1, mut y1) = (bx1, by1, bx0, by0);
+        for y in by0..by1 {
+            let row = &self.dots[y as usize * w + bx0 as usize..y as usize * w + bx1 as usize];
             let Some(first) = row.iter().position(|&d| d != 0) else { continue };
             let last = row.iter().rposition(|&d| d != 0).unwrap_or(first);
-            (x0, x1) = (x0.min(first as i32), x1.max(last as i32 + 1));
-            (y0, y1) = (y0.min(y as i32), y as i32 + 1);
+            (x0, x1) = (x0.min(bx0 + first as i32), x1.max(bx0 + last as i32 + 1));
+            (y0, y1) = (y0.min(y), y + 1);
         }
         (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
     }
