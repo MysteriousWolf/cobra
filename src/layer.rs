@@ -132,13 +132,14 @@ pub enum Effect {
         /// Width of the cleared ring in dots.
         width: f32,
     },
-    /// Paints the `depth` dots just inside the silhouette: a shaded rim. A dithered
-    /// dark paint darkens the edge; a light one highlights it.
+    /// Paints the `depth` dots just inside the silhouette: a shaded rim. `None`
+    /// paints each dot in a darker shade of its own colour; a light paint highlights
+    /// the edge instead, a dark one deepens it.
     Rim {
         /// Depth in dots.
         depth: f32,
-        /// What the rim is painted with.
-        paint: Paint,
+        /// What the rim is painted with; `None` for a shade of the layer's own colour.
+        paint: Option<Paint>,
     },
     /// Your own: called for every dot within `reach` dots outside the silhouette and
     /// `depth` inside it, painting whatever it returns.
@@ -157,6 +158,8 @@ pub enum Effect {
 const GLOW_PEAK: f32 = 0.7;
 /// How much of the paint's brightness a glow keeps: a darker shade of the shape.
 const GLOW_SHADE: f32 = 0.6;
+/// How much of a dot's brightness a default rim keeps.
+const RIM_SHADE: f32 = 0.55;
 
 impl Effect {
     /// A drop shadow: the silhouette moved by `(dx, dy)` dots, in a dithered mid grey
@@ -183,19 +186,20 @@ impl Effect {
         Self::Gap { width }
     }
 
-    /// A rim `depth` dots deep just inside the silhouette, dithered dark by default:
-    /// a shaded edge on any colour. [`paint`](Self::paint) changes it.
+    /// A rim `depth` dots deep just inside the silhouette, in a darker shade of the
+    /// layer's own colour: a shaded edge on any shape. [`paint`](Self::paint) paints
+    /// it with something else instead.
     pub fn rim(depth: f32) -> Self {
-        Self::Rim { depth, paint: Paint::dithered(crate::Rgb::hex(0), 0.5) }
+        Self::Rim { depth, paint: None }
     }
 
     /// Replaces the effect's paint. Has no effect on a gap or a shader.
     pub fn paint(mut self, paint: impl Into<Paint>) -> Self {
         match &mut self {
-            Effect::Shadow { paint: p, .. }
-            | Effect::Outline { paint: p, .. }
-            | Effect::Glow { paint: p, .. }
-            | Effect::Rim { paint: p, .. } => *p = paint.into(),
+            Effect::Shadow { paint: p, .. } | Effect::Outline { paint: p, .. } | Effect::Glow { paint: p, .. } => {
+                *p = paint.into()
+            }
+            Effect::Rim { paint: p, .. } => *p = Some(paint.into()),
             Effect::Gap { .. } | Effect::Shader { .. } => {}
         }
         self
@@ -251,7 +255,19 @@ impl Effect {
                 Some(Paint::dithered(color, paint.coverage() * GLOW_PEAK * t))
             }
             Effect::Gap { .. } => (!s.inside()).then_some(Paint::erase()),
-            Effect::Rim { paint, .. } => s.inside().then_some(*paint),
+            Effect::Rim { paint, .. } => {
+                if !s.inside() {
+                    return None;
+                }
+                paint.or_else(|| {
+                    // A shade of the dot's own colour; a palette colour has none, so
+                    // it is dithered darker instead.
+                    Some(match s.color? {
+                        Color::Rgb(c) => Paint::new(c.dim(RIM_SHADE)),
+                        _ => Paint::dithered(crate::Rgb::hex(0), 0.5),
+                    })
+                })
+            }
             Effect::Shader { f, .. } => f(s),
         }
     }

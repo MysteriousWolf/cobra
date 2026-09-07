@@ -50,7 +50,9 @@ fn main() -> io::Result<()> {
         false => (DARK, args.iter().any(|a| a == "dark").then_some(DARK.bg)),
     };
     // Effects default to the terminal's foreground, so a file needs to know it.
-    let mut style = export::Style { background, ..export::Style::default() };
+    // Bigger dots than a terminal draws, so the picture still reads when a README
+    // scales it down.
+    let mut style = export::Style { background, dot_size: 0.85, ..export::Style::default() };
     style.palette.foreground = theme.ink;
     style.palette.background = theme.bg;
     let mut layers = Layers::new(COLS, ROWS);

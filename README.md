@@ -324,7 +324,7 @@ dots and printed cells): positive outside, negative inside, rounded to the neare
 | `Effect::outline(width)` | a border `width` dots thick around it, in the foreground colour |
 | `Effect::gap(width)` | nothing: clears the layers beneath within `width` dots |
 | `Effect::glow(width)` | a halo fading out over `width` dots in a darker shade of its paint, so the shape stays the brightest thing; give it the shape's colour with `.paint(...)` |
-| `Effect::rim(depth)` | the `depth` dots just inside the edge, dithered dark |
+| `Effect::rim(depth)` | the `depth` dots just inside the edge, in a darker shade of the shape |
 | `Effect::shader(reach, depth, f)` | whatever `f` returns, within `reach` outside and `depth` inside |
 
 Every effect that paints has a default that reads on dark and light terminals; `.paint(p)`
