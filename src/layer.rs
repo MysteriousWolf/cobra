@@ -115,9 +115,9 @@ pub enum Effect {
         /// What the border is painted with.
         paint: Paint,
     },
-    /// A halo `width` dots wide whose coverage falls from two thirds of the paint's
-    /// at the edge to nothing at `width`: an outer glow. The halo never reaches
-    /// solid, so a shape stays distinct from a glow in its own colour.
+    /// A halo `width` dots wide: an outer glow. It leaves the dot next to the
+    /// silhouette alone and then falls from half the paint's coverage to nothing at
+    /// `width`, so a shape stays clearly separate from a glow in its own colour.
     Glow {
         /// Reach in dots.
         width: f32,
@@ -151,9 +151,11 @@ pub enum Effect {
     },
 }
 
-/// Coverage of a glow's innermost ring as a fraction of its paint's: below solid, so
-/// the shape reads as the source of the glow rather than part of it.
-const GLOW_PEAK: f32 = 0.66;
+/// Coverage of a glow's innermost ring as a fraction of its paint's: well below
+/// solid, so the shape reads as the source of the glow rather than part of it.
+const GLOW_PEAK: f32 = 0.5;
+/// Dots left untouched between a silhouette and its glow, so the two never touch.
+const GLOW_GAP: f32 = 1.0;
 
 impl Effect {
     /// A drop shadow: the silhouette moved by `(dx, dy)` dots in `paint`.
@@ -166,8 +168,8 @@ impl Effect {
         Self::Outline { width, paint: paint.into() }
     }
 
-    /// A glow fading out over `width` dots, starting below solid so the shape
-    /// itself stays the brightest thing.
+    /// A glow fading out over `width` dots, with a clear dot between it and the
+    /// shape and a peak well below solid, so the shape stays the brightest thing.
     pub fn glow(width: f32, paint: impl Into<Paint>) -> Self {
         Self::Glow { width, paint: paint.into() }
     }
@@ -224,7 +226,10 @@ impl Effect {
                 if s.inside() {
                     return None;
                 }
-                let t = (1.0 - (s.dist - 0.5) / width.max(0.5)).clamp(0.0, 1.0);
+                if s.dist < GLOW_GAP + 0.5 {
+                    return None;
+                }
+                let t = (1.0 - (s.dist - GLOW_GAP - 0.5) / (width - GLOW_GAP).max(0.5)).clamp(0.0, 1.0);
                 let color = paint.color()?;
                 Some(Paint::dithered(color, paint.coverage() * GLOW_PEAK * t))
             }
@@ -815,7 +820,9 @@ mod tests {
         l[1].effects = vec![Effect::glow(4.0, Rgb::hex(0x333333))];
         let flat = l.flatten().clone();
         let glow = |d: i32| (0..16).filter(|&y| flat.get(6 - d, y) == Some(Color::Rgb(Rgb::hex(0x333333)))).count();
-        assert!(glow(1) > glow(3), "the glow thins out: {} vs {}", glow(1), glow(3));
+        assert_eq!(glow(1), 0, "the dot next to the shape is left clear");
+        assert!(glow(2) > glow(4), "the glow thins out: {} vs {}", glow(2), glow(4));
+        assert!(glow(2) < 16, "the glow never reaches solid");
         assert_eq!(glow(6), 0);
 
         l[1].effects = vec![Effect::rim(1.0, Rgb::hex(0x444444))];
