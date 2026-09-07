@@ -248,7 +248,7 @@ Four presets cover the usual voices, and every part of them can still be changed
 
 `shape` takes `Rect`, `Round(radius)`, `Ellipse`, `Cloud` or `Burst`; `tail` takes a
 `Tail`, which is a `Side`, a position `0..=1` along it, a length, a base width and one of
-`TailKind::Point`, `Curve` or `Bubbles`:
+`TailKind::Point`, `Curve`, `Bubbles` or `Line` (a single dot-wide line, for callouts):
 
 ```rust
 Bubble::speech("psst")

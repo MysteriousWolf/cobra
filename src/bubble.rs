@@ -107,6 +107,8 @@ pub enum TailKind {
     Curve,
     /// Shrinking discs, the usual thought-bubble trail.
     Bubbles,
+    /// A single dot-wide line, for labels and callouts. `width` is ignored.
+    Line,
 }
 
 /// Where and how a bubble's tail leaves the body.
@@ -688,6 +690,17 @@ fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint
     if len <= 0.0 {
         return;
     }
+    if tail.kind == TailKind::Line {
+        // One dot wide from the root to the tip: it has no inside, so only the
+        // border pass draws it (or the fill pass, on a bubble without a border).
+        // It starts inside the body, where the body's fill paints over it, so
+        // there is no seam at the outline.
+        if grow < 0.0 {
+            return;
+        }
+        canvas.polyline(&[root, tip], 1.0, paint);
+        return;
+    }
     if tail.kind == TailKind::Bubbles {
         // Three shrinking discs on the line from base to tip, each clear of the
         // last and the first clear of the body, centred the same in every pass so
@@ -722,7 +735,7 @@ fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint
     };
     let (b0, b1) = (corner(-1.0), corner(1.0));
     match tail.kind {
-        TailKind::Point | TailKind::Bubbles => canvas.fill_polygon(&[b0, b1, apex], paint),
+        TailKind::Point | TailKind::Bubbles | TailKind::Line => canvas.fill_polygon(&[b0, b1, apex], paint),
         TailKind::Curve => {
             // Two quadratics from the base corners to the tip, bowed the same way: the
             // tail leaves the body at full width and curls to a point. The curl is
@@ -822,6 +835,21 @@ mod tests {
         }
         // The tail's own edges are border.
         assert_eq!(c.get(x - 3, body.bottom() as i32), Some(crate::Color::Rgb(INK)));
+    }
+
+    #[test]
+    fn a_line_tail_is_one_dot_wide_in_the_border_colour() {
+        let fill = Rgb::hex(0x102030);
+        let mut c = Canvas::new(20, 8);
+        let tail = Tail::new(Side::Bottom, 0.5, TailKind::Line).len(6.0).width(6.0);
+        let body = Bubble::new("hi").tail(tail).fill(fill).border(1.0, INK).ink(INK).draw(&mut c, 4.0, 4.0);
+        let (x, bottom) = (body.center().0 as i32, body.bottom() as i32);
+        for y in bottom..bottom + 5 {
+            assert_eq!(c.get(x, y), Some(crate::Color::Rgb(INK)), "line missing at {x},{y}");
+            assert!(c.get(x - 2, y).is_none() && c.get(x + 2, y).is_none(), "line wider than a dot at {y}");
+        }
+        // Inside the body it is covered by the fill: no line runs up into the text.
+        assert_eq!(c.get(x, bottom - 2), Some(crate::Color::Rgb(fill)));
     }
 
     #[test]

@@ -277,14 +277,14 @@ fn thought(c: &mut Canvas, x: f32, y: f32, color: Rgb, theme: Theme) {
     Bubble::shout("HEY").fill(color).ink(theme.bg).draw(c, x + w, y);
 }
 
-/// A tail can leave any side, at any point along it, in any of three kinds. This
+/// A tail can leave any side, at any point along it, in any of four kinds. This
 /// panel is on the bottom row, which has two spare rows for the tails to hang into.
 fn tails(c: &mut Canvas, x: f32, y: f32, color: Rgb, theme: Theme) {
     let corners = [
         (8.0, 1.0, Side::Left, TailKind::Point),
         (24.0, 9.0, Side::Top, TailKind::Curve),
         (2.0, 15.0, Side::Bottom, TailKind::Bubbles),
-        (20.0, 22.0, Side::Right, TailKind::Point),
+        (20.0, 22.0, Side::Right, TailKind::Line),
     ];
     for (dx, dy, side, kind) in corners {
         Bubble::new("hi")
