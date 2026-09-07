@@ -13,7 +13,8 @@ pixel grid four times taller and twice as wide as the text grid. The catch is th
 character can only have one colour, so every dot in a cell has to share it.
 
 cobra keeps the braille model but drops that limit. You draw on a canvas where every
-dot has its own colour — plus a layer of real characters where dots are too coarse — and
+dot has its own colour — plus a layer of real characters where dots are too coarse, and
+stacked layers with drop shadows and outlines between them when a scene has depth — and
 it picks the best way to show it:
 
 * On kitty, WezTerm, Ghostty, iTerm2, foot, xterm and Windows Terminal it sends a small
@@ -277,6 +278,84 @@ let body = Bubble::speech("Watch out!").wrap(10).fill(ink).speak(&mut canvas, mo
 its tail aimed and the position to draw it at, so you can confine it to part of the canvas
 or feed `bounds()` back in as the keep-out zone for the next one.
 
+## Layers
+
+<p align="center">
+  <img src="assets/layers.svg" alt="six layers over a striped background, one effect each" width="49%">
+  <img src="assets/layers-light.svg" alt="the same on a light terminal" width="49%">
+</p>
+
+A `Layers` is a stack of canvases that flattens into one. Draw each thing on its own
+layer and the stack handles what is in front of what: a set dot hides whatever is under
+it, a printed character owns its cell, and each layer can carry *effects* that decorate
+its silhouette on the way down — the separation you would otherwise do by hand with
+`clear_disc` and `Paint::erase`.
+
+```rust
+use cobra::{Effect, Layers, Paint};
+
+let mut layers = Layers::new(60, 15);              // one layer to start with, index 0
+layers[0].fill_rect(0.0, 0.0, 120.0, 60.0, Paint::dithered(grid, 0.4));
+
+let card = layers.push();                          // a new layer on top; derefs to its Canvas
+card.fill_round_rect(10.0, 8.0, 40.0, 24.0, 4.0, panel);
+card.print(7, 3, "front", ink);
+card.effect(Effect::shadow(2, 2, Paint::dithered(shadow, 0.6)))
+    .effect(Effect::gap(1.0));
+
+renderer.render(layers.flatten(), &mut std::io::stdout())?;   // a plain Canvas
+```
+
+`flatten` composites bottom to top and returns a `Canvas`, so everything that takes one
+— the renderer, the ratatui widget, the exporters, `to_text` — works unchanged. It is
+lazy: flattening again after nothing changed costs nothing, and `flat()` gives the last
+result to code that only has `&self`. Layers are indexed like a slice (`push`, `insert`,
+`remove`, `swap`, `visible`), and the picture above is `cargo run --example layers`: one
+striped background, six layers over it with one effect each, and a bubble on a seventh
+carrying two.
+
+### Effects
+
+An effect is a function of a dot's signed distance to the layer's silhouette (its set
+dots and printed cells): positive outside, negative inside, rounded to the nearest dot.
+
+| Effect | Paints |
+|---|---|
+| `Effect::shadow(dx, dy, paint)` | the silhouette moved by `(dx, dy)`, beneath the layer |
+| `Effect::outline(width, paint)` | a border `width` dots thick around it |
+| `Effect::gap(width)` | nothing: clears the layers beneath within `width` dots |
+| `Effect::glow(width, paint)` | a halo fading out over `width` dots |
+| `Effect::rim(depth, paint)` | the `depth` dots just inside the edge |
+| `Effect::shader(reach, depth, f)` | whatever `f` returns, within `reach` outside and `depth` inside |
+
+Effects run after the layer's own dots are down, in the order they were added, each
+only within its band, so a later one paints over an earlier one where they overlap.
+`gap(1.5)` then `shadow(2, 2, ..)` is a card cut free of its background with a shadow
+falling back onto it. A shader sees the dot, its distance, what it currently shows and
+the layer itself, and returns a `Paint` (solid, dithered or `erase`) or `None`:
+
+```rust
+// A shadow that darkens what it falls on instead of painting a colour over it.
+Effect::shader(4.0, 0.0, |s| match s.color {
+    Some(Color::Rgb(c)) if s.covered(s.x - 3, s.y - 2) => Some(Paint::new(c.dim(0.4))),
+    _ => None,
+})
+```
+
+The distance field is an exact Euclidean transform over the silhouette's bounding box
+plus the widest reach, computed only for layers whose effects read it (a shadow does
+not), and the stack keeps its scratch, so after the first frame flattening does not
+allocate.
+
+### In the text fallback
+
+A flattened canvas remembers which layer each dot came from. When a cell can only have
+one colour, it takes the colour of the topmost layer that has a dot in it (the most
+frequent among that layer's dots), so a shape in front keeps its edge cells instead of
+losing them to a larger shape behind. A plain canvas still votes by count. Effects
+belong to their layer, so a dithered shadow that falls on another shape reads as solid
+there in braille; on the image protocols it is exactly the dots you asked for.
+
 ## Terminals
 
 | Protocol | Terminals | What goes over the wire |
@@ -367,6 +446,11 @@ iTerm2, 700 on sixel and 7500 as text. The whole shapes example, a dithered fill
 spline, a Bézier, a filled polygon, an ellipse and text, draws in under 100 µs. Palette
 colours instead of RGB cost nothing measurable and make frames slightly smaller.
 
+Flattening a stack is one pass per layer: 80×24 cells with three layers over a dithered
+background takes about 30 µs, and about 0.4 ms once those layers carry a shadow, a gap, an
+outline, a glow and a rim, most of it the distance fields (`cargo bench` prints this table
+too).
+
 Why it is cheap:
 
 * A canvas is one flat `u32` per dot. 200×50 cells is 320 KB, allocated once.
@@ -382,6 +466,7 @@ Why it is cheap:
 
 ```sh
 cargo run --example gallery                 # every primitive, one per panel
+cargo run --example layers                  # layers and their effects, one per panel
 cargo run --example shapes                  # a scene built from them
 cargo run --example logo                    # the mascot (add `theme`, `text`, `svg`, `png`)
 cargo run --example calibrate               # match dot size to your font
@@ -410,6 +495,8 @@ cargo bench                                 # the table above
   terminals that draw text above images it shows through, so it is off by default.
 * A printed character takes its whole cell, so the dots in that cell are not drawn. Text
   and dots share a canvas, not a cell.
+* Layers are flattened to dots before anything is sent, so a shadow is dots, not alpha:
+  dither it. What the image protocols show is exactly the flattened canvas.
 
 ## Versioning
 

@@ -65,6 +65,15 @@
 //! [`Bubble::speak`] aims at a speaker while dodging the rectangles you want kept
 //! clear.
 //!
+//! ## Layers
+//!
+//! [`Layers`] stacks canvases and flattens them into one, bottom to top: what is in
+//! front hides what is behind, and each [`Layer`] can carry [`Effect`]s around its
+//! silhouette — a drop shadow, an outline, a cleared gap, a glow, a shaded rim, or a
+//! shader of your own. The result is a plain [`Canvas`], which every protocol and
+//! exporter takes as usual; in the text fallback a cell takes the colour of the
+//! topmost layer in it. See the [`layer`] module.
+//!
 //! ## Colours
 //!
 //! Dots take a [`Color`]: an explicit [`Rgb`], a terminal palette index or the default
@@ -81,8 +90,8 @@
 //!
 //! ## Performance
 //!
-//! * [`Canvas`] is a flat `u32` per dot; [`Renderer`] reuses its buffers, so steady-state
-//!   rendering does not allocate.
+//! * [`Canvas`] is a flat `u32` per dot; [`Renderer`] and [`Layers`] reuse their
+//!   buffers, so steady-state rendering does not allocate.
 //! * Rasterisation is a table lookup per pixel using a mask built once per cell size.
 //! * Frames are mostly transparent flat colour; the built-in zlib encoder exploits that
 //!   (runs, cell-periodic patterns, repeated scanlines) so a kitty/iTerm2 frame is
@@ -106,6 +115,7 @@ mod draw;
 mod encode;
 pub mod export;
 mod font;
+pub mod layer;
 mod raster;
 mod render;
 mod term;
@@ -120,6 +130,7 @@ pub use canvas::{Canvas, Cell, DOTS_X, DOTS_Y, bayer, braille};
 pub use color::{Color, Depth, Palette, Rgb};
 pub use draw::{Paint, Point, Rect};
 pub use font::{Font, FontError, Glyph};
+pub use layer::{Effect, Layer, Layers, Sample};
 pub use render::{Options, Placement, Renderer};
 pub use term::{CellSize, Protocol, Terminal};
 pub use text::{Align, Attrs, TextCell, TextStyle};

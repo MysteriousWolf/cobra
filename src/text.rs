@@ -381,7 +381,7 @@ impl Canvas {
         self.text[row as usize * self.cols() as usize + col as usize]
     }
 
-    fn put(&mut self, col: i32, row: i32, cell: TextCell) {
+    pub(crate) fn put(&mut self, col: i32, row: i32, cell: TextCell) {
         if col < 0 || row < 0 || col >= self.cols() as i32 || row >= self.rows() as i32 {
             return;
         }

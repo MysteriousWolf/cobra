@@ -52,6 +52,10 @@ name = "gallery"
 required-features = ["detect"]
 
 [[example]]
+name = "layers"
+required-features = ["detect"]
+
+[[example]]
 name = "tui"
 required-features = ["ratatui", "detect"]
 

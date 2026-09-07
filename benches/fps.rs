@@ -16,7 +16,9 @@ mod common;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use cobra::{Canvas, CellSize, Color, Depth, Font, Options, Paint, Placement, Protocol, Renderer, Rgb, Terminal};
+use cobra::{
+    Canvas, CellSize, Color, Depth, Effect, Font, Layers, Options, Paint, Placement, Protocol, Renderer, Rgb, Terminal,
+};
 
 const CELL: CellSize = CellSize { width: 9, height: 18 };
 
@@ -161,8 +163,90 @@ fn main() {
         }
     }
 
+    layers_path(runs, iters);
+
     #[cfg(feature = "ratatui")]
     ratatui_path(runs, iters);
+}
+
+/// What a stack adds on top of drawing: flattening three layers over a background,
+/// with and without effects, and the text and kitty frames of the result.
+fn layers_path(runs: usize, iters: usize) {
+    println!("\nlayers: 80×24, a dithered background and three shapes on layers of their own\n");
+    println!("| Effects | Draw | Flatten | Text frame | Kitty frame |");
+    println!("|---|---|---|---|---|");
+    for effects in [false, true] {
+        let mut layers = Layers::new(80, 24);
+        for _ in 0..3 {
+            layers.push();
+        }
+        if effects {
+            layers[1].effect(Effect::shadow(2, 2, Paint::dithered(Rgb::hex(0), 0.6)));
+            layers[2].effect(Effect::gap(1.5)).effect(Effect::outline(1.0, Rgb::hex(0x8a94a6)));
+            layers[3]
+                .effect(Effect::glow(4.0, Rgb::hex(0xe45cc4)))
+                .effect(Effect::rim(1.0, Paint::dithered(0u32, 0.5)));
+        }
+        let mut phase = 0.0f32;
+        let draw_layers = |layers: &mut Layers, phase: f32| {
+            layers.clear();
+            let (w, h) = (layers.width() as f32, layers.height() as f32);
+            layers[0].fill_rect(0.0, 0.0, w, h, Paint::dithered(Rgb::hex(0x30363d), 0.4));
+            layers[1].fill_round_rect(w * 0.1, h * 0.2, w * 0.4, h * 0.5, 6.0, Rgb::hex(0x3aa0ff));
+            layers[1].print(10, 6, "layer one", Rgb::hex(0xffffff));
+            layers[2].disc(w * 0.5 + w * 0.1 * phase.cos(), h * 0.5, h * 0.3, Rgb::hex(0xff8c1a));
+            layers[3].fill_star(
+                w * 0.8,
+                h * 0.5 + h * 0.2 * phase.sin(),
+                h * 0.3,
+                h * 0.12,
+                5,
+                phase,
+                Rgb::hex(0xffd21e),
+            );
+        };
+        let draw = measure(
+            || {
+                phase += 0.1;
+                draw_layers(&mut layers, phase);
+            },
+            runs,
+            iters,
+        );
+        let flatten = measure(
+            || {
+                phase += 0.1;
+                draw_layers(&mut layers, phase);
+                layers.flatten();
+            },
+            runs,
+            iters,
+        )
+        .saturating_sub(draw);
+        let mut frames = [Duration::ZERO; 2];
+        for (k, protocol) in [Protocol::Text, Protocol::Kitty].into_iter().enumerate() {
+            let mut renderer = Renderer::with_options(Terminal::new(protocol, CELL), Options::default());
+            let mut sink = std::io::sink();
+            renderer.encode(layers.flatten(), Placement::Flow);
+            frames[k] = measure(
+                || {
+                    phase += 0.1;
+                    draw_layers(&mut layers, phase);
+                    sink.write_all(renderer.encode(layers.flatten(), Placement::Flow)).unwrap();
+                },
+                runs,
+                iters,
+            );
+        }
+        println!(
+            "| {} | {} | {} | {} | {} |",
+            if effects { "shadow, gap, outline, glow, rim" } else { "none" },
+            us(draw),
+            us(flatten),
+            us(frames[0]),
+            us(frames[1]),
+        );
+    }
 }
 
 fn us(d: Duration) -> String {

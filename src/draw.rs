@@ -51,6 +51,19 @@ impl Paint {
     pub fn coverage(&self) -> f32 {
         self.coverage
     }
+
+    /// The packed dot value this paint writes: `0` for [`erase`](Self::erase).
+    #[inline]
+    pub(crate) fn packed(&self) -> u32 {
+        self.packed
+    }
+
+    /// Whether the paint lands on dot `(x, y)`: always when solid, else where the
+    /// coverage beats the dither threshold there.
+    #[inline]
+    pub(crate) fn covers(&self, x: i32, y: i32) -> bool {
+        self.coverage >= 1.0 || self.coverage > bayer(x, y)
+    }
 }
 
 impl From<Color> for Paint {
