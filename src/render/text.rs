@@ -64,7 +64,7 @@ impl<'a> Quantizer<'a> {
                 *d = self.dot(*d);
             }
         }
-        Canvas::cell_of(dots)
+        Canvas::cell_of(dots, canvas.cell_prio(col, row))
     }
 }
 

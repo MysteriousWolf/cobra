@@ -57,7 +57,9 @@ fn main() -> io::Result<()> {
         true => (LIGHT, Some(LIGHT.bg)),
         false => (DARK, args.iter().any(|a| a == "dark").then_some(DARK.bg)),
     };
-    let style = export::Style { background, ..export::Style::default() };
+    // Bigger dots than a terminal draws, so the picture still reads when a README
+    // scales it down.
+    let style = export::Style { background, dot_size: 0.85, ..export::Style::default() };
     let mut canvas = Canvas::new(COLS, ROWS);
     draw(&mut canvas, theme);
 

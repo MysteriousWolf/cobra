@@ -20,7 +20,9 @@ pub const DOTS_Y: u16 = 4;
 pub struct Cell {
     /// Braille dot bits (`U+2800 + bits` is the glyph).
     pub bits: u8,
-    /// The most frequent colour among the set dots, `None` when the cell is empty.
+    /// The most frequent colour among the set dots, `None` when the cell is empty. On
+    /// a canvas [flattened](crate::Layers::flatten) from layers only the dots of the
+    /// topmost layer in the cell vote, so what is in front keeps its colour.
     pub color: Option<Color>,
 }
 
@@ -60,6 +62,9 @@ pub fn bayer(x: i32, y: i32) -> f32 {
 /// On top of the dots sits a [text layer](crate::text): real characters, one per cell,
 /// written with [`print`](Self::print). It stays unallocated until something is
 /// printed, and a cell that holds a character shows it instead of its dots.
+///
+/// Several canvases stacked, with occlusion and effects between them, are a
+/// [`Layers`](crate::Layers); flattening one gives back a plain canvas.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Canvas {
     cols: u16,
@@ -67,13 +72,16 @@ pub struct Canvas {
     pub(crate) dots: Vec<u32>,
     /// Empty, or one entry per cell; see [`crate::text`].
     pub(crate) text: Vec<TextCell>,
+    /// Empty, or one entry per dot: the layer each dot was flattened from, which
+    /// decides the colour of a cell in the text fallback; see [`crate::layer`].
+    pub(crate) prio: Vec<u8>,
 }
 
 impl Canvas {
     /// Creates an empty canvas of `cols × rows` cells.
     pub fn new(cols: u16, rows: u16) -> Self {
         let dots = vec![0; cols as usize * DOTS_X as usize * rows as usize * DOTS_Y as usize];
-        Self { cols, rows, dots, text: Vec::new() }
+        Self { cols, rows, dots, text: Vec::new(), prio: Vec::new() }
     }
 
     /// Width in cells.
@@ -100,10 +108,11 @@ impl Canvas {
         self.rows as i32 * DOTS_Y as i32
     }
 
-    /// Unsets every dot and empties the text layer. Keeps both allocations.
+    /// Unsets every dot and empties the text layer. Keeps the allocations.
     pub fn clear(&mut self) {
         self.dots.fill(0);
         self.text.clear();
+        self.prio.clear();
     }
 
     #[inline]
@@ -213,26 +222,49 @@ impl Canvas {
         out
     }
 
+    /// Layer of each of the eight dots of cell `(col, row)`, row-major; all zero on
+    /// a canvas that was not flattened from layers.
+    #[inline]
+    pub(crate) fn cell_prio(&self, col: u16, row: u16) -> [u8; 8] {
+        let mut out = [0u8; 8];
+        if self.prio.is_empty() {
+            return out;
+        }
+        let w = self.width() as usize;
+        let base = row as usize * DOTS_Y as usize * w + col as usize * DOTS_X as usize;
+        for dy in 0..DOTS_Y as usize {
+            let i = base + dy * w;
+            out[dy * 2] = self.prio[i];
+            out[dy * 2 + 1] = self.prio[i + 1];
+        }
+        out
+    }
+
     /// Cell `(col, row)` as a glyph plus its dominant colour.
     #[inline]
     pub fn cell(&self, col: u16, row: u16) -> Cell {
-        Self::cell_of(self.cell_dots(col, row))
+        Self::cell_of(self.cell_dots(col, row), self.cell_prio(col, row))
     }
 
-    /// Glyph and dominant colour of eight packed dots (row-major).
-    pub(crate) fn cell_of(dots: [u32; 8]) -> Cell {
+    /// Glyph and dominant colour of eight packed dots (row-major), each tagged with
+    /// the layer it came from: only the dots of the topmost layer present vote, so
+    /// a cell shows what is in front of everything else in it.
+    pub(crate) fn cell_of(dots: [u32; 8], prio: [u8; 8]) -> Cell {
         let mut bits = 0u8;
-        let (mut best, mut best_n) = (0u32, 0u8);
+        let (mut best, mut best_n, mut best_p) = (0u32, 0u8, 0u8);
         for (i, &v) in dots.iter().enumerate() {
             if v == 0 {
                 continue;
             }
             bits |= BITS[i / 2][i % 2];
+            let p = prio[i];
+            if p < best_p {
+                continue;
+            }
             // At most eight dots: a quadratic count is cheaper than hashing.
-            let n = dots[i..].iter().filter(|&&o| o == v).count() as u8;
-            if n > best_n {
-                best = v;
-                best_n = n;
+            let n = dots[i..].iter().zip(&prio[i..]).filter(|&(&o, &q)| o == v && q == p).count() as u8;
+            if p > best_p || n > best_n {
+                (best, best_n, best_p) = (v, n, p);
             }
         }
         Cell { bits, color: (best != 0).then(|| Color::from_packed(best)) }
@@ -286,6 +318,17 @@ mod tests {
         c.set(0, 1, b);
         assert_eq!(c.cell(0, 0).color, Some(Color::Rgb(b)));
         assert_eq!(Canvas::new(2, 2).cell(1, 1).color, None);
+    }
+
+    #[test]
+    fn a_higher_layer_outvotes_a_lower_one() {
+        let (a, b) = (Color::Rgb(Rgb::hex(1)), Color::Rgb(Rgb::hex(2)));
+        let dots = [a.packed(), b.packed(), b.packed(), b.packed(), 0, 0, 0, 0];
+        assert_eq!(Canvas::cell_of(dots, [0; 8]).color, Some(b), "no layers: the count decides");
+        assert_eq!(Canvas::cell_of(dots, [1, 0, 0, 0, 0, 0, 0, 0]).color, Some(a), "one dot in front wins");
+        assert_eq!(Canvas::cell_of(dots, [1, 1, 0, 0, 0, 0, 0, 0]).color, Some(a), "a tie in front goes to the first");
+        assert_eq!(Canvas::cell_of(dots, [1, 1, 1, 0, 0, 0, 0, 0]).color, Some(b), "the count decides within a layer");
+        assert_eq!(Canvas::cell_of(dots, [1, 1, 1, 0, 0, 0, 0, 0]).bits, 0x1b);
     }
 
     #[test]
