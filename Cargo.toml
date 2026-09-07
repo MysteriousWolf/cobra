@@ -1,6 +1,6 @@
 [package]
 name = "cobra"
-version = "26.1.1"
+version = "26.1.2"
 edition = "2024"
 rust-version = "1.88"
 description = "Per-dot coloured braille canvases for the terminal, drawn with the best graphics protocol the terminal supports."
