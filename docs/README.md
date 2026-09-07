@@ -72,8 +72,11 @@ Besides single dots and Bresenham lines, [`Canvas`](canvas.md#canvas) has span-b
 primitives (`fill_rect`, `fill_round_rect`, `fill_polygon`, `fill_ellipse`,
 `fill_ngon`, `fill_star`, `fill_pie`, `ring`, `arrow`, stroked `rect`,
 `round_rect`, `polygon`, `polyline`, `ellipse`, `ngon`, `star`, `arc`, `bezier`,
-`spline`) that take a [`Paint`](draw.md#paint): a colour, a dithered coverage, or
-[`Paint::erase`](draw.md#painterase).
+`spline`) and a [`Path`](path.md#path) of lines, curves and arcs. Every shape takes a
+[`Paint`](draw.md#paint): a colour, a dither, a [`Pattern`](draw.md#pattern), a gradient, an edge gradient, a
+shader or [`Paint::erase`](draw.md#painterase); every stroke takes a [`Pen`](draw.md#pen), optionally dashed.
+Masks: [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut) and
+[`Canvas::effects`](layer.md#canvaseffects).
 
 #### Text
 

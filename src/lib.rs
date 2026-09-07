@@ -50,8 +50,11 @@
 //! primitives (`fill_rect`, `fill_round_rect`, `fill_polygon`, `fill_ellipse`,
 //! `fill_ngon`, `fill_star`, `fill_pie`, `ring`, `arrow`, stroked `rect`,
 //! `round_rect`, `polygon`, `polyline`, `ellipse`, `ngon`, `star`, `arc`, `bezier`,
-//! `spline`) that take a [`Paint`]: a colour, a dithered coverage, or
-//! [`Paint::erase`].
+//! `spline`) and a [`Path`] of lines, curves and arcs. Every shape takes a
+//! [`Paint`]: a colour, a dither, a [`Pattern`], a gradient, an edge gradient, a
+//! shader or [`Paint::erase`]; every stroke takes a [`Pen`], optionally dashed.
+//! Masks: [`Canvas::stencil`], [`Canvas::clip`], [`Canvas::cut`] and
+//! [`Canvas::effects`].
 //!
 //! ## Text
 //!
