@@ -271,8 +271,10 @@ fn speech(c: &mut Canvas, x: f32, y: f32, color: Rgb, theme: Theme) {
 
 /// The thought and shout presets: a cloud of lobes and a starburst.
 fn thought(c: &mut Canvas, x: f32, y: f32, color: Rgb, theme: Theme) {
-    Bubble::thought("hm").fill(theme.panel).border(1.0, color.dim(0.8)).ink(color).draw(c, x, y);
-    Bubble::shout("HEY").fill(color).ink(theme.bg).draw(c, x + 17.0, y);
+    let cloud = Bubble::thought("hm").fill(color.dim(0.4)).border(1.0, color).ink(theme.on_fill);
+    let (w, _) = cloud.size();
+    cloud.draw(c, x, y);
+    Bubble::shout("HEY").fill(color).ink(theme.bg).draw(c, x + w + 1.0, y);
 }
 
 /// A tail can leave any side, at any point along it, in any of three kinds.

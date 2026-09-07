@@ -201,7 +201,7 @@ impl<'a> Bubble<'a> {
     pub fn thought(text: &'a str) -> Self {
         Self {
             shape: Shape::Cloud,
-            tail: Some(Tail { kind: TailKind::Bubbles, len: 10.0, width: 6.0, ..Tail::default() }),
+            tail: Some(Tail { kind: TailKind::Bubbles, len: 14.0, width: 6.0, ..Tail::default() }),
             align: Align::Center,
             pad: (1, 1),
             ..Self::new(text)
@@ -317,9 +317,15 @@ impl<'a> Bubble<'a> {
         // Round shapes lose the corners, so they need room the box does not, and a
         // burst has to be wide enough that its notches clear the text.
         match self.shape {
-            Shape::Ellipse | Shape::Cloud => {
+            Shape::Ellipse => {
                 cols = (cols as f32 * 1.5).ceil() as i32;
                 rows = (rows + 1).max((rows as f32 * 1.6).ceil() as i32);
+            }
+            Shape::Cloud => {
+                // A cloud is wider than it is tall: one row of lobes above and below
+                // the text, and enough width for the lobes to read as a row of them.
+                rows += 1;
+                cols = (cols as f32 * 1.6).ceil().max(rows as f32 * 2.0).ceil() as i32;
             }
             Shape::Burst => {
                 cols = (cols as f32 * 1.8).ceil() as i32;
@@ -574,7 +580,7 @@ impl<'a> Bubble<'a> {
                     lobe,
                     paint,
                 );
-                for (px, py) in perimeter(inner, lobe * 1.9) {
+                for (px, py) in perimeter(inner, lobe * 1.3) {
                     canvas.fill_ellipse(px, py, lobe + grow, lobe + grow, paint);
                 }
             }
@@ -628,7 +634,7 @@ const BURST_NOTCH: f32 = 0.75;
 /// Radius of a cloud's lobes: a good fraction of the body, or the outline reads as a
 /// rounded box.
 fn cloud_lobe(body: Rect) -> f32 {
-    (body.w.min(body.h) / 3.0).clamp(3.0, 12.0)
+    (body.w.min(body.h) / 3.5).clamp(3.0, 10.0)
 }
 
 /// Where the tail should leave `side` to reach `mouth`, kept away from the corners.
@@ -638,19 +644,20 @@ fn tail_base(body: Rect, side: Side, mouth: Point) -> Point {
     side.along(body, t.clamp(inset, 1.0 - inset))
 }
 
-/// Points spaced about `step` dots apart around the outline of `r`.
+/// Points spaced about `step` dots apart around the outline of `r`, corners
+/// included, laid out the same on opposite sides so the shape stays symmetric.
 fn perimeter(r: Rect, step: f32) -> impl Iterator<Item = Point> {
     let step = step.max(1.0);
-    let (nx, ny) = ((r.w / step).ceil().max(1.0) as i32, (r.h / step).ceil().max(1.0) as i32);
-    let horizontal = (0..nx).flat_map(move |i| {
+    let (nx, ny) = ((r.w / step).round().max(1.0) as i32, (r.h / step).round().max(1.0) as i32);
+    let top_bottom = (0..=nx).flat_map(move |i| {
         let x = r.x + r.w * i as f32 / nx as f32;
-        [(x, r.y), (r.right() - (x - r.x), r.bottom())]
+        [(x, r.y), (x, r.bottom())]
     });
-    let vertical = (0..ny).flat_map(move |i| {
+    let sides = (1..ny).flat_map(move |i| {
         let y = r.y + r.h * i as f32 / ny as f32;
-        [(r.right(), y), (r.x, r.bottom() - (y - r.y))]
+        [(r.x, y), (r.right(), y)]
     });
-    horizontal.chain(vertical)
+    top_bottom.chain(sides)
 }
 
 /// Where a tail meets its body; see [`Bubble::tail_anchor`].
@@ -678,11 +685,15 @@ fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint
         return;
     }
     if tail.kind == TailKind::Bubbles {
-        // Three shrinking discs on the line from base to tip, centred the same in
-        // every pass so their borders stay even.
-        // Snapped to dot centres, so a disc a few dots across is round, not lopsided.
-        for (t, scale) in [(0.2, 1.0), (0.55, 0.7), (0.85, 0.45)] {
-            let r = (hw * scale + grow).max(0.5);
+        // Three shrinking discs on the line from base to tip, each clear of the
+        // last and the first clear of the body, centred the same in every pass so
+        // their borders stay even. Snapped to dot centres, so a disc a few dots
+        // across is round, not lopsided.
+        for (t, scale) in [(0.25, 0.8), (0.62, 0.5), (0.95, 0.3)] {
+            let r = hw * scale + grow;
+            if r <= 0.0 {
+                continue; // too small to have an inside: the border pass is the whole disc
+            }
             let (cx, cy) = (base.0 + (tip.0 - base.0) * t, base.1 + (tip.1 - base.1) * t);
             canvas.fill_ellipse(cx.floor() + 0.5, cy.floor() + 0.5, r, r, paint);
         }

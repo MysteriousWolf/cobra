@@ -47,9 +47,13 @@ to write them yourself.
 
 ## Shapes
 
-<p align="center"><img src="assets/gallery.svg" alt="every primitive, one per panel" width="720"></p>
+<p align="center">
+  <img src="assets/gallery.svg" alt="every primitive, one per panel, on a dark terminal" width="49%">
+  <img src="assets/gallery-light.svg" alt="the same panels on a light terminal" width="49%">
+</p>
 
-That image is `cargo run --example gallery`, one panel per primitive. Coordinates are
+Both images are `cargo run --example gallery` (`svg out.svg` and `svg out.svg light`), one
+panel per primitive, on a dark and a light background. Coordinates are
 `f32` dots, `(0, 0)` is the top left, and anything off-canvas is clipped, so you can draw
 partly outside without checking bounds.
 
