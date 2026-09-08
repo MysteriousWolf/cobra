@@ -133,6 +133,8 @@ style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DO
 Inside tmux or screen you get the text protocol unless `COBRA_PROTOCOL` says otherwise;
 off unix there are no tty queries. A printed character takes its whole cell. Layers are
 flattened to dots before anything is sent, so a soft shadow is a dithered one.
+`Canvas::fallback` gives you the canvas as a plain terminal will show it, one colour per
+cell at a chosen depth, to render on a graphical terminal while you design for both.
 
 ## Performance
 
@@ -171,7 +173,7 @@ cargo test --all-features
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --all
 ci/version.fish check     # the version gate
-ci/docs.fish check        # docs/ matches the source
+ci/docs.fish check        # docs/ matches the source, and every public item has a picture
 ```
 
 Integration tests decode frames back to pixels with their own PNG, zlib, sixel and kitty

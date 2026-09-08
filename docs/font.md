@@ -22,6 +22,20 @@ pub const MAX_GLYPH_WIDTH: usize = 64
 
 Widest a glyph can be, in dots.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/max_glyph_width.svg">
+  <img src="img/max_glyph_width-light.svg" alt="MAX_GLYPH_WIDTH" width="640">
+</picture>
+
+```rust
+// A glyph can be up to 64 dots wide: one character that is a whole ruler.
+let (ticks, rule) = ("#...".repeat(MAX_GLYPH_WIDTH / 4), "#".repeat(MAX_GLYPH_WIDTH));
+let mut font = Font::empty();
+font.add('=', &[&ticks, &ticks, &rule]);
+c.text(8, 4, "=", &font, YELLOW);
+c.text(8, 8, &format!("{MAX_GLYPH_WIDTH} dots"), Font::tiny(), t.ink);
+```
+
 ## `Font`
 
 ```rust
@@ -56,6 +70,20 @@ Glyphs can be added programmatically with [`Font::add`](font.md#fontadd), and [`
 a larger copy, so one small master gives every size. [`Font::tiny`](font.md#fonttiny) is a built-in
 3×5 font covering printable ASCII.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font.svg">
+  <img src="img/font-light.svg" alt="Font, Font::parse, FontError" width="704">
+</picture>
+
+```rust
+// A font is text: a keyword line or two and a bitmap per character.
+let font = Font::parse("spacing 1\n\n♥\n.#.#.\n#####\n.###.\n..#..\n\n→\n..#.\n####\n..#.\n").unwrap();
+c.text(2, 2, "♥→♥", &font.scale(2), RED);
+// A bad line is reported by number.
+let err = Font::parse("A\n#?#\n").unwrap_err();
+c.print(0, 3, &format!("line {}: {}", err.line, err.message), t.ink);
+```
+
 ## `Glyph`
 
 ```rust
@@ -66,6 +94,30 @@ One glyph of a [`Font`](font.md#font).
 
 - `pub width: u8` — Width in dots.
 - `pub height: u8` — Height in dots.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/glyph.svg">
+  <img src="img/glyph-light.svg" alt="Glyph, Glyph::dot, Glyph::row, Font::glyph" width="384">
+</picture>
+
+```rust
+// A glyph read dot by dot and drawn three times larger; then row by row, as
+// bit masks, twice as large.
+let g = Font::tiny().glyph('R').unwrap();
+for y in 0..g.height {
+    for x in 0..g.width {
+        if g.dot(x, y) {
+            c.fill_rect(1.0 + x as f32 * 3.0, y as f32 * 3.0, 3.0, 3.0, GREEN);
+        }
+    }
+    let bits = g.row(y);
+    for x in 0..g.width {
+        if bits >> x & 1 == 1 {
+            c.fill_rect(20.0 + x as f32 * 2.0, y as f32 * 2.0, 2.0, 2.0, CYAN);
+        }
+    }
+}
+```
 
 ## `FontError`
 
@@ -78,6 +130,20 @@ A parse error, with the 1-based line it was found on.
 - `pub line: usize` — Line number.
 - `pub message: &'static str` — What went wrong.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font.svg">
+  <img src="img/font-light.svg" alt="Font, Font::parse, FontError" width="704">
+</picture>
+
+```rust
+// A font is text: a keyword line or two and a bitmap per character.
+let font = Font::parse("spacing 1\n\n♥\n.#.#.\n#####\n.###.\n..#..\n\n→\n..#.\n####\n..#.\n").unwrap();
+c.text(2, 2, "♥→♥", &font.scale(2), RED);
+// A bad line is reported by number.
+let err = Font::parse("A\n#?#\n").unwrap_err();
+c.print(0, 3, &format!("line {}: {}", err.line, err.message), t.ink);
+```
+
 ## `Glyph` methods
 
 ## `Glyph::dot`
@@ -88,6 +154,30 @@ pub fn dot(&self, x: u8, y: u8) -> bool
 
 Whether dot `(x, y)` of the glyph is set.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/glyph.svg">
+  <img src="img/glyph-light.svg" alt="Glyph, Glyph::dot, Glyph::row, Font::glyph" width="384">
+</picture>
+
+```rust
+// A glyph read dot by dot and drawn three times larger; then row by row, as
+// bit masks, twice as large.
+let g = Font::tiny().glyph('R').unwrap();
+for y in 0..g.height {
+    for x in 0..g.width {
+        if g.dot(x, y) {
+            c.fill_rect(1.0 + x as f32 * 3.0, y as f32 * 3.0, 3.0, 3.0, GREEN);
+        }
+    }
+    let bits = g.row(y);
+    for x in 0..g.width {
+        if bits >> x & 1 == 1 {
+            c.fill_rect(20.0 + x as f32 * 2.0, y as f32 * 2.0, 2.0, 2.0, CYAN);
+        }
+    }
+}
+```
+
 ## `Glyph::row`
 
 ```rust
@@ -95,6 +185,30 @@ pub fn row(&self, y: u8) -> u64
 ```
 
 Row `y` as a bit mask (bit `x` = dot `x`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/glyph.svg">
+  <img src="img/glyph-light.svg" alt="Glyph, Glyph::dot, Glyph::row, Font::glyph" width="384">
+</picture>
+
+```rust
+// A glyph read dot by dot and drawn three times larger; then row by row, as
+// bit masks, twice as large.
+let g = Font::tiny().glyph('R').unwrap();
+for y in 0..g.height {
+    for x in 0..g.width {
+        if g.dot(x, y) {
+            c.fill_rect(1.0 + x as f32 * 3.0, y as f32 * 3.0, 3.0, 3.0, GREEN);
+        }
+    }
+    let bits = g.row(y);
+    for x in 0..g.width {
+        if bits >> x & 1 == 1 {
+            c.fill_rect(20.0 + x as f32 * 2.0, y as f32 * 2.0, 2.0, 2.0, CYAN);
+        }
+    }
+}
+```
 
 ## `Font` methods
 
@@ -105,6 +219,18 @@ pub fn empty() -> Self
 ```
 
 A font with no glyphs, one dot of spacing and no line gap.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-add.svg">
+  <img src="img/font-add-light.svg" alt="Font::add, Font::empty, Font::len, Font::is_empty" width="384">
+</picture>
+
+```rust
+let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
+font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
+c.text(1, 1, "I ♥ dots", &font, RED);
+c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+```
 
 ## `Font::tiny`
 
@@ -132,6 +258,20 @@ pub fn parse(src: &str) -> Result<Font, FontError>
 
 Parses the text format described on [`Font`](font.md#font).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font.svg">
+  <img src="img/font-light.svg" alt="Font, Font::parse, FontError" width="704">
+</picture>
+
+```rust
+// A font is text: a keyword line or two and a bitmap per character.
+let font = Font::parse("spacing 1\n\n♥\n.#.#.\n#####\n.###.\n..#..\n\n→\n..#.\n####\n..#.\n").unwrap();
+c.text(2, 2, "♥→♥", &font.scale(2), RED);
+// A bad line is reported by number.
+let err = Font::parse("A\n#?#\n").unwrap_err();
+c.print(0, 3, &format!("line {}: {}", err.line, err.message), t.ink);
+```
+
 ## `Font::add`
 
 ```rust
@@ -143,13 +283,14 @@ text format. Rows may differ in length; the glyph is as wide as the longest.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/font-add.svg">
-  <img src="img/font-add-light.svg" alt="Font::add" width="384">
+  <img src="img/font-add-light.svg" alt="Font::add, Font::empty, Font::len, Font::is_empty" width="384">
 </picture>
 
 ```rust
-let mut font = Font::tiny().clone();
+let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
 font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
 c.text(1, 1, "I ♥ dots", &font, RED);
+c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
 ```
 
 ## `Font::glyph`
@@ -160,6 +301,30 @@ pub fn glyph(&self, ch: char) -> Option<Glyph<'_>>
 
 The glyph for `ch`, if the font has one.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/glyph.svg">
+  <img src="img/glyph-light.svg" alt="Glyph, Glyph::dot, Glyph::row, Font::glyph" width="384">
+</picture>
+
+```rust
+// A glyph read dot by dot and drawn three times larger; then row by row, as
+// bit masks, twice as large.
+let g = Font::tiny().glyph('R').unwrap();
+for y in 0..g.height {
+    for x in 0..g.width {
+        if g.dot(x, y) {
+            c.fill_rect(1.0 + x as f32 * 3.0, y as f32 * 3.0, 3.0, 3.0, GREEN);
+        }
+    }
+    let bits = g.row(y);
+    for x in 0..g.width {
+        if bits >> x & 1 == 1 {
+            c.fill_rect(20.0 + x as f32 * 2.0, y as f32 * 2.0, 2.0, 2.0, CYAN);
+        }
+    }
+}
+```
+
 ## `Font::height`
 
 ```rust
@@ -167,6 +332,20 @@ pub fn height(&self) -> u8
 ```
 
 Nominal glyph height, in dots.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-height.svg">
+  <img src="img/font-height-light.svg" alt="Font::height, Font::spacing, Font::line_gap, Font::line_height, Font::with_spacing, Font::with_line_gap" width="384">
+</picture>
+
+```rust
+let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
+let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
+c.text(1, 1, "ab\ncd", tight, t.ink);
+c.text(14, 1, "ab\ncd", &loose, BLUE);
+c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
+c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+```
 
 ## `Font::spacing`
 
@@ -176,6 +355,20 @@ pub fn spacing(&self) -> u8
 
 Dots between glyphs.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-height.svg">
+  <img src="img/font-height-light.svg" alt="Font::height, Font::spacing, Font::line_gap, Font::line_height, Font::with_spacing, Font::with_line_gap" width="384">
+</picture>
+
+```rust
+let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
+let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
+c.text(1, 1, "ab\ncd", tight, t.ink);
+c.text(14, 1, "ab\ncd", &loose, BLUE);
+c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
+c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+```
+
 ## `Font::line_gap`
 
 ```rust
@@ -183,6 +376,20 @@ pub fn line_gap(&self) -> u8
 ```
 
 Dots between lines.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-height.svg">
+  <img src="img/font-height-light.svg" alt="Font::height, Font::spacing, Font::line_gap, Font::line_height, Font::with_spacing, Font::with_line_gap" width="384">
+</picture>
+
+```rust
+let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
+let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
+c.text(1, 1, "ab\ncd", tight, t.ink);
+c.text(14, 1, "ab\ncd", &loose, BLUE);
+c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
+c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+```
 
 ## `Font::line_height`
 
@@ -192,6 +399,20 @@ pub fn line_height(&self) -> i32
 
 Distance from one baseline to the next: `height + line gap`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-height.svg">
+  <img src="img/font-height-light.svg" alt="Font::height, Font::spacing, Font::line_gap, Font::line_height, Font::with_spacing, Font::with_line_gap" width="384">
+</picture>
+
+```rust
+let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
+let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
+c.text(1, 1, "ab\ncd", tight, t.ink);
+c.text(14, 1, "ab\ncd", &loose, BLUE);
+c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
+c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+```
+
 ## `Font::len`
 
 ```rust
@@ -199,6 +420,18 @@ pub fn len(&self) -> usize
 ```
 
 Number of glyphs.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-add.svg">
+  <img src="img/font-add-light.svg" alt="Font::add, Font::empty, Font::len, Font::is_empty" width="384">
+</picture>
+
+```rust
+let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
+font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
+c.text(1, 1, "I ♥ dots", &font, RED);
+c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+```
 
 ## `Font::is_empty`
 
@@ -208,6 +441,18 @@ pub fn is_empty(&self) -> bool
 
 `true` when the font has no glyphs.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-add.svg">
+  <img src="img/font-add-light.svg" alt="Font::add, Font::empty, Font::len, Font::is_empty" width="384">
+</picture>
+
+```rust
+let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
+font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
+c.text(1, 1, "I ♥ dots", &font, RED);
+c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+```
+
 ## `Font::with_spacing`
 
 ```rust
@@ -216,6 +461,20 @@ pub fn with_spacing(mut self, spacing: u8) -> Self
 
 Sets the spacing between glyphs (builder style).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-height.svg">
+  <img src="img/font-height-light.svg" alt="Font::height, Font::spacing, Font::line_gap, Font::line_height, Font::with_spacing, Font::with_line_gap" width="384">
+</picture>
+
+```rust
+let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
+let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
+c.text(1, 1, "ab\ncd", tight, t.ink);
+c.text(14, 1, "ab\ncd", &loose, BLUE);
+c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
+c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+```
+
 ## `Font::with_line_gap`
 
 ```rust
@@ -223,6 +482,20 @@ pub fn with_line_gap(mut self, gap: u8) -> Self
 ```
 
 Sets the gap between lines (builder style).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-height.svg">
+  <img src="img/font-height-light.svg" alt="Font::height, Font::spacing, Font::line_gap, Font::line_height, Font::with_spacing, Font::with_line_gap" width="384">
+</picture>
+
+```rust
+let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
+let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
+c.text(1, 1, "ab\ncd", tight, t.ink);
+c.text(14, 1, "ab\ncd", &loose, BLUE);
+c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
+c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+```
 
 ## `Font::advance`
 
@@ -233,6 +506,24 @@ pub fn advance(&self, ch: char) -> i32
 Horizontal advance for `ch`: its width plus spacing. Characters the font lacks
 advance by the width of the space glyph (or half the height).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-advance.svg">
+  <img src="img/font-advance-light.svg" alt="Font::advance, Font::measure" width="384">
+</picture>
+
+```rust
+let font = Font::tiny();
+let (w, h) = font.measure("Hello"); // the box the text takes
+c.text(2, 3, "Hello", font, t.ink);
+c.rect(1.0, 2.0, w as f32 + 2.0, h as f32 + 2.0, 1.0, Paint::dithered(BLUE, 0.5));
+// Each character's advance: its width plus the spacing.
+let mut x = 2;
+for ch in "Hello".chars() {
+    c.line(x, 11, x + font.advance(ch) - 2, 11, ORANGE);
+    x += font.advance(ch);
+}
+```
+
 ## `Font::measure`
 
 ```rust
@@ -240,6 +531,24 @@ pub fn measure(&self, text: &str) -> (i32, i32)
 ```
 
 Size in dots of `text` when drawn (newlines start new lines).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-advance.svg">
+  <img src="img/font-advance-light.svg" alt="Font::advance, Font::measure" width="384">
+</picture>
+
+```rust
+let font = Font::tiny();
+let (w, h) = font.measure("Hello"); // the box the text takes
+c.text(2, 3, "Hello", font, t.ink);
+c.rect(1.0, 2.0, w as f32 + 2.0, h as f32 + 2.0, 1.0, Paint::dithered(BLUE, 0.5));
+// Each character's advance: its width plus the spacing.
+let mut x = 2;
+for ch in "Hello".chars() {
+    c.line(x, 11, x + font.advance(ch) - 2, 11, ORANGE);
+    x += font.advance(ch);
+}
+```
 
 ## `Font::scale`
 

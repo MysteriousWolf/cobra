@@ -63,6 +63,20 @@ pub fn new() -> Self
 
 An empty path.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-new.svg">
+  <img src="img/path-new-light.svg" alt="Path::new, Path::move_to, Path::line_to, Path::close, Path::current, Path::is_empty" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((2.0, 14.0)).line_to((8.0, 2.0)).line_to((16.0, 8.0)).close(); // a closed subpath
+p.move_to((22.0, 14.0)).line_to((30.0, 2.0)).line_to((38.0, 10.0)).line_to((46.0, 3.0)); // an open one
+c.stroke_path(&p, 1.0, PURPLE);
+let (x, y) = p.current(); // where the next segment would start
+c.disc(x, y, 1.5, YELLOW);
+```
+
 ## `Path::is_empty`
 
 ```rust
@@ -70,6 +84,20 @@ pub fn is_empty(&self) -> bool
 ```
 
 Whether nothing has been drawn.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-new.svg">
+  <img src="img/path-new-light.svg" alt="Path::new, Path::move_to, Path::line_to, Path::close, Path::current, Path::is_empty" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((2.0, 14.0)).line_to((8.0, 2.0)).line_to((16.0, 8.0)).close(); // a closed subpath
+p.move_to((22.0, 14.0)).line_to((30.0, 2.0)).line_to((38.0, 10.0)).line_to((46.0, 3.0)); // an open one
+c.stroke_path(&p, 1.0, PURPLE);
+let (x, y) = p.current(); // where the next segment would start
+c.disc(x, y, 1.5, YELLOW);
+```
 
 ## `Path::current`
 
@@ -79,6 +107,20 @@ pub fn current(&self) -> Point
 
 The point the next segment continues from.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-new.svg">
+  <img src="img/path-new-light.svg" alt="Path::new, Path::move_to, Path::line_to, Path::close, Path::current, Path::is_empty" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((2.0, 14.0)).line_to((8.0, 2.0)).line_to((16.0, 8.0)).close(); // a closed subpath
+p.move_to((22.0, 14.0)).line_to((30.0, 2.0)).line_to((38.0, 10.0)).line_to((46.0, 3.0)); // an open one
+c.stroke_path(&p, 1.0, PURPLE);
+let (x, y) = p.current(); // where the next segment would start
+c.disc(x, y, 1.5, YELLOW);
+```
+
 ## `Path::move_to`
 
 ```rust
@@ -86,6 +128,20 @@ pub fn move_to(&mut self, p: Point) -> &mut Self
 ```
 
 Starts a new subpath at `p`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-new.svg">
+  <img src="img/path-new-light.svg" alt="Path::new, Path::move_to, Path::line_to, Path::close, Path::current, Path::is_empty" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((2.0, 14.0)).line_to((8.0, 2.0)).line_to((16.0, 8.0)).close(); // a closed subpath
+p.move_to((22.0, 14.0)).line_to((30.0, 2.0)).line_to((38.0, 10.0)).line_to((46.0, 3.0)); // an open one
+c.stroke_path(&p, 1.0, PURPLE);
+let (x, y) = p.current(); // where the next segment would start
+c.disc(x, y, 1.5, YELLOW);
+```
 
 ## `Path::line_to`
 
@@ -95,6 +151,20 @@ pub fn line_to(&mut self, p: Point) -> &mut Self
 
 A straight line to `p`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-new.svg">
+  <img src="img/path-new-light.svg" alt="Path::new, Path::move_to, Path::line_to, Path::close, Path::current, Path::is_empty" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((2.0, 14.0)).line_to((8.0, 2.0)).line_to((16.0, 8.0)).close(); // a closed subpath
+p.move_to((22.0, 14.0)).line_to((30.0, 2.0)).line_to((38.0, 10.0)).line_to((46.0, 3.0)); // an open one
+c.stroke_path(&p, 1.0, PURPLE);
+let (x, y) = p.current(); // where the next segment would start
+c.disc(x, y, 1.5, YELLOW);
+```
+
 ## `Path::quad_to`
 
 ```rust
@@ -103,6 +173,21 @@ pub fn quad_to(&mut self, c: Point, p: Point) -> &mut Self
 
 A quadratic Bézier to `p` steered by `c`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-quad_to.svg">
+  <img src="img/path-quad_to-light.svg" alt="Path::quad_to, Path::cubic_to" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((1.0, 15.0)).quad_to((12.0, 1.0), (22.0, 15.0)); // one control point
+p.move_to((26.0, 15.0)).cubic_to((30.0, 1.0), (43.0, 15.0), (47.0, 1.0)); // two
+c.stroke_path(&p, 1.0, CYAN);
+// The control polygons, dotted.
+c.polyline(&[(1.0, 15.0), (12.0, 1.0), (22.0, 15.0)], Pen::new(1.0).dotted(), t.panel);
+c.polyline(&[(26.0, 15.0), (30.0, 1.0), (43.0, 15.0), (47.0, 1.0)], Pen::new(1.0).dotted(), t.panel);
+```
+
 ## `Path::cubic_to`
 
 ```rust
@@ -110,6 +195,21 @@ pub fn cubic_to(&mut self, c1: Point, c2: Point, p: Point) -> &mut Self
 ```
 
 A cubic Bézier to `p` steered by `c1` and `c2`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-quad_to.svg">
+  <img src="img/path-quad_to-light.svg" alt="Path::quad_to, Path::cubic_to" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((1.0, 15.0)).quad_to((12.0, 1.0), (22.0, 15.0)); // one control point
+p.move_to((26.0, 15.0)).cubic_to((30.0, 1.0), (43.0, 15.0), (47.0, 1.0)); // two
+c.stroke_path(&p, 1.0, CYAN);
+// The control polygons, dotted.
+c.polyline(&[(1.0, 15.0), (12.0, 1.0), (22.0, 15.0)], Pen::new(1.0).dotted(), t.panel);
+c.polyline(&[(26.0, 15.0), (30.0, 1.0), (43.0, 15.0), (47.0, 1.0)], Pen::new(1.0).dotted(), t.panel);
+```
 
 ## `Path::arc_to`
 
@@ -167,6 +267,20 @@ pub fn close(&mut self) -> &mut Self
 
 Closes the current subpath with a line back to where it started.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-new.svg">
+  <img src="img/path-new-light.svg" alt="Path::new, Path::move_to, Path::line_to, Path::close, Path::current, Path::is_empty" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((2.0, 14.0)).line_to((8.0, 2.0)).line_to((16.0, 8.0)).close(); // a closed subpath
+p.move_to((22.0, 14.0)).line_to((30.0, 2.0)).line_to((38.0, 10.0)).line_to((46.0, 3.0)); // an open one
+c.stroke_path(&p, 1.0, PURPLE);
+let (x, y) = p.current(); // where the next segment would start
+c.disc(x, y, 1.5, YELLOW);
+```
+
 ## `Path::rect`
 
 ```rust
@@ -174,6 +288,21 @@ pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32) -> &mut Self
 ```
 
 A closed rectangle as its own subpath.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-rect.svg">
+  <img src="img/path-rect-light.svg" alt="Path::rect, Path::round_rect, Path::ellipse, Path::polygon" width="384">
+</picture>
+
+```rust
+// Closed shapes as subpaths of one path, filled together; even-odd, so the
+// ellipse inside the box is a hole.
+let mut p = Path::new();
+p.rect(1.0, 1.0, 14.0, 14.0).ellipse(8.0, 8.0, 4.0, 3.0);
+p.round_rect(17.0, 1.0, 14.0, 14.0, 4.0);
+p.polygon(&[(33.0, 15.0), (40.0, 1.0), (47.0, 15.0)]);
+c.fill_path(&p, ORANGE);
+```
 
 ## `Path::round_rect`
 
@@ -183,6 +312,21 @@ pub fn round_rect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32) -> &mut Sel
 
 A closed box with corners rounded to radius `r`, as its own subpath.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-rect.svg">
+  <img src="img/path-rect-light.svg" alt="Path::rect, Path::round_rect, Path::ellipse, Path::polygon" width="384">
+</picture>
+
+```rust
+// Closed shapes as subpaths of one path, filled together; even-odd, so the
+// ellipse inside the box is a hole.
+let mut p = Path::new();
+p.rect(1.0, 1.0, 14.0, 14.0).ellipse(8.0, 8.0, 4.0, 3.0);
+p.round_rect(17.0, 1.0, 14.0, 14.0, 4.0);
+p.polygon(&[(33.0, 15.0), (40.0, 1.0), (47.0, 15.0)]);
+c.fill_path(&p, ORANGE);
+```
+
 ## `Path::apply`
 
 ```rust
@@ -190,6 +334,25 @@ pub fn apply(&mut self, t: &crate::Transform) -> &mut Self
 ```
 
 Applies `t` to every point (control points included).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-apply.svg">
+  <img src="img/path-apply-light.svg" alt="Path::apply, Path::translate, Path::scale" width="384">
+</picture>
+
+```rust
+let mut arrow = Path::new();
+arrow.polygon(&[(0.0, -2.0), (4.0, -2.0), (4.0, -4.0), (8.0, 0.0), (4.0, 4.0), (4.0, 2.0), (0.0, 2.0)]);
+let mut a = arrow.clone();
+a.translate(2.0, 8.0);
+let mut b = arrow.clone();
+b.scale(1.5, 1.5).translate(14.0, 8.0);
+let mut d = arrow.clone();
+d.apply(&Transform::at(38.0, 4.0).rotate(PI / 2.0).scale(1.5, 1.5)); // any transform at once
+c.fill_path(&a, GREEN);
+c.fill_path(&b, GREEN);
+c.fill_path(&d, GREEN);
+```
 
 ## `Path::ellipse`
 
@@ -199,6 +362,21 @@ pub fn ellipse(&mut self, cx: f32, cy: f32, rx: f32, ry: f32) -> &mut Self
 
 A closed ellipse as its own subpath.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-rect.svg">
+  <img src="img/path-rect-light.svg" alt="Path::rect, Path::round_rect, Path::ellipse, Path::polygon" width="384">
+</picture>
+
+```rust
+// Closed shapes as subpaths of one path, filled together; even-odd, so the
+// ellipse inside the box is a hole.
+let mut p = Path::new();
+p.rect(1.0, 1.0, 14.0, 14.0).ellipse(8.0, 8.0, 4.0, 3.0);
+p.round_rect(17.0, 1.0, 14.0, 14.0, 4.0);
+p.polygon(&[(33.0, 15.0), (40.0, 1.0), (47.0, 15.0)]);
+c.fill_path(&p, ORANGE);
+```
+
 ## `Path::polygon`
 
 ```rust
@@ -206,6 +384,21 @@ pub fn polygon(&mut self, pts: &[Point]) -> &mut Self
 ```
 
 A closed polygon as its own subpath.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-rect.svg">
+  <img src="img/path-rect-light.svg" alt="Path::rect, Path::round_rect, Path::ellipse, Path::polygon" width="384">
+</picture>
+
+```rust
+// Closed shapes as subpaths of one path, filled together; even-odd, so the
+// ellipse inside the box is a hole.
+let mut p = Path::new();
+p.rect(1.0, 1.0, 14.0, 14.0).ellipse(8.0, 8.0, 4.0, 3.0);
+p.round_rect(17.0, 1.0, 14.0, 14.0, 4.0);
+p.polygon(&[(33.0, 15.0), (40.0, 1.0), (47.0, 15.0)]);
+c.fill_path(&p, ORANGE);
+```
 
 ## `Path::transform`
 
@@ -238,6 +431,25 @@ pub fn translate(&mut self, dx: f32, dy: f32) -> &mut Self
 
 Moves the path by `(dx, dy)`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-apply.svg">
+  <img src="img/path-apply-light.svg" alt="Path::apply, Path::translate, Path::scale" width="384">
+</picture>
+
+```rust
+let mut arrow = Path::new();
+arrow.polygon(&[(0.0, -2.0), (4.0, -2.0), (4.0, -4.0), (8.0, 0.0), (4.0, 4.0), (4.0, 2.0), (0.0, 2.0)]);
+let mut a = arrow.clone();
+a.translate(2.0, 8.0);
+let mut b = arrow.clone();
+b.scale(1.5, 1.5).translate(14.0, 8.0);
+let mut d = arrow.clone();
+d.apply(&Transform::at(38.0, 4.0).rotate(PI / 2.0).scale(1.5, 1.5)); // any transform at once
+c.fill_path(&a, GREEN);
+c.fill_path(&b, GREEN);
+c.fill_path(&d, GREEN);
+```
+
 ## `Path::scale`
 
 ```rust
@@ -245,6 +457,25 @@ pub fn scale(&mut self, sx: f32, sy: f32) -> &mut Self
 ```
 
 Scales the path about the origin.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-apply.svg">
+  <img src="img/path-apply-light.svg" alt="Path::apply, Path::translate, Path::scale" width="384">
+</picture>
+
+```rust
+let mut arrow = Path::new();
+arrow.polygon(&[(0.0, -2.0), (4.0, -2.0), (4.0, -4.0), (8.0, 0.0), (4.0, 4.0), (4.0, 2.0), (0.0, 2.0)]);
+let mut a = arrow.clone();
+a.translate(2.0, 8.0);
+let mut b = arrow.clone();
+b.scale(1.5, 1.5).translate(14.0, 8.0);
+let mut d = arrow.clone();
+d.apply(&Transform::at(38.0, 4.0).rotate(PI / 2.0).scale(1.5, 1.5)); // any transform at once
+c.fill_path(&a, GREEN);
+c.fill_path(&b, GREEN);
+c.fill_path(&d, GREEN);
+```
 
 ## `Path::rotate`
 
@@ -276,6 +507,19 @@ pub fn bounds(&self) -> Option<Rect>
 The box around every point of the path, control points included; `None`
 when empty.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-bounds.svg">
+  <img src="img/path-bounds-light.svg" alt="Path::bounds" width="384">
+</picture>
+
+```rust
+let mut p = Path::new();
+p.move_to((4.0, 12.0)).curve_through(&[(14.0, 3.0), (26.0, 13.0), (40.0, 4.0)]);
+c.stroke_path(&p, 1.5, GREEN);
+let b = p.bounds().unwrap(); // control points included
+c.rect(b.x, b.y, b.w, b.h, 1.0, Paint::dithered(t.ink, 0.5));
+```
+
 ## `Path::subpaths`
 
 ```rust
@@ -284,6 +528,23 @@ pub fn subpaths(&self, mut f: impl FnMut(&[Point], bool))
 
 Flattens the path and hands each subpath to `f` as a polyline, with whether
 it was closed.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-subpaths.svg">
+  <img src="img/path-subpaths-light.svg" alt="Path::subpaths" width="384">
+</picture>
+
+```rust
+// The flattened polylines a path is drawn as: about one vertex per dot.
+let mut p = Path::new();
+p.move_to((2.0, 12.0)).quad_to((14.0, -4.0), (24.0, 12.0));
+p.move_to((28.0, 4.0)).arc_to(38.0, 8.0, 8.0, 6.0, PI, 2.0 * PI);
+p.subpaths(|pts, _closed| {
+    for (i, q) in pts.iter().enumerate() {
+        c.disc(q.0, q.1, 0.8, if i % 2 == 0 { CYAN } else { BLUE });
+    }
+});
+```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · **path** · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

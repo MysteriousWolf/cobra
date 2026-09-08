@@ -889,10 +889,13 @@ impl Canvas {
 
     /// Keeps only the dots that `mask` covers: clips the canvas to a shape.
     pub fn clip(&mut self, mask: &impl Silhouette) {
+        // Only the box that was written can hold a dot to unset.
+        let Some((x0, y0, x1, y1)) = self.dirty else { return };
         let stride = self.width() as usize;
-        for (y, row) in self.dots.chunks_exact_mut(stride).enumerate() {
-            for (x, d) in row.iter_mut().enumerate() {
-                if !mask.covers(x as i32, y as i32) {
+        for y in y0..y1 {
+            let row = &mut self.dots[y as usize * stride..][..stride];
+            for (x, d) in row[x0 as usize..x1 as usize].iter_mut().enumerate() {
+                if *d != 0 && !mask.covers(x0 + x as i32, y) {
                     *d = 0;
                 }
             }

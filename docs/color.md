@@ -28,6 +28,18 @@ An opaque 24-bit RGB colour.
 - `pub g: u8` — Green.
 - `pub b: u8` — Blue.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rgb.svg">
+  <img src="img/rgb-light.svg" alt="Rgb, Rgb::new, Rgb::hex" width="384">
+</picture>
+
+```rust
+// The same colour three ways.
+c.fill_rect(0.0, 0.0, 16.0, 12.0, Rgb::new(0x58, 0xa6, 0xff));
+c.fill_rect(16.0, 0.0, 16.0, 12.0, Rgb::hex(0x58a6ff));
+c.fill_rect(32.0, 0.0, 16.0, 12.0, 0x58a6ffu32); // a literal converts too
+```
+
 ## `Color`
 
 ```rust
@@ -78,6 +90,26 @@ Image protocols always get full RGB; the depth only matters for
 - `Ansi256` — The xterm 256-colour palette: a 6×6×6 cube and a 24-step grey ramp.
 - `TrueColor` — 24-bit `SGR 38;2;r;g;b`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/depth.svg">
+  <img src="img/depth-light.svg" alt="Depth, Color::quantize, Depth::parse, Depth::from_env" width="512">
+</picture>
+
+```rust
+// One gradient at every depth: what the text fallback quantises to on a
+// terminal with true colour, 256 colours, 16, or none.
+let palette = Palette::default();
+let depths = ["true", "256", "16", "mono"].map(|name| Depth::parse(name).unwrap());
+for (i, depth) in depths.into_iter().enumerate() {
+    for y in 0..16 {
+        for x in 0..15 {
+            let color = Color::Rgb(RED.lerp(BLUE, x as f32 / 14.0)).quantize(depth, &palette);
+            c.set(i as i32 * 16 + x, y, color);
+        }
+    }
+}
+```
+
 ## `Palette`
 
 ```rust
@@ -96,6 +128,23 @@ reports; the 6×6×6 cube and the grey ramp are the same on every terminal.
 - `pub foreground: Rgb` — Default foreground.
 - `pub background: Rgb` — Default background.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+</picture>
+
+```rust
+// The sixteen ANSI colours of the xterm palette, resolved to RGB; then a
+// shade of orange and the ANSI colour nearest to it.
+let palette = Palette::default();
+for i in 0..16u8 {
+    c.fill_rect(i as f32 * 3.0, 0.0, 3.0, 6.0, Color::Indexed(i).resolve(&palette));
+}
+c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
+c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
+c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+```
+
 ## `Rgb` methods
 
 ## `Rgb::new`
@@ -106,6 +155,18 @@ pub const fn new(r: u8, g: u8, b: u8) -> Self
 
 Creates a colour from its channels.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rgb.svg">
+  <img src="img/rgb-light.svg" alt="Rgb, Rgb::new, Rgb::hex" width="384">
+</picture>
+
+```rust
+// The same colour three ways.
+c.fill_rect(0.0, 0.0, 16.0, 12.0, Rgb::new(0x58, 0xa6, 0xff));
+c.fill_rect(16.0, 0.0, 16.0, 12.0, Rgb::hex(0x58a6ff));
+c.fill_rect(32.0, 0.0, 16.0, 12.0, 0x58a6ffu32); // a literal converts too
+```
+
 ## `Rgb::hex`
 
 ```rust
@@ -113,6 +174,18 @@ pub const fn hex(rgb: u32) -> Self
 ```
 
 Creates a colour from a `0xRRGGBB` literal.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rgb.svg">
+  <img src="img/rgb-light.svg" alt="Rgb, Rgb::new, Rgb::hex" width="384">
+</picture>
+
+```rust
+// The same colour three ways.
+c.fill_rect(0.0, 0.0, 16.0, 12.0, Rgb::new(0x58, 0xa6, 0xff));
+c.fill_rect(16.0, 0.0, 16.0, 12.0, Rgb::hex(0x58a6ff));
+c.fill_rect(32.0, 0.0, 16.0, 12.0, 0x58a6ffu32); // a literal converts too
+```
 
 ## `Rgb::lerp`
 
@@ -160,6 +233,23 @@ pub fn luminance(self) -> f32
 
 Relative luminance in `0..=1` (sRGB, WCAG weights), for contrast checks.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rgb-luminance.svg">
+  <img src="img/rgb-luminance-light.svg" alt="Rgb::luminance, Rgb::contrast" width="384">
+</picture>
+
+```rust
+// Ink chosen by the swatch's luminance, and under each its contrast ratio
+// against the page.
+for (i, color) in [Rgb::hex(0x0d1117), BLUE, YELLOW, Rgb::hex(0xffffff)].into_iter().enumerate() {
+    let x = i as f32 * 12.0;
+    c.fill_rect(x, 0.0, 12.0, 9.0, color);
+    let ink = if color.luminance() > 0.4 { Rgb::hex(0x000000) } else { Rgb::hex(0xffffff) };
+    c.text(x as i32 + 2, 2, "Aa", Font::tiny(), ink);
+    c.text(x as i32 + 1, 10, &format!("{:.0}", color.contrast(t.bg)), Font::tiny(), t.ink);
+}
+```
+
 ## `Rgb::contrast`
 
 ```rust
@@ -167,6 +257,23 @@ pub fn contrast(self, other: Rgb) -> f32
 ```
 
 WCAG contrast ratio between two colours, `1..=21`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rgb-luminance.svg">
+  <img src="img/rgb-luminance-light.svg" alt="Rgb::luminance, Rgb::contrast" width="384">
+</picture>
+
+```rust
+// Ink chosen by the swatch's luminance, and under each its contrast ratio
+// against the page.
+for (i, color) in [Rgb::hex(0x0d1117), BLUE, YELLOW, Rgb::hex(0xffffff)].into_iter().enumerate() {
+    let x = i as f32 * 12.0;
+    c.fill_rect(x, 0.0, 12.0, 9.0, color);
+    let ink = if color.luminance() > 0.4 { Rgb::hex(0x000000) } else { Rgb::hex(0xffffff) };
+    c.text(x as i32 + 2, 2, "Aa", Font::tiny(), ink);
+    c.text(x as i32 + 1, 10, &format!("{:.0}", color.contrast(t.bg)), Font::tiny(), t.ink);
+}
+```
 
 ## `Color` methods
 
@@ -178,6 +285,23 @@ pub fn resolve(self, palette: &Palette) -> Rgb
 
 Resolves the colour to RGB through `palette`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+</picture>
+
+```rust
+// The sixteen ANSI colours of the xterm palette, resolved to RGB; then a
+// shade of orange and the ANSI colour nearest to it.
+let palette = Palette::default();
+for i in 0..16u8 {
+    c.fill_rect(i as f32 * 3.0, 0.0, 3.0, 6.0, Color::Indexed(i).resolve(&palette));
+}
+c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
+c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
+c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+```
+
 ## `Color::quantize`
 
 ```rust
@@ -188,6 +312,26 @@ The closest colour the terminal can show at `depth`; a no-op at
 [`Depth::TrueColor`](color.md#depth). Palette indices are kept where the depth has them and
 resolved through `palette` where it does not.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/depth.svg">
+  <img src="img/depth-light.svg" alt="Depth, Color::quantize, Depth::parse, Depth::from_env" width="512">
+</picture>
+
+```rust
+// One gradient at every depth: what the text fallback quantises to on a
+// terminal with true colour, 256 colours, 16, or none.
+let palette = Palette::default();
+let depths = ["true", "256", "16", "mono"].map(|name| Depth::parse(name).unwrap());
+for (i, depth) in depths.into_iter().enumerate() {
+    for y in 0..16 {
+        for x in 0..15 {
+            let color = Color::Rgb(RED.lerp(BLUE, x as f32 / 14.0)).quantize(depth, &palette);
+            c.set(i as i32 * 16 + x, y, color);
+        }
+    }
+}
+```
+
 ## `Depth` methods
 
 ## `Depth::parse`
@@ -197,6 +341,26 @@ pub fn parse(s: &str) -> Option<Self>
 ```
 
 Parses `mono` / `16` / `256` / `true` (also `truecolor`, `24bit`, `ansi`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/depth.svg">
+  <img src="img/depth-light.svg" alt="Depth, Color::quantize, Depth::parse, Depth::from_env" width="512">
+</picture>
+
+```rust
+// One gradient at every depth: what the text fallback quantises to on a
+// terminal with true colour, 256 colours, 16, or none.
+let palette = Palette::default();
+let depths = ["true", "256", "16", "mono"].map(|name| Depth::parse(name).unwrap());
+for (i, depth) in depths.into_iter().enumerate() {
+    for y in 0..16 {
+        for x in 0..15 {
+            let color = Color::Rgb(RED.lerp(BLUE, x as f32 / 14.0)).quantize(depth, &palette);
+            c.set(i as i32 * 16 + x, y, color);
+        }
+    }
+}
+```
 
 ## `Depth::from_env`
 
@@ -211,6 +375,26 @@ Guesses the depth from the environment, without touching the tty.
 which every terminal of the last two decades is; `dumb`, `vt*` and `ansi`
 are not.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/depth.svg">
+  <img src="img/depth-light.svg" alt="Depth, Color::quantize, Depth::parse, Depth::from_env" width="512">
+</picture>
+
+```rust
+// One gradient at every depth: what the text fallback quantises to on a
+// terminal with true colour, 256 colours, 16, or none.
+let palette = Palette::default();
+let depths = ["true", "256", "16", "mono"].map(|name| Depth::parse(name).unwrap());
+for (i, depth) in depths.into_iter().enumerate() {
+    for y in 0..16 {
+        for x in 0..15 {
+            let color = Color::Rgb(RED.lerp(BLUE, x as f32 / 14.0)).quantize(depth, &palette);
+            c.set(i as i32 * 16 + x, y, color);
+        }
+    }
+}
+```
+
 ## `Palette` methods
 
 ## `Palette::is_light`
@@ -221,6 +405,23 @@ pub fn is_light(&self) -> bool
 
 `true` when the background is light, i.e. the terminal runs a light theme.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+</picture>
+
+```rust
+// The sixteen ANSI colours of the xterm palette, resolved to RGB; then a
+// shade of orange and the ANSI colour nearest to it.
+let palette = Palette::default();
+for i in 0..16u8 {
+    c.fill_rect(i as f32 * 3.0, 0.0, 3.0, 6.0, Color::Indexed(i).resolve(&palette));
+}
+c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
+c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
+c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+```
+
 ## `Palette::nearest_ansi`
 
 ```rust
@@ -228,6 +429,23 @@ pub fn nearest_ansi(&self, c: Rgb) -> u8
 ```
 
 Index of the ANSI colour (`0..=15`) closest to `c` in this palette.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+</picture>
+
+```rust
+// The sixteen ANSI colours of the xterm palette, resolved to RGB; then a
+// shade of orange and the ANSI colour nearest to it.
+let palette = Palette::default();
+for i in 0..16u8 {
+    c.fill_rect(i as f32 * 3.0, 0.0, 3.0, 6.0, Color::Indexed(i).resolve(&palette));
+}
+c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
+c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
+c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · **color** · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

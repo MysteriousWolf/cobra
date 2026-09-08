@@ -60,6 +60,24 @@ An edge of a bubble.
 - `Bottom` — Below the body.
 - `Left` — Left of the body.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
 ## `Shape`
 
 ```rust
@@ -76,7 +94,7 @@ The shape of a bubble's body.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/shape.svg">
-  <img src="img/shape-light.svg" alt="Shape" width="704">
+  <img src="img/shape-light.svg" alt="Shape, Bubble::shape" width="704">
 </picture>
 
 ```rust
@@ -131,6 +149,64 @@ Where and how a bubble's tail leaves the body.
 - `pub kind: TailKind` — Its look.
 - `pub tip: Option<Point>` — Where the point ends up. `None` puts it straight out from the base, which is what a hand-placed bubble wants; [`Bubble::speak`](bubble.md#bubblespeak) sets it to the mouth.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
+**`len`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
+**`width`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
 ## `Bubble`
 
 ```rust
@@ -138,6 +214,20 @@ pub struct Bubble<'a>
 ```
 
 A text box, or a chat bubble when it has a [`Tail`](bubble.md#tail). See the module docs.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble.svg">
+  <img src="img/bubble-light.svg" alt="Bubble" width="640">
+</picture>
+
+```rust
+// Two speakers; each bubble is placed by `speak` where it fits, the second
+// told to keep off the first.
+c.disc(10.0, 26.0, 4.0, GREEN);
+c.disc(70.0, 26.0, 4.0, PURPLE);
+let first = Bubble::speech("Hi there!").ink(t.bg).fill(GREEN).speak(c, (10.0, 22.0), &[]);
+Bubble::thought("Who?").ink(t.ink).border(1.0, t.ink).speak(c, (70.0, 22.0), &[first]);
+```
 
 ## `Tail` methods
 
@@ -149,6 +239,24 @@ pub fn new(side: Side, at: f32, kind: TailKind) -> Self
 
 A tail of `kind` leaving `side` at `at` (`0..=1` along it).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
 ## `Tail::len`
 
 ```rust
@@ -157,6 +265,24 @@ pub fn len(mut self, len: f32) -> Self
 
 Sets how far the tail reaches, in dots.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
 ## `Tail::width`
 
 ```rust
@@ -164,6 +290,24 @@ pub fn width(mut self, width: f32) -> Self
 ```
 
 Sets the width of the tail's base, in dots.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
 
 ## `Bubble` methods
 
@@ -264,6 +408,21 @@ pub fn shape(mut self, shape: Shape) -> Self
 
 Sets the body shape.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/shape.svg">
+  <img src="img/shape-light.svg" alt="Shape, Bubble::shape" width="704">
+</picture>
+
+```rust
+let shapes = [Shape::Rect, Shape::Round(3.0), Shape::Ellipse, Shape::Cloud, Shape::Burst];
+let mut x = 0.0;
+for shape in shapes {
+    let b = Bubble::new("hi").shape(shape).ink(t.ink).border(1.0, t.ink).no_tail();
+    let r = b.draw(c, x, 4.0);
+    x = r.right() + 2.0;
+}
+```
+
 ## `Bubble::tail`
 
 ```rust
@@ -272,6 +431,24 @@ pub fn tail(mut self, tail: Tail) -> Self
 
 Attaches a tail.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/side.svg">
+  <img src="img/side-light.svg" alt="Side, Tail, Tail::new, Tail::len, Tail::width, Bubble::tail" width="800">
+</picture>
+
+```rust
+// A tail from each side, at a point along it, of a length and a base width.
+let tails = [
+    Tail::new(Side::Top, 0.2, TailKind::Point).len(6.0),
+    Tail::new(Side::Right, 0.5, TailKind::Point).len(8.0).width(8.0),
+    Tail::new(Side::Bottom, 0.8, TailKind::Curve).len(8.0),
+    Tail::new(Side::Left, 0.5, TailKind::Line).len(10.0),
+];
+for (i, tail) in tails.into_iter().enumerate() {
+    Bubble::new("side").ink(t.ink).border(1.0, t.ink).tail(tail).draw(c, 12.0 + i as f32 * 22.0, 10.0);
+}
+```
+
 ## `Bubble::no_tail`
 
 ```rust
@@ -279,6 +456,17 @@ pub fn no_tail(mut self) -> Self
 ```
 
 Removes the tail, leaving a text box.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-no_tail.svg">
+  <img src="img/bubble-no_tail-light.svg" alt="Bubble::no_tail" width="448">
+</picture>
+
+```rust
+let b = Bubble::speech("same").ink(t.bg).fill(BLUE);
+b.draw(c, 4.0, 2.0);
+b.no_tail().draw(c, 32.0, 2.0); // a text box again
+```
 
 ## `Bubble::fill`
 
@@ -323,6 +511,17 @@ pub fn ink(mut self, ink: impl Into<TextStyle>) -> Self
 Sets the text style. Its background defaults to the bubble's fill, since a
 printed character replaces the dots in its cell.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-ink.svg">
+  <img src="img/bubble-ink-light.svg" alt="Bubble::ink" width="480">
+</picture>
+
+```rust
+// Any text style; the background defaults to the fill.
+Bubble::new("bold on red").ink(TextStyle::new(t.bg).on(RED).bold()).draw(c, 2.0, 4.0);
+Bubble::new("plain").ink(BLUE).border(1.0, BLUE).draw(c, 34.0, 4.0);
+```
+
 ## `Bubble::font`
 
 ```rust
@@ -333,6 +532,17 @@ Draws the text as dots in `font` instead of as real characters. Use it when a
 bubble is too small for a character cell, or in a drawing that is exported to
 an image.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-font.svg">
+  <img src="img/bubble-font-light.svg" alt="Bubble::font" width="384">
+</picture>
+
+```rust
+// Dots instead of characters: a bubble small enough to go anywhere.
+Bubble::speech("tiny").font(Font::tiny()).ink(t.bg).fill(ORANGE).draw(c, 2.0, 1.0);
+Bubble::new("big").font(&Font::tiny().scale(2)).ink(t.ink).border(1.0, GREEN).draw(c, 26.0, 1.0);
+```
+
 ## `Bubble::pad`
 
 ```rust
@@ -342,6 +552,17 @@ pub fn pad(mut self, cols: i32, rows: i32) -> Self
 Padding between the text and the body edge, in cells. Default `(1, 0)`, and at
 least one row when the bubble has a border and prints real text: a character
 hides the dots in its cell, and the top and bottom of the border are in it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-pad.svg">
+  <img src="img/bubble-pad-light.svg" alt="Bubble::pad" width="448">
+</picture>
+
+```rust
+// Padding in cells around the text, none and plenty.
+Bubble::new("0,0").font(Font::tiny()).pad(0, 0).ink(t.ink).border(1.0, t.ink).draw(c, 2.0, 4.0);
+Bubble::new("3,1").font(Font::tiny()).pad(3, 1).ink(t.ink).border(1.0, t.ink).draw(c, 24.0, 4.0);
+```
 
 ## `Bubble::align`
 
@@ -407,6 +628,21 @@ pub fn size(&self) -> (f32, f32)
 Size of the body in dots, always a whole number of cells so the text inside
 lands on the character grid.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-size.svg">
+  <img src="img/bubble-size-light.svg" alt="Bubble::size, Bubble::bounds, Bubble::draw" width="448">
+</picture>
+
+```rust
+let b = Bubble::speech("Drawn at (4, 4)").ink(t.bg).fill(PURPLE);
+let body = b.draw(c, 4.0, 4.0); // the body's box, a whole number of cells
+let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
+c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
+let (w, h) = b.size(); // the same as the body's, known before drawing
+c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+c.disc(body.right(), body.y, 1.2, YELLOW);
+```
+
 ## `Bubble::bounds`
 
 ```rust
@@ -416,6 +652,21 @@ pub fn bounds(&self, x: f32, y: f32) -> Rect
 Everything the bubble would cover if drawn at `(x, y)`: the body and its tail.
 Useful as a keep-out zone for the next bubble.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-size.svg">
+  <img src="img/bubble-size-light.svg" alt="Bubble::size, Bubble::bounds, Bubble::draw" width="448">
+</picture>
+
+```rust
+let b = Bubble::speech("Drawn at (4, 4)").ink(t.bg).fill(PURPLE);
+let body = b.draw(c, 4.0, 4.0); // the body's box, a whole number of cells
+let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
+c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
+let (w, h) = b.size(); // the same as the body's, known before drawing
+c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+c.disc(body.right(), body.y, 1.2, YELLOW);
+```
+
 ## `Bubble::draw`
 
 ```rust
@@ -424,6 +675,21 @@ pub fn draw(&self, canvas: &mut Canvas, x: f32, y: f32) -> Rect
 
 Draws the bubble with the top-left of its body at dot `(x, y)`, snapped to the
 cell grid, and returns the body's box. The tail may reach outside it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-size.svg">
+  <img src="img/bubble-size-light.svg" alt="Bubble::size, Bubble::bounds, Bubble::draw" width="448">
+</picture>
+
+```rust
+let b = Bubble::speech("Drawn at (4, 4)").ink(t.bg).fill(PURPLE);
+let body = b.draw(c, 4.0, 4.0); // the body's box, a whole number of cells
+let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
+c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
+let (w, h) = b.size(); // the same as the body's, known before drawing
+c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+c.disc(body.right(), body.y, 1.2, YELLOW);
+```
 
 ## `Bubble::speak`
 
@@ -458,6 +724,21 @@ pub fn place(&self, area: Rect, mouth: Point, keep_out: &[Rect]) -> (Self, Point
 
 The placement [`speak`](bubble.md#bubblespeak) would use: a copy of the bubble with its
 tail aimed at `mouth`, and the top-left dot to draw it at.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/bubble-place.svg">
+  <img src="img/bubble-place-light.svg" alt="Bubble::place" width="640">
+</picture>
+
+```rust
+// `place` decides, `draw` draws: the tail is aimed and the position chosen
+// within an area, here the left half of the canvas.
+let area = Rect::new(0.0, 0.0, 40.0, 32.0);
+c.rect(area.x, area.y, area.w, area.h, 1.0, Paint::dithered(t.panel, 0.7));
+c.disc(30.0, 26.0, 3.0, GREEN);
+let (placed, at) = Bubble::speech("Placed").ink(t.bg).fill(BLUE).place(area, (30.0, 24.0), &[]);
+placed.draw(c, at.0, at.1);
+```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · **bubble** · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

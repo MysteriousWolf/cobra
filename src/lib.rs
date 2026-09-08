@@ -139,7 +139,7 @@ pub use bubble::{Bubble, Shape, Side, Tail, TailKind};
 pub use canvas::{Canvas, Cell, DOTS_X, DOTS_Y, bayer, braille};
 pub use color::{Color, Depth, Palette, Rgb};
 pub use draw::{Paint, Pattern, Pen, Point, Probe, Rect, Shader};
-pub use font::{Font, FontError, Glyph};
+pub use font::{Font, FontError, Glyph, MAX_GLYPH_WIDTH};
 pub use layer::{Effect, Field, Layer, Layers, Sample};
 pub use mask::{Mask, Silhouette};
 pub use path::Path;

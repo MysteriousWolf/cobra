@@ -5,6 +5,7 @@
 //! cargo run --example docs                    # (re)write docs/
 //! cargo run --example docs -- --check         # exit 1 if docs/ is out of date
 //! cargo run --example docs -- --preview DIR   # also write every picture as a PNG into DIR
+//! cargo run --example docs -- --missing       # list the public items that have no picture
 //! ```
 
 mod demos;
@@ -37,9 +38,46 @@ const PAGES: &[(&str, &str, &str)] = &[
     ("ratatui", "src/ratatui.rs", "The ratatui widget and overlay."),
 ];
 
+/// Public items that have no picture, and why: everything else must have one, and
+/// `--check` fails when it does not. Each is plumbing between a canvas and a
+/// terminal, so a drawing could only show a canvas, which says nothing about it.
+const NO_PICTURE: &[(&str, &str)] = &[
+    ("Options", "how a frame is sent, not what is in it"),
+    ("Options::from_env", "reads `COBRA_DOT`"),
+    ("Placement", "where the cursor is, which a file does not have"),
+    ("Renderer::new", "constructs a renderer; see `Renderer` for what one draws"),
+    ("Renderer::with_options", "constructs a renderer"),
+    ("Renderer::terminal", "a getter"),
+    ("Renderer::options", "a getter"),
+    ("Renderer::set_options", "a setter"),
+    ("Renderer::image_id", "a kitty protocol detail"),
+    ("Renderer::invalidate", "forgets the last frame sent"),
+    ("Renderer::render", "writes a frame to a terminal; `Renderer` shows what it looks like"),
+    ("Renderer::render_at", "writes a frame at a cursor position"),
+    ("Renderer::encode", "the bytes of a frame"),
+    ("Renderer::encode_view", "the bytes of part of a frame"),
+    ("Protocol", "which escape sequences a terminal speaks"),
+    ("Protocol::parse", "parses a name"),
+    ("Protocol::from_env", "reads environment variables"),
+    ("CellSize", "pixels per cell, a property of the terminal"),
+    ("CellSize::is_known", "a predicate"),
+    ("CellSize::parse", "parses `WxH`"),
+    ("Terminal", "what detection learned about the terminal"),
+    ("Terminal::text", "a constructor"),
+    ("Terminal::new", "a constructor"),
+    ("Terminal::with_depth", "a builder; `Depth` shows what each depth looks like"),
+    ("Terminal::with_palette", "a builder"),
+    ("Terminal::is_graphical", "a predicate"),
+    ("Terminal::detect", "talks to the terminal"),
+    ("Braille", "draws into a ratatui buffer, which needs a terminal"),
+    ("Braille::new", "constructs the widget"),
+    ("overlay", "sends the image after a ratatui frame"),
+];
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let check = args.iter().any(|a| a == "--check");
+    let missing = args.iter().any(|a| a == "--missing");
     let preview = args.iter().position(|a| a == "--preview").and_then(|i| args.get(i + 1)).map(PathBuf::from);
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let out = root.join("docs");
@@ -48,7 +86,43 @@ fn main() {
     let demos = demos::all();
     let sources = demo_sources(&fs::read_to_string(root.join("examples/docs/demos.rs")).unwrap());
     for d in &demos {
-        assert!(sources.contains_key(d.item), "no source found for demo {:?}", d.item);
+        assert!(sources.contains_key(d.name()), "no source found for demo {:?}", d.name());
+    }
+
+    // Every public item has a picture or a reason not to.
+    let mut uncovered = Vec::new();
+    for m in &modules {
+        for item in &m.items {
+            let key = item.key();
+            let pictured = demos.iter().any(|d| d.items.contains(&key.as_str()));
+            let excused = NO_PICTURE.iter().any(|(k, _)| *k == key);
+            if pictured && excused {
+                panic!("{key} has a picture and is listed in NO_PICTURE");
+            }
+            if !pictured && !excused {
+                uncovered.push(format!("{}: {key}", m.name));
+            }
+        }
+    }
+    for (key, _) in NO_PICTURE {
+        assert!(
+            modules.iter().any(|m| m.items.iter().any(|i| i.key() == *key)),
+            "NO_PICTURE lists {key}, which is not an item"
+        );
+    }
+    if missing {
+        for line in &uncovered {
+            println!("{line}");
+        }
+        println!("{} items without a picture", uncovered.len());
+        return;
+    }
+    if !uncovered.is_empty() {
+        eprintln!("every public item needs a picture in examples/docs/demos.rs, or a reason in NO_PICTURE:");
+        for line in &uncovered {
+            eprintln!("  {line}");
+        }
+        std::process::exit(1);
     }
 
     let index = anchors(&modules);
@@ -62,7 +136,9 @@ fn main() {
         }
     }
     for d in &demos {
-        assert!(used.contains(d.item), "demo {:?} illustrates nothing the parser found", d.item);
+        for item in d.items {
+            assert!(used.contains(item), "demo {:?} illustrates {item:?}, which the parser did not find", d.name());
+        }
     }
     files.insert(PathBuf::from("README.md"), render_index(&crate_docs, &modules, &index).into_bytes());
     if let Some(dir) = preview {
@@ -72,7 +148,7 @@ fn main() {
                 let mut canvas = Canvas::new(d.cols, d.rows);
                 (d.draw)(&mut canvas, theme);
                 let style = export_style(theme).scale(2);
-                let name = format!("{}{suffix}.png", anchor(&d.item.replace("::", "-")));
+                let name = format!("{}{suffix}.png", anchor(&d.name().replace("::", "-")));
                 fs::write(dir.join(name), export::png(&canvas, &style)).unwrap();
             }
         }
@@ -133,31 +209,10 @@ fn sheets(demos: &[Demo], theme: Theme) -> Vec<Canvas> {
             for pair in chunk.chunks(2) {
                 for (k, d) in pair.iter().enumerate() {
                     let (x0, y0) = (k as u16 * COL_W, y + 1);
-                    sheet.print(x0 as i32, y as i32, d.item, theme.ink);
+                    sheet.print(x0 as i32, y as i32, &d.items.join(" | "), theme.ink);
                     let mut canvas = Canvas::new(d.cols, d.rows);
                     (d.draw)(&mut canvas, theme);
-                    for dy in 0..canvas.height() {
-                        for dx in 0..canvas.width() {
-                            if let Some(c) = canvas.get(dx, dy) {
-                                sheet.set(dx + x0 as i32 * 2, dy + y0 as i32 * 4, c);
-                            }
-                        }
-                    }
-                    for row in 0..canvas.rows() as i32 {
-                        for col in 0..canvas.cols() as i32 {
-                            if let Some(cell) = canvas.text_cell(col, row)
-                                && !cell.is_continuation()
-                            {
-                                let mut buf = [0u8; 4];
-                                sheet.print(
-                                    col + x0 as i32,
-                                    row + y0 as i32,
-                                    cell.ch.encode_utf8(&mut buf),
-                                    cell.style,
-                                );
-                            }
-                        }
-                    }
+                    sheet.blit(&canvas, x0 as i32 * 2, y0 as i32 * 4);
                 }
                 y += pair.iter().map(|d| d.rows).max().unwrap_or(0) + 2;
             }
@@ -213,14 +268,18 @@ fn anchor(heading: &str) -> String {
         .collect()
 }
 
-/// The block of each demo, as written in `demos.rs`, keyed by item.
+/// The block of each demo, as written in `demos.rs`, keyed by the first item it
+/// illustrates.
 fn demo_sources(src: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let mut rest = src;
     while let Some(k) = rest.find("=> |c, t| {") {
+        // The head is everything since the previous block: the item literals and
+        // the size. The first literal names the demo.
         let head = &rest[..k];
-        let quote = head.rfind('"').and_then(|end| head[..end].rfind('"').map(|start| &head[start + 1..end]));
-        let Some(item) = quote else { break };
+        let head = &head[head.rfind('}').map_or(0, |i| i + 1)..];
+        let item = head.split('"').nth(1).filter(|s| !s.is_empty());
+        let Some(item) = item else { break };
         let body_start = k + "=> |c, t| {".len();
         let mut depth = 1;
         let mut end = body_start;
@@ -285,8 +344,8 @@ fn render_page(
     page.push('\n');
 
     let mut show = |page: &mut String, images: &mut Vec<(String, String)>, demo: &Demo| {
-        used.insert(demo.item);
-        let slug = anchor(&demo.item.replace("::", "-"));
+        used.extend(demo.items);
+        let slug = anchor(&demo.name().replace("::", "-"));
         let (dark, light) = (format!("{slug}.svg"), format!("{slug}-light.svg"));
         images.push((dark.clone(), picture(demo, demos::DARK)));
         images.push((light.clone(), picture(demo, demos::LIGHT)));
@@ -294,9 +353,9 @@ fn render_page(
         let _ = writeln!(
             page,
             "<picture>\n  <source media=\"(prefers-color-scheme: dark)\" srcset=\"img/{dark}\">\n  <img src=\"img/{light}\" alt=\"{}\" width=\"{width}\">\n</picture>\n",
-            demo.item
+            demo.items.join(", ")
         );
-        let _ = writeln!(page, "```rust\n{}\n```\n", sources[demo.item]);
+        let _ = writeln!(page, "```rust\n{}\n```\n", sources[demo.name()]);
     };
     let mut section = |page: &mut String, item: &Item, images: &mut Vec<(String, String)>| {
         let key = item.key();
@@ -312,11 +371,12 @@ fn render_page(
             }
             page.push('\n');
         }
-        for demo in demos.iter().filter(|d| d.item == key) {
+        for demo in demos.iter().filter(|d| d.items.contains(&key.as_str())) {
             show(page, images, demo);
         }
         for m in &item.members {
-            for demo in demos.iter().filter(|d| d.item == format!("{key}::{}", m.name)) {
+            let member = format!("{key}::{}", m.name);
+            for demo in demos.iter().filter(|d| d.items.contains(&member.as_str())) {
                 let _ = writeln!(page, "**`{}`**\n", m.name);
                 show(page, images, demo);
             }
@@ -370,6 +430,13 @@ fn render_index(crate_docs: &str, modules: &[Module], index: &HashMap<String, St
     for m in modules {
         let items: Vec<String> = m.items.iter().map(|i| link(&i.key(), index)).collect();
         let _ = writeln!(page, "- [`{}`]({}.md): {}\n", m.name, m.name, items.join(", "));
+    }
+    page.push_str(
+        "## Without a picture\n\nEvery other item is illustrated. These are the plumbing between a \
+         canvas and a terminal, where a drawing would show a canvas and say nothing about the item:\n\n",
+    );
+    for (key, why) in NO_PICTURE {
+        let _ = writeln!(page, "- {}: {why}", link(key, index));
     }
     page
 }

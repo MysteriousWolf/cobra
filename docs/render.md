@@ -47,6 +47,24 @@ Owns every scratch buffer it needs, so after the first frame rendering does not
 allocate. One renderer per canvas (or per widget) is the intended granularity: it
 carries the kitty image id that identifies "this picture" across frames.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/renderer.svg">
+  <img src="img/renderer-light.svg" alt="Renderer" width="576">
+</picture>
+
+```rust
+// The same canvas three ways: as the image protocols draw it, every dot its
+// own colour; as the text protocol shows it in true colour, one colour per
+// cell (the dominant one); and as a 16-colour terminal shows it.
+let mut scene = Canvas::new(12, 5);
+scene.fill_rect(0.0, 13.0, 24.0, 7.0, Paint::linear((0.0, 13.0), (0.0, 20.0), GREEN, GREEN.dim(0.3)));
+scene.disc(9.0, 8.0, 6.0, Paint::radial((7.0, 6.0), 7.0, YELLOW, ORANGE));
+scene.polyline(&[(2.0, 12.0), (22.0, 2.0)], 1.0, RED);
+c.blit(&scene, 0, 0);
+c.blit(&scene.fallback(Depth::TrueColor, &Palette::default()), 24, 0);
+c.blit(&scene.fallback(Depth::Ansi16, &Palette::default()), 48, 0);
+```
+
 ## `Options` methods
 
 ## `Options::from_env`
