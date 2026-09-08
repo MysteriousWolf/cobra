@@ -150,6 +150,13 @@ pub struct Terminal {
     /// [`detect`](Self::detect) inside tmux; needs `allow-passthrough on` there.
     /// Text, cursor movement and printed characters are never wrapped, since tmux
     /// has to see those.
+    ///
+    /// tmux hands the wrapped bytes on at wherever its own terminal's cursor is, so
+    /// before each image the renderer erases the image's origin cell (`ECH`), which
+    /// is the one thing that makes tmux put that cursor where the pane's is, and it
+    /// clips the image to [`cols`](Self::cols) × [`rows`](Self::rows), the pane: an
+    /// image hanging off the outer screen is drawn by a terminal that never saw the
+    /// pane, and has crashed Ghostty.
     pub passthrough: bool,
 }
 
