@@ -191,11 +191,20 @@ fn signature(lines: &[&str], i: usize) -> (String, usize) {
             break;
         }
     }
-    let mut sig = parts.join(" ");
+    let joined = parts.join(" ");
+    // A `pub const X: T = value;` keeps its value verbatim (it may be a struct
+    // literal with braces of its own); only the declaration loses its body brace.
+    let is_const = joined.starts_with("pub const ") && !joined.starts_with("pub const fn ");
+    let (mut sig, value) = match joined.split_once(" = ").filter(|_| is_const) {
+        Some((decl, value)) => (decl.to_string(), Some(value.trim_end_matches(';').to_string())),
+        None => (joined, None),
+    };
     for (from, to) in [("( ", "("), (", )", ")"), (" {", ""), ("{", ""), (";", "")] {
         sig = sig.replace(from, to);
     }
-    // A one-line `pub const X: T = value;` keeps its value; a struct's `{` is gone.
+    if let Some(value) = value {
+        sig = format!("{} = {value}", sig.trim_end());
+    }
     (sig.trim_end().to_string(), end)
 }
 

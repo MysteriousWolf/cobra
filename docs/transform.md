@@ -56,7 +56,7 @@ for i in 0..5 {
 ## `Transform::IDENTITY`
 
 ```rust
-pub const IDENTITY: Self = Self m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] }
+pub const IDENTITY: Self = Self { m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] }
 ```
 
 Leaves everything where it is.
