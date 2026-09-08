@@ -139,7 +139,10 @@ style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DO
 Inside tmux the outer terminal is recognised from its environment (Ghostty, kitty,
 WezTerm, iTerm2), the cell size comes from tmux ≥ 3.2, and images are wrapped in tmux's
 passthrough, which needs `set -g allow-passthrough on` in your `tmux.conf`; without it
-they are dropped silently, and `COBRA_PROTOCOL=text` opts out. GNU screen gets text.
+they are dropped silently, and `COBRA_PROTOCOL=text` opts out. Each image is pinned to
+the pane's cursor and clipped to the pane, since tmux would otherwise hand it to the
+outer terminal wherever that terminal's cursor last was, hanging off the screen (which
+crashes Ghostty). GNU screen gets text.
 Off unix there are no tty queries. A printed character takes its whole cell. Layers are
 flattened to dots before anything is sent, so a soft shadow is a dithered one.
 `Canvas::fallback` gives you the canvas as a plain terminal will show it, one colour per

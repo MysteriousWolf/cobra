@@ -143,8 +143,24 @@ impl Renderer {
 
     /// Like [`encode`](Self::encode) but only the top-left `cols × rows` cells.
     pub fn encode_view(&mut self, canvas: &Canvas, placement: Placement, cols: u16, rows: u16) -> &[u8] {
-        let (cols, rows) = (cols.min(canvas.cols()), rows.min(canvas.rows()));
+        let (mut cols, mut rows) = (cols.min(canvas.cols()), rows.min(canvas.rows()));
         self.out.clear();
+        if self.term.passthrough && self.term.protocol != Protocol::Text {
+            // Through tmux the image is drawn by a terminal that knows nothing of the
+            // pane, so whatever leaves the pane hangs off the outer screen, where
+            // partly visible images have crashed Ghostty (ghostty-org/ghostty#4266).
+            // Keep the picture inside the pane.
+            let (col, row) = match placement {
+                Placement::At(col, row) => (col, row),
+                Placement::Flow | Placement::Virtual => (0, 0),
+            };
+            if self.term.cols > 0 {
+                cols = cols.min(self.term.cols.saturating_sub(col));
+            }
+            if self.term.rows > 0 {
+                rows = rows.min(self.term.rows.saturating_sub(row));
+            }
+        }
         if cols == 0 || rows == 0 {
             return &self.out;
         }
@@ -199,6 +215,16 @@ impl Renderer {
         }
         if placement == Placement::Flow {
             self.out.extend_from_slice(b"\x1b7");
+        }
+        if self.term.passthrough && placement != Placement::Virtual {
+            // tmux hands a passthrough to its terminal as-is, at wherever that
+            // terminal's cursor happens to be: cursor moves in the pane are tracked
+            // lazily and only realised when a cell is drawn. After the scroll above
+            // that is the bottom of the pane, so the image would start there and hang
+            // off the screen. Erasing one cell (ECH) makes tmux position the outer
+            // cursor at the pane's before drawing; the cell is the image's origin,
+            // which the image covers.
+            self.out.extend_from_slice(b"\x1b[1X");
         }
 
         let image_from = self.out.len();
@@ -284,18 +310,41 @@ mod tests {
         let mut c = canvas();
         c.print(0, 1, "ok", Rgb::hex(0xffffff));
         let s = String::from_utf8(k.encode(&c, Placement::At(2, 3)).to_vec()).unwrap();
-        assert!(s.contains("\x1bPtmux;\x1b\x1b_G"), "the APC is wrapped: {s:?}");
+        assert!(s.contains("\x1b[4;3H\x1b[1X\x1bPtmux;\x1b\x1b_G"), "cursor sync, then the wrapped APC: {s:?}");
         assert!(s.contains("\x1b\x1b\\\x1b\\"), "its ST is doubled and the wrapper closed");
         assert!(!s.contains("\x1bPtmux;\x1b\x1b["), "cursor moves are not wrapped");
         assert!(s.contains("\x1b[5;3H") && s.contains("ok"), "the text overlay is plain");
+        let v = String::from_utf8(k.encode(&c, Placement::Virtual).to_vec()).unwrap();
+        assert!(v.starts_with("\x1bPtmux;\x1b\x1b_G"), "a virtual placement needs no cursor: {v:?}");
         let mut i = Renderer::new(Terminal::new(Protocol::Iterm2, cell).with_passthrough(true));
         let s = String::from_utf8(i.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
-        assert!(s.contains("\x1bPtmux;\x1b\x1b]1337;") && s.contains("\x07\x1b\\"), "OSC ends in BEL: {s:?}");
+        assert!(
+            s.contains("\x1b7\x1b[1X\x1bPtmux;\x1b\x1b]1337;") && s.contains("\x07\x1b\\"),
+            "OSC ends in BEL: {s:?}"
+        );
         let mut x = Renderer::new(Terminal::new(Protocol::Sixel, cell).with_passthrough(true));
         let s = String::from_utf8_lossy(x.encode(&canvas(), Placement::Flow)).into_owned();
-        assert!(s.contains("\x1bPtmux;\x1b\x1bP0;1;0q"), "{s:?}");
+        assert!(s.contains("\x1b[1X\x1bPtmux;\x1b\x1bP0;1;0q"), "{s:?}");
         let plain = Renderer::new(Terminal::new(Protocol::Kitty, cell)).encode(&canvas(), Placement::Flow).to_vec();
         assert!(!plain.windows(6).any(|w| w == b"\x1bPtmux"));
+        assert!(!plain.windows(4).any(|w| w == b"\x1b[1X"), "no cursor sync outside tmux");
+    }
+
+    #[test]
+    fn passthrough_keeps_the_image_inside_the_pane() {
+        let cell = CellSize { width: 8, height: 16 };
+        let pane = Terminal { cols: 2, rows: 1, ..Terminal::new(Protocol::Kitty, cell).with_passthrough(true) };
+        let mut r = Renderer::new(pane);
+        let s = String::from_utf8(r.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
+        assert!(s.starts_with("\r\n\x1b[1A"), "room for one row only: {s:?}");
+        assert!(s.contains("s=16,v=16"), "2×1 cells of 8×16 px: {s:?}");
+        let s = String::from_utf8(r.encode(&canvas(), Placement::At(1, 0)).to_vec()).unwrap();
+        assert!(s.contains("s=8,v=16"), "one column left of the pane: {s:?}");
+        assert!(r.encode(&canvas(), Placement::At(2, 0)).is_empty(), "nothing fits, nothing sent");
+        // Without tmux the pane size does not clip: the terminal scrolls for itself.
+        let mut plain = Renderer::new(Terminal { cols: 2, rows: 1, ..Terminal::new(Protocol::Kitty, cell) });
+        let s = String::from_utf8(plain.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
+        assert!(s.contains("s=24,v=32"), "{s:?}");
     }
 
     fn canvas() -> Canvas {

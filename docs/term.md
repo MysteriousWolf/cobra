@@ -81,7 +81,7 @@ What was learned about the terminal.
 - `pub palette: Palette` — The terminal's colour scheme, used to draw [`Color::Indexed`](color.md#color) and [`Color::Foreground`](color.md#color) dots in the image protocols. The xterm defaults until [`detect`](term.md#terminaldetect) learns better.
 - `pub palette_queried: bool` — Whether `palette` was reported by the terminal rather than assumed.
 - `pub depth: Depth` — Colour depth of the text fallback: what [`Color::Rgb`](color.md#color) dots are quantised to when the frame is braille glyphs. Ignored by image protocols.
-- `pub passthrough: bool` — Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the escapes inside doubled), so it reaches the terminal tmux runs in. Set by [`detect`](term.md#terminaldetect) inside tmux; needs `allow-passthrough on` there. Text, cursor movement and printed characters are never wrapped, since tmux has to see those.
+- `pub passthrough: bool` — Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the escapes inside doubled), so it reaches the terminal tmux runs in. Set by [`detect`](term.md#terminaldetect) inside tmux; needs `allow-passthrough on` there. Text, cursor movement and printed characters are never wrapped, since tmux has to see those.  tmux hands the wrapped bytes on at wherever its own terminal's cursor is, so before each image the renderer erases the image's origin cell (`ECH`), which is the one thing that makes tmux put that cursor where the pane's is, and it clips the image to [`cols`](term.md#terminal) × [`rows`](term.md#terminal), the pane: an image hanging off the outer screen is drawn by a terminal that never saw the pane, and has crashed Ghostty.
 
 ## `Protocol` methods
 
