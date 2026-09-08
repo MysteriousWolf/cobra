@@ -1,6 +1,6 @@
 # `render`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · **render** · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · **render** · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Frame encoding for each protocol, and the [`Renderer`](render.md#renderer) that drives it.
 
@@ -170,5 +170,5 @@ pub fn encode_view(&mut self, canvas: &Canvas, placement: Placement, cols: u16, 
 
 Like [`encode`](render.md#rendererencode) but only the top-left `cols × rows` cells.
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · **render** · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · **render** · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

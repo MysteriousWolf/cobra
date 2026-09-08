@@ -1,6 +1,6 @@
 # `term`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
 
 Terminal capability detection.
 
@@ -20,6 +20,19 @@ Detection order in [`Terminal::detect`](term.md#terminaldetect):
    and `DA1` for sixel (which also terminates the response).
 6. Anything without a usable cell size falls back to [`Protocol::Text`](term.md#protocol).
 
+### Multiplexers
+
+Inside tmux the terminal that draws is not the one the program talks to, and
+tmux answers queries itself, so nothing is asked over the tty. The outer
+terminal is instead recognised from the variables it leaves in tmux's
+environment (`GHOSTTY_RESOURCES_DIR`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`,
+`ITERM_SESSION_ID`), the cell size comes from `TIOCGWINSZ` (tmux ≥ 3.2 passes the
+pixel size on), and every image is wrapped in tmux's passthrough sequence
+([`Terminal::passthrough`](term.md#terminal)), which reaches the outer terminal only when tmux has
+`allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
+it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. GNU screen
+passes nothing through and gets text.
+
 ## Contents
 
 - [`Protocol`](#protocol)
@@ -27,7 +40,7 @@ Detection order in [`Terminal::detect`](term.md#terminaldetect):
 - [`Terminal`](#terminal)
 - `Protocol`: [`Protocol::parse`](term.md#protocolparse), [`Protocol::from_env`](term.md#protocolfrom_env)
 - `CellSize`: [`CellSize::is_known`](term.md#cellsizeis_known), [`CellSize::parse`](term.md#cellsizeparse)
-- `Terminal`: [`Terminal::text`](term.md#terminaltext), [`Terminal::new`](term.md#terminalnew), [`Terminal::with_depth`](term.md#terminalwith_depth), [`Terminal::with_palette`](term.md#terminalwith_palette), [`Terminal::is_graphical`](term.md#terminalis_graphical), [`Terminal::detect`](term.md#terminaldetect)
+- `Terminal`: [`Terminal::text`](term.md#terminaltext), [`Terminal::new`](term.md#terminalnew), [`Terminal::with_passthrough`](term.md#terminalwith_passthrough), [`Terminal::with_depth`](term.md#terminalwith_depth), [`Terminal::with_palette`](term.md#terminalwith_palette), [`Terminal::is_graphical`](term.md#terminalis_graphical), [`Terminal::detect`](term.md#terminaldetect)
 
 ## `Protocol`
 
@@ -68,6 +81,7 @@ What was learned about the terminal.
 - `pub palette: Palette` — The terminal's colour scheme, used to draw [`Color::Indexed`](color.md#color) and [`Color::Foreground`](color.md#color) dots in the image protocols. The xterm defaults until [`detect`](term.md#terminaldetect) learns better.
 - `pub palette_queried: bool` — Whether `palette` was reported by the terminal rather than assumed.
 - `pub depth: Depth` — Colour depth of the text fallback: what [`Color::Rgb`](color.md#color) dots are quantised to when the frame is braille glyphs. Ignored by image protocols.
+- `pub passthrough: bool` — Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the escapes inside doubled), so it reaches the terminal tmux runs in. Set by [`detect`](term.md#terminaldetect) inside tmux; needs `allow-passthrough on` there. Text, cursor movement and printed characters are never wrapped, since tmux has to see those.
 
 ## `Protocol` methods
 
@@ -87,8 +101,10 @@ pub fn from_env() -> Option<Self>
 
 Guesses the protocol from environment variables alone, without touching the tty.
 
-Returns `None` when nothing conclusive is set; `Some(Text)` inside multiplexers
-that do not pass graphics through (tmux, screen).
+Returns `None` when nothing conclusive is set, and `Some(Text)` under GNU
+screen, which passes no graphics through. Under tmux the outer terminal is
+recognised by the variables it leaves in tmux's environment, since `TERM` and
+`TERM_PROGRAM` there are tmux's own; see [`Terminal::passthrough`](term.md#terminal).
 
 ## `CellSize` methods
 
@@ -126,6 +142,14 @@ pub fn new(protocol: Protocol, cell: CellSize) -> Self
 
 Builds a terminal description by hand (for tests, or when you know better).
 Image protocols with an unknown cell size are demoted to text.
+
+## `Terminal::with_passthrough`
+
+```rust
+pub fn with_passthrough(mut self, passthrough: bool) -> Self
+```
+
+Wraps images for tmux (builder style); see [`passthrough`](term.md#terminal).
 
 ## `Terminal::with_depth`
 
@@ -170,9 +194,14 @@ timeout and normally ending as soon as the terminal answers `DA1` (a few
 milliseconds). Call it once at start-up and keep the result. Set
 `COBRA_PALETTE=0` to skip the colour queries.
 
+Inside tmux there is no round trip: the outer terminal is read from the
+environment, the cell size from `TIOCGWINSZ`, and images are marked for
+[passthrough](term.md#terminal): under tmux the queries would be answered by tmux
+itself, and tmux needs `allow-passthrough on` for the images to reach its terminal.
+
 The text colour depth comes from `COBRA_COLORS` (`mono|16|256|true`) or
 [`Depth::from_env`](color.md#depthfrom_env); a terminal with a graphics protocol is assumed to have
 true colour.
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · **term** · [export](export.md) · [ratatui](ratatui.md)
 

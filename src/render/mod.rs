@@ -201,6 +201,7 @@ impl Renderer {
             self.out.extend_from_slice(b"\x1b7");
         }
 
+        let image_from = self.out.len();
         match self.term.protocol {
             Protocol::Kitty => {
                 let bytes = dists.map(|d| d * 4);
@@ -220,6 +221,9 @@ impl Renderer {
             }
             Protocol::Text => unreachable!(),
         }
+        if self.term.passthrough {
+            passthrough(&mut self.out, image_from, &mut self.scratch);
+        }
 
         if canvas.has_text() && placement != Placement::Virtual {
             text::overlay(canvas, cols, rows, placement, depth, palette, &mut self.out);
@@ -237,10 +241,62 @@ impl Renderer {
     }
 }
 
+/// Rewraps every escape sequence in `out[from..]` (an APC, DCS or OSC, as the image
+/// protocols emit) in tmux's passthrough: `ESC P tmux ;` then the sequence with each
+/// `ESC` doubled, then `ESC \`. tmux unwraps it and hands it to its own terminal
+/// untouched. One wrapper per sequence, so a kitty frame's chunks stay separate.
+fn passthrough(out: &mut Vec<u8>, from: usize, scratch: &mut Vec<u8>) {
+    scratch.clear();
+    scratch.extend_from_slice(&out[from..]);
+    out.truncate(from);
+    let mut rest: &[u8] = scratch;
+    while let Some(start) = rest.iter().position(|&b| b == 0x1b) {
+        let seq = &rest[start..];
+        // An OSC may end in BEL; everything else in ST. Both may end in ST.
+        let osc = seq.get(1) == Some(&b']');
+        let end = seq
+            .iter()
+            .enumerate()
+            .skip(2)
+            .find(|&(i, &b)| (osc && b == 0x07) || (b == b'\\' && seq[i - 1] == 0x1b))
+            .map_or(seq.len(), |(i, _)| i + 1);
+        out.extend_from_slice(b"\x1bPtmux;");
+        for &b in &seq[..end] {
+            if b == 0x1b {
+                out.push(0x1b);
+            }
+            out.push(b);
+        }
+        out.extend_from_slice(b"\x1b\\");
+        rest = &seq[end..];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{CellSize, Palette, Rgb};
+
+    #[test]
+    fn passthrough_wraps_each_image_sequence_and_nothing_else() {
+        let cell = CellSize { width: 8, height: 16 };
+        let mut k = Renderer::new(Terminal::new(Protocol::Kitty, cell).with_passthrough(true));
+        let mut c = canvas();
+        c.print(0, 1, "ok", Rgb::hex(0xffffff));
+        let s = String::from_utf8(k.encode(&c, Placement::At(2, 3)).to_vec()).unwrap();
+        assert!(s.contains("\x1bPtmux;\x1b\x1b_G"), "the APC is wrapped: {s:?}");
+        assert!(s.contains("\x1b\x1b\\\x1b\\"), "its ST is doubled and the wrapper closed");
+        assert!(!s.contains("\x1bPtmux;\x1b\x1b["), "cursor moves are not wrapped");
+        assert!(s.contains("\x1b[5;3H") && s.contains("ok"), "the text overlay is plain");
+        let mut i = Renderer::new(Terminal::new(Protocol::Iterm2, cell).with_passthrough(true));
+        let s = String::from_utf8(i.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
+        assert!(s.contains("\x1bPtmux;\x1b\x1b]1337;") && s.contains("\x07\x1b\\"), "OSC ends in BEL: {s:?}");
+        let mut x = Renderer::new(Terminal::new(Protocol::Sixel, cell).with_passthrough(true));
+        let s = String::from_utf8_lossy(x.encode(&canvas(), Placement::Flow)).into_owned();
+        assert!(s.contains("\x1bPtmux;\x1b\x1bP0;1;0q"), "{s:?}");
+        let plain = Renderer::new(Terminal::new(Protocol::Kitty, cell)).encode(&canvas(), Placement::Flow).to_vec();
+        assert!(!plain.windows(6).any(|w| w == b"\x1bPtmux"));
+    }
 
     fn canvas() -> Canvas {
         let mut c = Canvas::new(3, 2);

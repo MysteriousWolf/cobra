@@ -1,6 +1,6 @@
 # `mask`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · **mask** · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · **mask** · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Shapes as things: a [`Mask`](mask.md#mask) is a set of dots with no colour, drawn with the same
 primitives as a canvas, combined with other masks, moved, and then used to paint,
@@ -11,7 +11,7 @@ operation accepts, so a plain [`Canvas`](canvas.md#canvas) serves as a mask too.
 
 - [`Silhouette`](#silhouette)
 - [`Mask`](#mask)
-- `Mask`: [`Mask::new`](mask.md#masknew), [`Mask::of`](mask.md#maskof), [`Mask::cols`](mask.md#maskcols), [`Mask::rows`](mask.md#maskrows), [`Mask::width`](mask.md#maskwidth), [`Mask::height`](mask.md#maskheight), [`Mask::contains`](mask.md#maskcontains), [`Mask::set`](mask.md#maskset), [`Mask::unset`](mask.md#maskunset), [`Mask::clear`](mask.md#maskclear), [`Mask::is_empty`](mask.md#maskis_empty), [`Mask::len`](mask.md#masklen), [`Mask::bounds`](mask.md#maskbounds), [`Mask::dots`](mask.md#maskdots), [`Mask::draw`](mask.md#maskdraw), [`Mask::erase`](mask.md#maskerase), [`Mask::union`](mask.md#maskunion), [`Mask::subtract`](mask.md#masksubtract), [`Mask::intersect`](mask.md#maskintersect), [`Mask::boundary_with`](mask.md#maskboundary_with), [`Mask::translate`](mask.md#masktranslate), [`Mask::flip_x`](mask.md#maskflip_x), [`Mask::flip_y`](mask.md#maskflip_y), [`Mask::transform`](mask.md#masktransform)
+- `Mask`: [`Mask::new`](mask.md#masknew), [`Mask::of`](mask.md#maskof), [`Mask::path`](mask.md#maskpath), [`Mask::cols`](mask.md#maskcols), [`Mask::rows`](mask.md#maskrows), [`Mask::width`](mask.md#maskwidth), [`Mask::height`](mask.md#maskheight), [`Mask::contains`](mask.md#maskcontains), [`Mask::set`](mask.md#maskset), [`Mask::unset`](mask.md#maskunset), [`Mask::clear`](mask.md#maskclear), [`Mask::is_empty`](mask.md#maskis_empty), [`Mask::len`](mask.md#masklen), [`Mask::bounds`](mask.md#maskbounds), [`Mask::dots`](mask.md#maskdots), [`Mask::draw`](mask.md#maskdraw), [`Mask::erase`](mask.md#maskerase), [`Mask::union`](mask.md#maskunion), [`Mask::subtract`](mask.md#masksubtract), [`Mask::intersect`](mask.md#maskintersect), [`Mask::boundary_with`](mask.md#maskboundary_with), [`Mask::translate`](mask.md#masktranslate), [`Mask::flip_x`](mask.md#maskflip_x), [`Mask::flip_y`](mask.md#maskflip_y), [`Mask::transform`](mask.md#masktransform)
 
 ## `Silhouette`
 
@@ -154,6 +154,32 @@ drawing.print(10, 1, "text", t.ink);
 let m = Mask::of(&drawing);
 c.stencil(&m, GREEN);
 c.effects(&m, &[Effect::outline(1.0).paint(t.ink)]);
+```
+
+## `Mask::path`
+
+```rust
+pub fn path(cols: u16, rows: u16, path: &crate::Path) -> Self
+```
+
+A `cols × rows` mask of the dots `path` fills (every subpath closed, even-odd,
+as [`Canvas::fill_path`](draw.md#canvasfill_path) does): a shape posed as control points, rasterised
+once.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/mask-path.svg">
+  <img src="img/mask-path-light.svg" alt="Mask::path" width="384">
+</picture>
+
+```rust
+// Pose the control points, rasterise once.
+let mut leaf = Path::new();
+leaf.move_to((0.0, 0.0)).quad_to((10.0, -8.0), (20.0, 0.0)).quad_to((10.0, 8.0), (0.0, 0.0)).close();
+for i in 0..3 {
+    let mut posed = leaf.clone();
+    posed.apply(&Transform::at(4.0 + 14.0 * i as f32, 8.0).rotate(0.4 * i as f32 - 0.4));
+    c.stencil(&Mask::path(24, 4, &posed), GREEN.lerp(YELLOW, i as f32 / 2.0));
+}
 ```
 
 ## `Mask::cols`
@@ -734,5 +760,5 @@ for (i, angle) in [-0.5, 0.0, 0.5].into_iter().enumerate() {
 }
 ```
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · **mask** · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · **mask** · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

@@ -15,6 +15,19 @@
 //!    cell size when still unknown, `OSC 4` / `OSC 10` / `OSC 11` for the palette,
 //!    and `DA1` for sixel (which also terminates the response).
 //! 6. Anything without a usable cell size falls back to [`Protocol::Text`].
+//!
+//! # Multiplexers
+//!
+//! Inside tmux the terminal that draws is not the one the program talks to, and
+//! tmux answers queries itself, so nothing is asked over the tty. The outer
+//! terminal is instead recognised from the variables it leaves in tmux's
+//! environment (`GHOSTTY_RESOURCES_DIR`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`,
+//! `ITERM_SESSION_ID`), the cell size comes from `TIOCGWINSZ` (tmux ≥ 3.2 passes the
+//! pixel size on), and every image is wrapped in tmux's passthrough sequence
+//! ([`Terminal::passthrough`]), which reaches the outer terminal only when tmux has
+//! `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
+//! it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. GNU screen
+//! passes nothing through and gets text.
 
 #[cfg(all(feature = "detect", unix))]
 mod query;
@@ -48,19 +61,30 @@ impl Protocol {
 
     /// Guesses the protocol from environment variables alone, without touching the tty.
     ///
-    /// Returns `None` when nothing conclusive is set; `Some(Text)` inside multiplexers
-    /// that do not pass graphics through (tmux, screen).
+    /// Returns `None` when nothing conclusive is set, and `Some(Text)` under GNU
+    /// screen, which passes no graphics through. Under tmux the outer terminal is
+    /// recognised by the variables it leaves in tmux's environment, since `TERM` and
+    /// `TERM_PROGRAM` there are tmux's own; see [`Terminal::passthrough`].
     pub fn from_env() -> Option<Self> {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let term = var("TERM").unwrap_or_default();
-        if var("TMUX").is_some() || term.starts_with("screen") || term.starts_with("tmux") {
+        let tmux = in_tmux();
+        if !tmux && term.starts_with("screen") {
             return Some(Self::Text);
         }
+        // Set by the terminal for every process it starts, and kept by a tmux server
+        // started from it, so they identify the outer terminal from inside.
         if var("KITTY_WINDOW_ID").is_some() || term == "xterm-kitty" {
             return Some(Self::Kitty);
         }
         if var("GHOSTTY_RESOURCES_DIR").is_some() || term == "xterm-ghostty" {
             return Some(Self::Kitty);
+        }
+        if var("WEZTERM_EXECUTABLE").is_some() || var("WEZTERM_PANE").is_some() {
+            return Some(Self::Kitty);
+        }
+        if var("ITERM_SESSION_ID").is_some() || var("LC_TERMINAL").as_deref() == Some("iTerm2") {
+            return Some(Self::Iterm2);
         }
         if term.starts_with("foot") {
             return Some(Self::Sixel);
@@ -71,6 +95,11 @@ impl Protocol {
             _ => None,
         }
     }
+}
+
+/// Whether the process runs inside tmux.
+fn in_tmux() -> bool {
+    std::env::var("TMUX").is_ok_and(|v| !v.is_empty())
 }
 
 /// Size of one character cell in pixels.
@@ -116,6 +145,12 @@ pub struct Terminal {
     /// Colour depth of the text fallback: what [`Color::Rgb`](crate::Color::Rgb) dots
     /// are quantised to when the frame is braille glyphs. Ignored by image protocols.
     pub depth: Depth,
+    /// Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the
+    /// escapes inside doubled), so it reaches the terminal tmux runs in. Set by
+    /// [`detect`](Self::detect) inside tmux; needs `allow-passthrough on` there.
+    /// Text, cursor movement and printed characters are never wrapped, since tmux
+    /// has to see those.
+    pub passthrough: bool,
 }
 
 impl Terminal {
@@ -136,7 +171,14 @@ impl Terminal {
             palette: Palette::default(),
             palette_queried: false,
             depth: Depth::TrueColor,
+            passthrough: false,
         }
+    }
+
+    /// Wraps images for tmux (builder style); see [`passthrough`](Self::passthrough).
+    pub fn with_passthrough(mut self, passthrough: bool) -> Self {
+        self.passthrough = passthrough;
+        self
     }
 
     /// Sets the text colour depth (builder style).
@@ -171,6 +213,11 @@ impl Terminal {
     /// milliseconds). Call it once at start-up and keep the result. Set
     /// `COBRA_PALETTE=0` to skip the colour queries.
     ///
+    /// Inside tmux there is no round trip: the outer terminal is read from the
+    /// environment, the cell size from `TIOCGWINSZ`, and images are marked for
+    /// [passthrough](Self::passthrough): under tmux the queries would be answered by tmux
+    /// itself, and tmux needs `allow-passthrough on` for the images to reach its terminal.
+    ///
     /// The text colour depth comes from `COBRA_COLORS` (`mono|16|256|true`) or
     /// [`Depth::from_env`]; a terminal with a graphics protocol is assumed to have
     /// true colour.
@@ -197,9 +244,11 @@ impl Terminal {
 
         let mut protocol = protocol.or_else(Protocol::from_env);
         let want_palette = std::env::var("COBRA_PALETTE").map_or(true, |v| v != "0");
-        // Inside a multiplexer the queries would be swallowed or misrouted; skip them.
-        let multiplexed = protocol == Some(Protocol::Text) && std::env::var("TMUX").is_ok();
-        if (protocol.is_none() || !t.cell.is_known() || want_palette) && !multiplexed {
+        // tmux answers queries itself (and would keep a kitty reply for half a
+        // second as an unknown key), so inside it nothing is asked: the environment
+        // and the ioctl are all there is, and images go through passthrough.
+        let tmux = in_tmux();
+        if (protocol.is_none() || !t.cell.is_known() || want_palette) && !tmux {
             let probe = query::probe(protocol.is_none(), !t.cell.is_known(), want_palette);
             if !t.cell.is_known()
                 && let Some(c) = probe.cell
@@ -223,6 +272,7 @@ impl Terminal {
         if t.cell.is_known() {
             t.protocol = protocol.unwrap_or(Protocol::Text);
         }
+        t.passthrough = tmux && t.is_graphical();
         t
     }
 
@@ -254,5 +304,6 @@ mod tests {
         assert_eq!(Terminal::new(Protocol::Kitty, CellSize { width: 8, height: 16 }).protocol, Protocol::Kitty);
         assert_eq!(Terminal::text().depth, Depth::TrueColor);
         assert_eq!(Terminal::text().with_depth(Depth::Ansi16).depth, Depth::Ansi16);
+        assert!(!Terminal::text().passthrough && Terminal::text().with_passthrough(true).passthrough);
     }
 }

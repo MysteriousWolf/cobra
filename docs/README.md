@@ -1,6 +1,6 @@
 # cobra reference
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Generated from the source by `cargo run --example docs`: every public item with its documentation and, where it draws something, a picture of what it draws and the code that drew it. The pictures follow your colour scheme.
 
@@ -10,16 +10,17 @@ Generated from the source by `cargo run --example docs`: every public item with 
 |---|---|---|
 | [`canvas`](canvas.md) | The dot grid: cells, dots, colours per dot. | 29 |
 | [`draw`](draw.md) | Shapes, strokes, paints, patterns, gradients, shaders and masks. | 66 |
-| [`path`](path.md) | Outlines from lines, curves and arcs, filled or stroked. | 22 |
-| [`mask`](mask.md) | Shapes as things: bit masks to build, combine, move, and paint through. | 26 |
-| [`transform`](transform.md) | Affine transforms: drawing in local coordinates. | 15 |
+| [`path`](path.md) | Outlines from lines, curves and arcs, filled or stroked. | 23 |
+| [`mask`](mask.md) | Shapes as things: bit masks to build, combine, move, and paint through. | 27 |
+| [`transform`](transform.md) | Affine transforms: drawing in local coordinates. | 18 |
+| [`rig`](rig.md) | Figures as parts in a tree: pose them, name points on them, rasterise once. | 19 |
 | [`layer`](layer.md) | Stacked canvases, mattes, and effects around silhouettes. | 43 |
 | [`bubble`](bubble.md) | Text boxes and speech bubbles that aim at a speaker. | 29 |
 | [`font`](font.md) | Bitmap fonts drawn as dots. | 25 |
 | [`text`](text.md) | Real characters on a text layer over the dots. | 32 |
 | [`color`](color.md) | RGB, palette and default-foreground colours, depths, palettes. | 16 |
 | [`render`](render.md) | Frames for kitty, iTerm2, sixel and plain text. | 15 |
-| [`term`](term.md) | What the terminal can do, detected once. | 13 |
+| [`term`](term.md) | What the terminal can do, detected once. | 14 |
 | [`export`](export.md) | PNG and SVG files with the terminal's geometry. | 5 |
 | [`ratatui`](ratatui.md) | The ratatui widget and overlay. | 3 |
 
@@ -65,8 +66,9 @@ spends one short escape-sequence round trip on `/dev/tty` for what is still unkn
 and for the colour scheme. Terminals do not expose font names or point sizes; the
 cell box in pixels is what they publish and what alignment needs. The dot diameter
 is a style choice, `COBRA_DOT`, that `cargo run --example calibrate` helps pick.
-Inside tmux/screen, or when the cell size cannot be learned, the text protocol is
-used.
+Inside tmux the outer terminal is read from the environment and images go through
+tmux's passthrough (`allow-passthrough on`); under screen, or when the cell size
+cannot be learned, the text protocol is used. See [`Terminal::detect`](term.md#terminaldetect).
 
 #### Drawing
 
@@ -80,7 +82,8 @@ bands, a shader or [`Paint::erase`](draw.md#painterase); every stroke takes a [`
 dashed. A [`Mask`](mask.md#mask) is a shape on its own, to combine, move with a [`Transform`](transform.md#transform)
 and paint through ([`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut),
 [`Canvas::clipped`](draw.md#canvasclipped), [`Canvas::effects`](layer.md#canvaseffects)); [`Canvas::with`](canvas.md#canvaswith) draws in local
-coordinates. See the [`mask`](mask.md) module.
+coordinates. See the [`mask`](mask.md) module. A [`Rig`](rig.md#rig) is a figure of [`Part`](rig.md#part)s to pose;
+see the [`rig`](rig.md) module.
 
 #### Text
 
@@ -141,11 +144,13 @@ cell-aligned geometry and a transparent background.
 
 - [`draw`](draw.md): [`Pattern`](draw.md#pattern), [`Pattern::on`](draw.md#patternon), [`Shader`](draw.md#shader), [`Probe`](draw.md#probe), [`Probe::mix`](draw.md#probemix), [`Probe::lit`](draw.md#probelit), [`Paint`](draw.md#paint), [`Paint::new`](draw.md#paintnew), [`Paint::dithered`](draw.md#paintdithered), [`Paint::erase`](draw.md#painterase), [`Paint::pattern`](draw.md#paintpattern), [`Paint::linear`](draw.md#paintlinear), [`Paint::radial`](draw.md#paintradial), [`Paint::edge`](draw.md#paintedge), [`Paint::cel`](draw.md#paintcel), [`Paint::shader`](draw.md#paintshader), [`Paint::dither`](draw.md#paintdither), [`Paint::hashed`](draw.md#painthashed), [`Paint::per_cell`](draw.md#paintper_cell), [`Paint::soften`](draw.md#paintsoften), [`Paint::anchor`](draw.md#paintanchor), [`Paint::color`](draw.md#paintcolor), [`Paint::coverage`](draw.md#paintcoverage), [`Pen`](draw.md#pen), [`Pen::new`](draw.md#pennew), [`Pen::dash`](draw.md#pendash), [`Pen::dotted`](draw.md#pendotted), [`Pen::phase`](draw.md#penphase), [`Point`](draw.md#point), [`Rect`](draw.md#rect), [`Rect::new`](draw.md#rectnew), [`Rect::around`](draw.md#rectaround), [`Rect::right`](draw.md#rectright), [`Rect::bottom`](draw.md#rectbottom), [`Rect::center`](draw.md#rectcenter), [`Rect::contains`](draw.md#rectcontains), [`Rect::inset`](draw.md#rectinset), [`Rect::offset`](draw.md#rectoffset), [`Rect::overlap`](draw.md#rectoverlap), [`Canvas::span`](draw.md#canvasspan), [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::stencil_in`](draw.md#canvasstencil_in), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut), [`Canvas::clipped`](draw.md#canvasclipped), [`Canvas::fill_rect`](draw.md#canvasfill_rect), [`Canvas::rect`](draw.md#canvasrect), [`Canvas::fill_ellipse`](draw.md#canvasfill_ellipse), [`Canvas::ellipse`](draw.md#canvasellipse), [`Canvas::arc`](draw.md#canvasarc), [`Canvas::polyline`](draw.md#canvaspolyline), [`Canvas::polygon`](draw.md#canvaspolygon), [`Canvas::fill_polygon`](draw.md#canvasfill_polygon), [`Canvas::fill_path`](draw.md#canvasfill_path), [`Canvas::stroke_path`](draw.md#canvasstroke_path), [`Canvas::bezier`](draw.md#canvasbezier), [`Canvas::spline`](draw.md#canvasspline), [`Canvas::fill_round_rect`](draw.md#canvasfill_round_rect), [`Canvas::round_rect`](draw.md#canvasround_rect), [`Canvas::ring`](draw.md#canvasring), [`Canvas::fill_pie`](draw.md#canvasfill_pie), [`Canvas::fill_ngon`](draw.md#canvasfill_ngon), [`Canvas::ngon`](draw.md#canvasngon), [`Canvas::fill_star`](draw.md#canvasfill_star), [`Canvas::star`](draw.md#canvasstar), [`Canvas::arrow`](draw.md#canvasarrow)
 
-- [`path`](path.md): [`Path`](path.md#path), [`Path::new`](path.md#pathnew), [`Path::is_empty`](path.md#pathis_empty), [`Path::current`](path.md#pathcurrent), [`Path::move_to`](path.md#pathmove_to), [`Path::line_to`](path.md#pathline_to), [`Path::quad_to`](path.md#pathquad_to), [`Path::cubic_to`](path.md#pathcubic_to), [`Path::arc_to`](path.md#patharc_to), [`Path::curve_through`](path.md#pathcurve_through), [`Path::close`](path.md#pathclose), [`Path::rect`](path.md#pathrect), [`Path::round_rect`](path.md#pathround_rect), [`Path::apply`](path.md#pathapply), [`Path::ellipse`](path.md#pathellipse), [`Path::polygon`](path.md#pathpolygon), [`Path::transform`](path.md#pathtransform), [`Path::translate`](path.md#pathtranslate), [`Path::scale`](path.md#pathscale), [`Path::rotate`](path.md#pathrotate), [`Path::bounds`](path.md#pathbounds), [`Path::subpaths`](path.md#pathsubpaths)
+- [`path`](path.md): [`Path`](path.md#path), [`Path::new`](path.md#pathnew), [`Path::is_empty`](path.md#pathis_empty), [`Path::current`](path.md#pathcurrent), [`Path::move_to`](path.md#pathmove_to), [`Path::line_to`](path.md#pathline_to), [`Path::quad_to`](path.md#pathquad_to), [`Path::cubic_to`](path.md#pathcubic_to), [`Path::arc_to`](path.md#patharc_to), [`Path::curve_through`](path.md#pathcurve_through), [`Path::close`](path.md#pathclose), [`Path::rect`](path.md#pathrect), [`Path::round_rect`](path.md#pathround_rect), [`Path::apply`](path.md#pathapply), [`Path::ellipse`](path.md#pathellipse), [`Path::polygon`](path.md#pathpolygon), [`Path::transform`](path.md#pathtransform), [`Path::translate`](path.md#pathtranslate), [`Path::scale`](path.md#pathscale), [`Path::rotate`](path.md#pathrotate), [`Path::mix`](path.md#pathmix), [`Path::bounds`](path.md#pathbounds), [`Path::subpaths`](path.md#pathsubpaths)
 
-- [`mask`](mask.md): [`Silhouette`](mask.md#silhouette), [`Mask`](mask.md#mask), [`Mask::new`](mask.md#masknew), [`Mask::of`](mask.md#maskof), [`Mask::cols`](mask.md#maskcols), [`Mask::rows`](mask.md#maskrows), [`Mask::width`](mask.md#maskwidth), [`Mask::height`](mask.md#maskheight), [`Mask::contains`](mask.md#maskcontains), [`Mask::set`](mask.md#maskset), [`Mask::unset`](mask.md#maskunset), [`Mask::clear`](mask.md#maskclear), [`Mask::is_empty`](mask.md#maskis_empty), [`Mask::len`](mask.md#masklen), [`Mask::bounds`](mask.md#maskbounds), [`Mask::dots`](mask.md#maskdots), [`Mask::draw`](mask.md#maskdraw), [`Mask::erase`](mask.md#maskerase), [`Mask::union`](mask.md#maskunion), [`Mask::subtract`](mask.md#masksubtract), [`Mask::intersect`](mask.md#maskintersect), [`Mask::boundary_with`](mask.md#maskboundary_with), [`Mask::translate`](mask.md#masktranslate), [`Mask::flip_x`](mask.md#maskflip_x), [`Mask::flip_y`](mask.md#maskflip_y), [`Mask::transform`](mask.md#masktransform)
+- [`mask`](mask.md): [`Silhouette`](mask.md#silhouette), [`Mask`](mask.md#mask), [`Mask::new`](mask.md#masknew), [`Mask::of`](mask.md#maskof), [`Mask::path`](mask.md#maskpath), [`Mask::cols`](mask.md#maskcols), [`Mask::rows`](mask.md#maskrows), [`Mask::width`](mask.md#maskwidth), [`Mask::height`](mask.md#maskheight), [`Mask::contains`](mask.md#maskcontains), [`Mask::set`](mask.md#maskset), [`Mask::unset`](mask.md#maskunset), [`Mask::clear`](mask.md#maskclear), [`Mask::is_empty`](mask.md#maskis_empty), [`Mask::len`](mask.md#masklen), [`Mask::bounds`](mask.md#maskbounds), [`Mask::dots`](mask.md#maskdots), [`Mask::draw`](mask.md#maskdraw), [`Mask::erase`](mask.md#maskerase), [`Mask::union`](mask.md#maskunion), [`Mask::subtract`](mask.md#masksubtract), [`Mask::intersect`](mask.md#maskintersect), [`Mask::boundary_with`](mask.md#maskboundary_with), [`Mask::translate`](mask.md#masktranslate), [`Mask::flip_x`](mask.md#maskflip_x), [`Mask::flip_y`](mask.md#maskflip_y), [`Mask::transform`](mask.md#masktransform)
 
-- [`transform`](transform.md): [`Transform`](transform.md#transform), [`Transform::IDENTITY`](transform.md#transformidentity), [`Transform::at`](transform.md#transformat), [`Transform::is_identity`](transform.md#transformis_identity), [`Transform::is_axis_aligned`](transform.md#transformis_axis_aligned), [`Transform::scale_factor`](transform.md#transformscale_factor), [`Transform::apply`](transform.md#transformapply), [`Transform::then`](transform.md#transformthen), [`Transform::inverse`](transform.md#transforminverse), [`Transform::translate`](transform.md#transformtranslate), [`Transform::scale`](transform.md#transformscale), [`Transform::flip_x`](transform.md#transformflip_x), [`Transform::flip_y`](transform.md#transformflip_y), [`Transform::rotate`](transform.md#transformrotate), [`Transform::rotate_about`](transform.md#transformrotate_about)
+- [`transform`](transform.md): [`Transform`](transform.md#transform), [`Transform::IDENTITY`](transform.md#transformidentity), [`Transform::at`](transform.md#transformat), [`Transform::is_identity`](transform.md#transformis_identity), [`Transform::is_axis_aligned`](transform.md#transformis_axis_aligned), [`Transform::scale_factor`](transform.md#transformscale_factor), [`Transform::apply`](transform.md#transformapply), [`Transform::then`](transform.md#transformthen), [`Transform::inverse`](transform.md#transforminverse), [`Transform::translate`](transform.md#transformtranslate), [`Transform::scale`](transform.md#transformscale), [`Transform::flip_x`](transform.md#transformflip_x), [`Transform::flip_y`](transform.md#transformflip_y), [`Transform::rotate`](transform.md#transformrotate), [`Transform::rotate_about`](transform.md#transformrotate_about), [`Transform::skew`](transform.md#transformskew), [`Transform::snapped`](transform.md#transformsnapped), [`Transform::mix`](transform.md#transformmix)
+
+- [`rig`](rig.md): [`Part`](rig.md#part), [`Part::new`](rig.md#partnew), [`Part::at`](rig.md#partat), [`Rig`](rig.md#rig), [`Rig::new`](rig.md#rignew), [`Rig::add`](rig.md#rigadd), [`Rig::mark`](rig.md#rigmark), [`Rig::pose`](rig.md#rigpose), [`Rig::posed`](rig.md#rigposed), [`Rig::place`](rig.md#rigplace), [`Rig::placed`](rig.md#rigplaced), [`Rig::part`](rig.md#rigpart), [`Rig::part_mut`](rig.md#rigpart_mut), [`Rig::parts`](rig.md#rigparts), [`Rig::world`](rig.md#rigworld), [`Rig::point`](rig.md#rigpoint), [`Rig::each`](rig.md#rigeach), [`Rig::draw`](rig.md#rigdraw), [`Rig::mask`](rig.md#rigmask)
 
 - [`layer`](layer.md): [`Sample`](layer.md#sample), [`Sample::inside`](layer.md#sampleinside), [`Sample::layer`](layer.md#samplelayer), [`Sample::lit`](layer.md#samplelit), [`Sample::covered`](layer.md#samplecovered), [`Effect`](layer.md#effect), [`Effect::shadow`](layer.md#effectshadow), [`Effect::outline`](layer.md#effectoutline), [`Effect::glow`](layer.md#effectglow), [`Effect::gap`](layer.md#effectgap), [`Effect::rim`](layer.md#effectrim), [`Effect::paint`](layer.md#effectpaint), [`Effect::shader`](layer.md#effectshader), [`Layer`](layer.md#layer), [`Layer::effect`](layer.md#layereffect), [`Layer::scroll`](layer.md#layerscroll), [`Layer::canvas`](layer.md#layercanvas), [`Layer::canvas_mut`](layer.md#layercanvas_mut), [`Layers`](layer.md#layers), [`Layers::new`](layer.md#layersnew), [`Layers::cols`](layer.md#layerscols), [`Layers::rows`](layer.md#layersrows), [`Layers::width`](layer.md#layerswidth), [`Layers::height`](layer.md#layersheight), [`Layers::len`](layer.md#layerslen), [`Layers::is_empty`](layer.md#layersis_empty), [`Layers::push`](layer.md#layerspush), [`Layers::insert`](layer.md#layersinsert), [`Layers::remove`](layer.md#layersremove), [`Layers::swap`](layer.md#layersswap), [`Layers::get`](layer.md#layersget), [`Layers::get_mut`](layer.md#layersget_mut), [`Layers::iter`](layer.md#layersiter), [`Layers::iter_mut`](layer.md#layersiter_mut), [`Layers::clear`](layer.md#layersclear), [`Layers::flat`](layer.md#layersflat), [`Layers::flatten`](layer.md#layersflatten), [`Field`](layer.md#field), [`Field::new`](layer.md#fieldnew), [`Field::effects`](layer.md#fieldeffects), [`Field::effects_in`](layer.md#fieldeffects_in), [`Canvas::effects`](layer.md#canvaseffects), [`Canvas::effects_in`](layer.md#canvaseffects_in)
 
@@ -159,7 +164,7 @@ cell-aligned geometry and a transparent background.
 
 - [`render`](render.md): [`Options`](render.md#options), [`Options::from_env`](render.md#optionsfrom_env), [`Placement`](render.md#placement), [`Renderer`](render.md#renderer), [`Renderer::new`](render.md#renderernew), [`Renderer::with_options`](render.md#rendererwith_options), [`Renderer::terminal`](render.md#rendererterminal), [`Renderer::options`](render.md#rendereroptions), [`Renderer::set_options`](render.md#rendererset_options), [`Renderer::image_id`](render.md#rendererimage_id), [`Renderer::invalidate`](render.md#rendererinvalidate), [`Renderer::render`](render.md#rendererrender), [`Renderer::render_at`](render.md#rendererrender_at), [`Renderer::encode`](render.md#rendererencode), [`Renderer::encode_view`](render.md#rendererencode_view)
 
-- [`term`](term.md): [`Protocol`](term.md#protocol), [`Protocol::parse`](term.md#protocolparse), [`Protocol::from_env`](term.md#protocolfrom_env), [`CellSize`](term.md#cellsize), [`CellSize::is_known`](term.md#cellsizeis_known), [`CellSize::parse`](term.md#cellsizeparse), [`Terminal`](term.md#terminal), [`Terminal::text`](term.md#terminaltext), [`Terminal::new`](term.md#terminalnew), [`Terminal::with_depth`](term.md#terminalwith_depth), [`Terminal::with_palette`](term.md#terminalwith_palette), [`Terminal::is_graphical`](term.md#terminalis_graphical), [`Terminal::detect`](term.md#terminaldetect)
+- [`term`](term.md): [`Protocol`](term.md#protocol), [`Protocol::parse`](term.md#protocolparse), [`Protocol::from_env`](term.md#protocolfrom_env), [`CellSize`](term.md#cellsize), [`CellSize::is_known`](term.md#cellsizeis_known), [`CellSize::parse`](term.md#cellsizeparse), [`Terminal`](term.md#terminal), [`Terminal::text`](term.md#terminaltext), [`Terminal::new`](term.md#terminalnew), [`Terminal::with_passthrough`](term.md#terminalwith_passthrough), [`Terminal::with_depth`](term.md#terminalwith_depth), [`Terminal::with_palette`](term.md#terminalwith_palette), [`Terminal::is_graphical`](term.md#terminalis_graphical), [`Terminal::detect`](term.md#terminaldetect)
 
 - [`export`](export.md): [`Style`](export.md#style), [`Style::scale`](export.md#stylescale), [`png`](export.md#png), [`svg`](export.md#svg), [`resolve`](export.md#resolve)
 
@@ -194,6 +199,13 @@ Every other item is illustrated. These are the plumbing between a canvas and a t
 - [`Terminal::new`](term.md#terminalnew): a constructor
 - [`Terminal::with_depth`](term.md#terminalwith_depth): a builder; `Depth` shows what each depth looks like
 - [`Terminal::with_palette`](term.md#terminalwith_palette): a builder
+- [`Terminal::with_passthrough`](term.md#terminalwith_passthrough): a builder; wraps images for tmux
+- [`Rig::posed`](rig.md#rigposed): a getter
+- [`Rig::placed`](rig.md#rigplaced): a getter
+- [`Rig::part`](rig.md#rigpart): a getter
+- [`Rig::parts`](rig.md#rigparts): lists names
+- [`Rig::world`](rig.md#rigworld): a transform, which `Rig::point` shows applied
+- [`Rig::each`](rig.md#rigeach): walks the parts; `Rig::draw` is it with a fill
 - [`Terminal::is_graphical`](term.md#terminalis_graphical): a predicate
 - [`Terminal::detect`](term.md#terminaldetect): talks to the terminal
 - [`Braille`](ratatui.md#braille): draws into a ratatui buffer, which needs a terminal

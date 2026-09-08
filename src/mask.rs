@@ -117,6 +117,15 @@ impl Mask {
         m
     }
 
+    /// A `cols × rows` mask of the dots `path` fills (every subpath closed, even-odd,
+    /// as [`Canvas::fill_path`] does): a shape posed as control points, rasterised
+    /// once.
+    pub fn path(cols: u16, rows: u16, path: &crate::Path) -> Self {
+        let mut m = Self::new(cols, rows);
+        m.draw(|c| c.fill_path(path, crate::Color::Foreground));
+        m
+    }
+
     /// Width in cells.
     #[inline]
     pub fn cols(&self) -> u16 {
@@ -410,6 +419,14 @@ mod tests {
             c.fill_rect(0.0, 0.0, 2.0, 4.0, crate::Paint::erase());
         });
         assert_eq!(m.len(), 8 + 4, "erase within a draw only affects that draw");
+    }
+
+    #[test]
+    fn a_path_becomes_a_mask() {
+        let mut p = crate::Path::new();
+        p.rect(2.0, 2.0, 4.0, 4.0);
+        let m = Mask::path(4, 2, &p);
+        assert_eq!((m.len(), m.bounds()), (16, Some((2, 2, 6, 6))));
     }
 
     #[test]

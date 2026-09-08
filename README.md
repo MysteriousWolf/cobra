@@ -97,6 +97,11 @@ stack and wrap around it: scroll each by its own amount and the scene is a paral
   <img src="assets/layers-light.svg" alt="the same on a light terminal" width="49%">
 </p>
 
+**Rigs.** A [`Rig`](docs/rig.md) is a figure as parts in a tree: each part a path about
+its own joint, hung off a parent, posed by one transform, with named points that follow
+the pose. `Transform::skew`, `snapped`, `mix` and `Path::mix` are the moves a dot grid
+affords; a rig rasterises once and keeps the parts that did not move.
+
 **Colours.** Dots take an RGB colour, a palette index or the terminal's default
 foreground; palette colours follow the user's theme in every protocol, and the text
 fallback quantises to however many colours the terminal has.
@@ -115,7 +120,7 @@ the diff never touches.
 | Kitty  | kitty, WezTerm, Ghostty, Konsole ≥ 22.04 | zlib RGBA, chunked APC, one image id per canvas |
 | iTerm2 | iTerm2, WezTerm, mintty, Konsole | PNG in OSC 1337 |
 | Sixel  | foot, xterm, mlterm, Windows Terminal ≥ 1.22 | palettised DCS, transparent background |
-| Text   | everything, tmux, pipes | braille glyphs, one colour per cell |
+| Text   | everything, screen, pipes | braille glyphs, one colour per cell |
 
 `Terminal::detect()` runs once: the `COBRA_*` overrides, the usual environment
 variables, then one escape-sequence round trip on `/dev/tty` for the rest. Frames are
@@ -130,8 +135,11 @@ style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DO
 | `COBRA_PALETTE` | `0` skips the colour-scheme queries |
 | `COBRA_COLORS` | text colour depth: `mono`, `16`, `256` or `true` |
 
-Inside tmux or screen you get the text protocol unless `COBRA_PROTOCOL` says otherwise;
-off unix there are no tty queries. A printed character takes its whole cell. Layers are
+Inside tmux the outer terminal is recognised from its environment (Ghostty, kitty,
+WezTerm, iTerm2), the cell size comes from tmux ≥ 3.2, and images are wrapped in tmux's
+passthrough, which needs `set -g allow-passthrough on` in your `tmux.conf`; without it
+they are dropped silently, and `COBRA_PROTOCOL=text` opts out. GNU screen gets text.
+Off unix there are no tty queries. A printed character takes its whole cell. Layers are
 flattened to dots before anything is sent, so a soft shadow is a dithered one.
 `Canvas::fallback` gives you the canvas as a plain terminal will show it, one colour per
 cell at a chosen depth, to render on a graphical terminal while you design for both.
