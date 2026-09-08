@@ -40,8 +40,10 @@ struct Slot {
 /// ```
 ///
 /// Glyphs can be added programmatically with [`Font::add`], and [`Font::scale`] makes
-/// a larger copy, so one small master gives every size. [`Font::tiny`] is a built-in
-/// 3×5 font covering printable ASCII.
+/// a larger copy, so one small master gives every size. Two fonts are built in, both
+/// covering printable ASCII: [`Font::tiny`], 3×5 and proportional, the smallest that
+/// reads on a dot matrix; and [`Font::mono`], 5×9 and fixed-width, the one file
+/// exports draw printed text with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Font {
     height: u8,
@@ -110,6 +112,16 @@ impl Font {
     pub fn tiny() -> &'static Font {
         static TINY: OnceLock<Font> = OnceLock::new();
         TINY.get_or_init(|| Font::parse(include_str!("font/tiny.txt")).expect("built-in font"))
+    }
+
+    /// The built-in 5×9 monospace font: every printable ASCII glyph five dots wide
+    /// with a cap height of seven and two rows for descenders, so text lines up in
+    /// columns and reads like a terminal's. It is what [`export::png`](crate::export::png)
+    /// draws printed characters with, scaled into the cell, and a good face for dot
+    /// text that must be legible at one size.
+    pub fn mono() -> &'static Font {
+        static MONO: OnceLock<Font> = OnceLock::new();
+        MONO.get_or_init(|| Font::parse(include_str!("font/mono.txt")).expect("built-in font"))
     }
 
     /// Parses the text format described on [`Font`].
@@ -385,6 +397,22 @@ mod tests {
         assert_eq!(f.glyph('#').unwrap().row(1), 0b111);
         assert_eq!(f.measure("Hi"), (3 + 1 + 1, 5));
         assert_eq!(f.measure("a\nbc"), (7, 11));
+    }
+
+    #[test]
+    fn mono_covers_ascii_at_a_fixed_width() {
+        let f = Font::mono();
+        for c in 32u8..=126 {
+            let g = f.glyph(c as char).unwrap_or_else(|| panic!("missing {:?}", c as char));
+            assert_eq!((g.width, g.height), (5, 9), "{:?}", c as char);
+        }
+        assert_eq!(f.len(), 95);
+        assert_eq!(f.height(), 9);
+        assert_eq!(f.measure("ab"), (11, 9));
+        let a = f.glyph('A').unwrap();
+        assert!(a.dot(2, 0) && a.dot(0, 3) && a.dot(4, 3) && !a.dot(2, 4), "an A has a crossbar and a hollow top");
+        assert!(f.glyph('g').unwrap().dot(2, 8), "g descends");
+        assert!(!f.glyph('E').unwrap().dot(0, 7), "E does not");
     }
 
     #[test]

@@ -28,8 +28,9 @@ pub struct Style {
     /// Resolves [`Color::Indexed`] and [`Color::Foreground`] dots. Default: xterm.
     pub palette: Palette,
     /// Draw the [text layer](crate::text). A file has no terminal font, so [`svg`]
-    /// writes `<text>` elements and [`png`] approximates the characters with
-    /// [`Font::tiny`](crate::Font::tiny), which covers printable ASCII. Default `true`.
+    /// writes `<text>` elements and [`png`] draws the characters with
+    /// [`Font::mono`](crate::Font::mono), a 5×9 monospace face scaled to the cell,
+    /// which covers printable ASCII. Default `true`.
     pub text: bool,
 }
 
@@ -58,7 +59,7 @@ impl Style {
 /// `style.background` is set.
 pub fn png(canvas: &Canvas, style: &Style) -> Vec<u8> {
     let mut raster = Raster::default();
-    let font = style.text.then(crate::Font::tiny);
+    let font = style.text.then(crate::Font::mono);
     let (w, h) = raster.draw(canvas, style.cell, style.dot_size, &style.palette, canvas.cols(), canvas.rows(), font);
     if let Some(bg) = style.background {
         for px in raster.rgba.as_chunks_mut::<4>().0 {

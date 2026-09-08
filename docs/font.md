@@ -11,7 +11,7 @@ Bitmap fonts for braille canvases; see [`Font`](font.md#font).
 - [`Glyph`](#glyph)
 - [`FontError`](#fonterror)
 - `Glyph`: [`Glyph::dot`](font.md#glyphdot), [`Glyph::row`](font.md#glyphrow)
-- `Font`: [`Font::empty`](font.md#fontempty), [`Font::tiny`](font.md#fonttiny), [`Font::parse`](font.md#fontparse), [`Font::add`](font.md#fontadd), [`Font::glyph`](font.md#fontglyph), [`Font::height`](font.md#fontheight), [`Font::spacing`](font.md#fontspacing), [`Font::line_gap`](font.md#fontline_gap), [`Font::line_height`](font.md#fontline_height), [`Font::len`](font.md#fontlen), [`Font::is_empty`](font.md#fontis_empty), [`Font::with_spacing`](font.md#fontwith_spacing), [`Font::with_line_gap`](font.md#fontwith_line_gap), [`Font::advance`](font.md#fontadvance), [`Font::measure`](font.md#fontmeasure), [`Font::scale`](font.md#fontscale), [`Font::scale_xy`](font.md#fontscale_xy)
+- `Font`: [`Font::empty`](font.md#fontempty), [`Font::tiny`](font.md#fonttiny), [`Font::mono`](font.md#fontmono), [`Font::parse`](font.md#fontparse), [`Font::add`](font.md#fontadd), [`Font::glyph`](font.md#fontglyph), [`Font::height`](font.md#fontheight), [`Font::spacing`](font.md#fontspacing), [`Font::line_gap`](font.md#fontline_gap), [`Font::line_height`](font.md#fontline_height), [`Font::len`](font.md#fontlen), [`Font::is_empty`](font.md#fontis_empty), [`Font::with_spacing`](font.md#fontwith_spacing), [`Font::with_line_gap`](font.md#fontwith_line_gap), [`Font::advance`](font.md#fontadvance), [`Font::measure`](font.md#fontmeasure), [`Font::scale`](font.md#fontscale), [`Font::scale_xy`](font.md#fontscale_xy)
 - `Canvas`: [`Canvas::text`](font.md#canvastext)
 
 ## `MAX_GLYPH_WIDTH`
@@ -67,8 +67,10 @@ A             // one character, or U+0041; a blank line ends the glyph
 ```
 
 Glyphs can be added programmatically with [`Font::add`](font.md#fontadd), and [`Font::scale`](font.md#fontscale) makes
-a larger copy, so one small master gives every size. [`Font::tiny`](font.md#fonttiny) is a built-in
-3×5 font covering printable ASCII.
+a larger copy, so one small master gives every size. Two fonts are built in, both
+covering printable ASCII: [`Font::tiny`](font.md#fonttiny), 3×5 and proportional, the smallest that
+reads on a dot matrix; and [`Font::mono`](font.md#fontmono), 5×9 and fixed-width, the one file
+exports draw printed text with.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/font.svg">
@@ -248,6 +250,29 @@ The built-in 3×5 font (printable ASCII).
 ```rust
 c.text(1, 1, "Hello, 3x5!", Font::tiny(), t.ink);
 c.text(1, 7, "abc XYZ 0123", Font::tiny(), BLUE);
+```
+
+## `Font::mono`
+
+```rust
+pub fn mono() -> &'static Font
+```
+
+The built-in 5×9 monospace font: every printable ASCII glyph five dots wide
+with a cap height of seven and two rows for descenders, so text lines up in
+columns and reads like a terminal's. It is what `export::png`
+draws printed characters with, scaled into the cell, and a good face for dot
+text that must be legible at one size.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/font-mono.svg">
+  <img src="img/font-mono-light.svg" alt="Font::mono" width="480">
+</picture>
+
+```rust
+// Fixed width, so columns line up; the face PNG exports print text with.
+c.text(1, 1, "Hello, 5x9!", Font::mono(), t.ink);
+c.text(1, 11, "abc XYZ 0123 gjpqy", Font::mono(), BLUE);
 ```
 
 ## `Font::parse`

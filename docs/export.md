@@ -34,7 +34,7 @@ Geometry and colours for an export.
 - `pub dot_size: f32` — Dot diameter as a fraction of its slot, as in [`Options`](render.md#options). Default `0.7`.
 - `pub background: Option<Rgb>` — Background fill; `None` (the default) keeps it transparent.
 - `pub palette: Palette` — Resolves [`Color::Indexed`](color.md#color) and [`Color::Foreground`](color.md#color) dots. Default: xterm.
-- `pub text: bool` — Draw the [text layer](text.md). A file has no terminal font, so [`svg`](export.md#svg) writes `<text>` elements and [`png`](export.md#png) approximates the characters with [`Font::tiny`](font.md#fonttiny), which covers printable ASCII. Default `true`.
+- `pub text: bool` — Draw the [text layer](text.md). A file has no terminal font, so [`svg`](export.md#svg) writes `<text>` elements and [`png`](export.md#png) draws the characters with [`Font::mono`](font.md#fontmono), a 5×9 monospace face scaled to the cell, which covers printable ASCII. Default `true`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/svg.svg">
