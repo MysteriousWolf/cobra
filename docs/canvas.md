@@ -344,9 +344,10 @@ c.with(Transform::at(6.0, 8.0).scale(1.5, 1.5), |c| {
         // one and a half wide, which is its scale factor.
         let k = c.transform().scale_factor();
         c.polyline(&[(0.0, 0.0), (16.0, 0.0)], 1.0, GREEN);
-        c.text(0, 2, &format!("k={k:.1}"), Font::tiny(), YELLOW);
+        c.polyline(&[(0.0, -3.0), (16.0, -3.0)], 1.0 / k, YELLOW); // one dot, corrected
     });
 });
+c.print(0, 3, "1.5x wide", GREEN);
 ```
 
 ## `Canvas::cols`

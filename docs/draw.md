@@ -719,7 +719,7 @@ first of its two colours; for a cel paint, its base.
 let paint = Paint::dithered(GREEN, 0.35);
 c.fill_rect(1.0, 1.0, 20.0, 14.0, paint);
 c.fill_rect(24.0, 1.0, 6.0, 14.0, paint.color().unwrap());
-c.text(33, 5, &format!("{:.0}%", paint.coverage() * 100.0), Font::tiny(), t.ink);
+c.print(16, 1, &format!("{:.0}%", paint.coverage() * 100.0), t.ink);
 ```
 
 ## `Paint::coverage`
@@ -741,7 +741,7 @@ Dither coverage, `1.0` when solid.
 let paint = Paint::dithered(GREEN, 0.35);
 c.fill_rect(1.0, 1.0, 20.0, 14.0, paint);
 c.fill_rect(24.0, 1.0, 6.0, 14.0, paint.color().unwrap());
-c.text(33, 5, &format!("{:.0}%", paint.coverage() * 100.0), Font::tiny(), t.ink);
+c.print(16, 1, &format!("{:.0}%", paint.coverage() * 100.0), t.ink);
 ```
 
 ## `Pen` methods
@@ -1001,7 +1001,7 @@ c.fill_rect(a.x, a.y, a.w, a.h, Paint::dithered(BLUE, 0.5));
 c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
 let i = a.inset(3.0); // shrunk on every side
 c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
-c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+c.print(19, 0, &format!("{}", a.overlap(&b) as i32), t.ink); // the area they share
 ```
 
 ## `Rect::offset`
@@ -1024,7 +1024,7 @@ c.fill_rect(a.x, a.y, a.w, a.h, Paint::dithered(BLUE, 0.5));
 c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
 let i = a.inset(3.0); // shrunk on every side
 c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
-c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+c.print(19, 0, &format!("{}", a.overlap(&b) as i32), t.ink); // the area they share
 ```
 
 ## `Rect::overlap`
@@ -1047,7 +1047,7 @@ c.fill_rect(a.x, a.y, a.w, a.h, Paint::dithered(BLUE, 0.5));
 c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
 let i = a.inset(3.0); // shrunk on every side
 c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
-c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+c.print(19, 0, &format!("{}", a.overlap(&b) as i32), t.ink); // the area they share
 ```
 
 ## `Canvas` methods

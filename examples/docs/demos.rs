@@ -524,60 +524,102 @@ demos! {
         c.with(Transform::at(36.0, 8.0).flip_x(), figure);
     }
     // ----- rig ------------------------------------------------------------------
-    "Rig" | "Rig::new" | "Rig::add" | "Rig::pose" | "Rig::place" | "Rig::mask", 32 x 5 => |c, t| {
-        // One bird, described once; three poses of it, stamped.
-        let mut body = Path::new();
-        body.ellipse(0.0, 0.0, 7.0, 4.5);
-        let mut head = Path::new();
-        head.ellipse(0.0, 0.0, 3.0, 2.8);
-        let mut wing = Path::new();
-        wing.polygon(&[(0.0, 0.0), (8.0, -1.0), (9.0, 2.5), (1.0, 3.0)]);
-        let mut bird = Rig::new();
-        bird.add("body", None, Part::new(body));
-        bird.add("head", Some("body"), Part::new(head).at(Transform::at(6.5, -4.5)));
-        bird.add("wing", Some("body"), Part::new(wing).at(Transform::at(-3.0, -1.0)));
-        for (i, lift) in [0.0, -0.5, -1.0].into_iter().enumerate() {
-            let mut posed = bird.clone();
-            posed.place(Transform::at(12.0 + 20.0 * i as f32, 12.0));
-            posed.pose("wing", Transform::IDENTITY.rotate(lift));
-            posed.pose("head", Transform::IDENTITY.rotate(0.2 * i as f32));
-            c.stencil(posed.mask(32, 5), Paint::cel(GREEN.dim(0.5), (-1.0, -1.0), &[(-0.1, GREEN)]).per_cell());
-        }
-    }
-    "Rig::point" | "Rig::mark" | "Rig::draw", 24 x 4 => |c, t| {
-        // A named point follows the pose, so a hat lands wherever the head went.
-        let mut body = Path::new();
-        body.ellipse(0.0, 0.0, 6.0, 4.0);
-        let mut head = Path::new();
-        head.ellipse(0.0, 0.0, 2.8, 2.8);
-        let mut figure = Rig::new();
-        figure.add("body", None, Part::new(body));
-        figure.add("head", Some("body"), Part::new(head).at(Transform::at(6.0, -4.0)));
-        figure.mark("crown", "head", (0.0, -2.8));
-        for (i, nod) in [-0.5, 0.0, 0.5].into_iter().enumerate() {
-            figure.place(Transform::at(6.0 + 16.0 * i as f32, 11.0));
-            figure.pose("head", Transform::IDENTITY.rotate(nod));
-            figure.draw(c, BLUE);
-            let (hx, hy) = figure.point("crown");
-            c.fill_rect(hx - 2.5, hy - 3.0, 5.0, 3.0, RED); // the hat
-        }
-    }
-    "Part" | "Part::new" | "Part::at" | "Rig::part_mut", 24 x 4 => |c, t| {
-        // A part is a path about its joint, and where the joint sits on the parent.
-        let mut arm = Path::new();
-        arm.round_rect(0.0, -1.5, 12.0, 3.0, 1.5);
-        let mut figure = Rig::new();
+    "Rig" | "Rig::new" | "Rig::add" | "Rig::pose" | "Rig::place" | "Rig::mask" | "Transform::rotation", 32 x 5 => |c, t| {
+        // One puppet, described once about its hip; three poses of it, stamped.
+        let limb = |w: f32, len: f32| {
+            let mut p = Path::new();
+            p.round_rect(-w / 2.0, 0.0, w, len, w / 2.0); // hangs down from its joint
+            p
+        };
         let mut torso = Path::new();
-        torso.rect(-4.0, -6.0, 8.0, 12.0);
+        torso.round_rect(-2.5, -7.0, 5.0, 7.5, 1.5);
+        let mut head = Path::new();
+        head.ellipse(0.0, -3.0, 2.5, 2.8);
+        let mut puppet = Rig::new();
+        puppet.add("torso", None, Part::new(torso));
+        puppet.add("head", Some("torso"), Part::new(head).at(Transform::at(0.0, -7.0)));
+        for (side, x) in [("l", -1.0), ("r", 1.0)] {
+            puppet.add(&format!("arm_{side}"), Some("torso"), Part::new(limb(2.0, 6.0)).at(Transform::at(2.5 * x, -6.5)));
+            puppet.add(&format!("leg_{side}"), Some("torso"), Part::new(limb(2.4, 6.5)).at(Transform::at(1.3 * x, 0.0)));
+        }
+        let poses: [&[(&str, f32)]; 3] = [
+            &[],
+            &[("arm_l", 0.7), ("arm_r", -0.7), ("leg_l", -0.4), ("leg_r", 0.4)],
+            &[("arm_l", 2.6), ("arm_r", -2.6), ("leg_l", -0.3), ("leg_r", 0.3), ("head", 0.2)],
+        ];
+        for (i, pose) in poses.into_iter().enumerate() {
+            let mut posed = puppet.clone();
+            posed.place(Transform::at(10.0 + 22.0 * i as f32, 13.0)); // the hip
+            for &(part, angle) in pose {
+                posed.pose(part, Transform::rotation(angle)); // about its joint
+            }
+            c.stencil(posed.mask(32, 5), GREEN);
+        }
+    }
+    "Rig::point" | "Rig::mark" | "Rig::draw" | "Rig::world", 24 x 5 => |c, t| {
+        // A named point follows the pose, so a nose stays on the face; a hat drawn
+        // through the head's world transform tilts with it.
+        let mut torso = Path::new();
+        torso.rect(-3.0, -6.0, 6.0, 6.0);
+        let mut head = Path::new();
+        head.ellipse(0.0, -3.2, 2.8, 3.2);
+        let mut figure = Rig::new();
         figure.add("torso", None, Part::new(torso));
-        figure.add("arm", Some("torso"), Part::new(arm).at(Transform::at(4.0, -4.0)));
-        figure.place(Transform::at(12.0, 8.0));
-        figure.draw(c, t.panel);
-        c.disc(16.0, 4.0, 1.0, RED); // the joint
-        figure.place(Transform::at(34.0, 8.0));
-        figure.pose("arm", Transform::IDENTITY.rotate(0.9));
-        figure.part_mut("arm").unwrap().path.ellipse(12.0, 0.0, 2.5, 2.5); // a hand, added to the part
-        figure.draw(c, PURPLE);
+        figure.add("head", Some("torso"), Part::new(head).at(Transform::at(0.0, -6.0)));
+        figure.mark("nose", "head", (2.6, -3.0));
+        for (i, tilt) in [-0.5, 0.0, 0.5].into_iter().enumerate() {
+            figure.place(Transform::at(8.0 + 16.0 * i as f32, 18.0));
+            figure.pose("head", Transform::rotation(tilt));
+            figure.draw(c, BLUE);
+            let (nx, ny) = figure.point("nose");
+            c.disc(nx, ny, 1.0, ORANGE);
+            c.with(figure.world("head"), |c| {
+                c.fill_rect(-3.8, -7.0, 7.6, 1.5, RED); // the brim
+                c.fill_rect(-2.2, -10.5, 4.4, 3.5, RED); // the crown
+            });
+        }
+    }
+    "Part" | "Part::new" | "Part::at" | "Rig::part_mut" | "Rig::each", 24 x 4 => |c, t| {
+        // A part is a path about its joint, and where the joint sits on the parent.
+        let mut torso = Path::new();
+        torso.round_rect(-4.0, -6.0, 8.0, 12.0, 2.0);
+        let mut arm = Path::new();
+        arm.round_rect(0.0, -1.5, 11.0, 3.0, 1.5); // along +x from its joint
+        let mut figure = Rig::new();
+        figure.add("torso", None, Part::new(torso));
+        figure.add("arm", Some("torso"), Part::new(arm).at(Transform::at(4.0, -4.5))); // the shoulder
+        for (i, swing) in [0.0, 0.9].into_iter().enumerate() {
+            if i == 1 {
+                figure.part_mut("arm").path.ellipse(11.0, 0.0, 2.5, 2.5); // a hand, added to the part
+            }
+            figure.place(Transform::at(10.0 + 24.0 * i as f32, 8.0));
+            figure.pose("arm", Transform::rotation(swing));
+            figure.each(|name, path, world| {
+                c.with(*world, |c| c.fill_path(path, if name == "arm" { CYAN } else { BLUE }));
+            });
+            let (jx, jy) = figure.world("arm").apply((0.0, 0.0));
+            c.disc(jx, jy, 1.0, RED); // the joint
+        }
+    }
+    "Rig::mix", 32 x 4 => |c, t| {
+        // Two keyframes of one rig, and the frames between them: every joint and
+        // the place tween together, so a wave walks across.
+        let mut torso = Path::new();
+        torso.round_rect(-3.0, -7.0, 6.0, 12.0, 2.0);
+        let mut arm = Path::new();
+        arm.round_rect(-1.2, -8.0, 2.4, 8.0, 1.2); // up from the shoulder
+        let mut down = Rig::new();
+        down.add("torso", None, Part::new(torso));
+        down.add("arm", Some("torso"), Part::new(arm).at(Transform::at(3.0, -5.5)));
+        down.pose("arm", Transform::rotation(2.3));
+        down.place(Transform::at(6.0, 10.0));
+        let mut up = down.clone();
+        up.pose("arm", Transform::rotation(0.4));
+        up.place(Transform::at(54.0, 10.0));
+        for i in 0..5 {
+            let frame = Rig::mix(&down, &up, i as f32 / 4.0);
+            frame.draw(c, BLUE.lerp(PURPLE, i as f32 / 4.0));
+        }
     }
     // ----- layer ----------------------------------------------------------------
     "Layers", 24 x 4 => |c, t| {
@@ -687,8 +729,8 @@ demos! {
         let comet = layers.push();
         comet.disc(6.0, 8.0, 3.0, CYAN);
         comet.effect(Effect::glow(3.0).paint(CYAN));
-        // Ten frames on, the comet is further right; each frame moved it by four dots.
-        for _ in 0..10 {
+        // Eight frames on, the comet is further right; each frame moved it by four dots.
+        for _ in 0..8 {
             comet.scroll(4, 0);
         }
         *c = layers.flatten().clone();
@@ -732,17 +774,17 @@ demos! {
         c.disc(8.0, 20.0, 3.0, GREEN);
         Bubble::speech("Hello!").ink(t.bg).fill(BLUE).speak(c, (8.0, 18.0), &[]);
     }
-    "Bubble::thought", 32 x 7 => |c, t| {
-        c.disc(10.0, 24.0, 3.0, GREEN);
-        Bubble::thought("hmm").ink(t.ink).border(1.0, t.ink).speak(c, (10.0, 22.0), &[]);
+    "Bubble::thought", 32 x 9 => |c, t| {
+        c.disc(10.0, 32.0, 3.0, GREEN);
+        Bubble::thought("hmm").ink(t.ink).border(1.0, t.ink).speak(c, (10.0, 30.0), &[]);
     }
     "Bubble::shout", 32 x 7 => |c, t| {
         c.disc(12.0, 24.0, 3.0, GREEN);
         Bubble::shout("HEY!").ink(t.bg).fill(YELLOW).speak(c, (12.0, 22.0), &[]);
     }
-    "Bubble::whisper", 28 x 6 => |c, t| {
-        c.disc(8.0, 20.0, 3.0, GREEN);
-        Bubble::whisper("psst").ink(t.ink).border(1.0, t.ink).speak(c, (8.0, 18.0), &[]);
+    "Bubble::whisper", 28 x 7 => |c, t| {
+        c.disc(8.0, 24.0, 3.0, GREEN);
+        Bubble::whisper("psst").ink(t.ink).border(1.0, t.ink).speak(c, (8.0, 22.0), &[]);
     }
     "Bubble::speak", 40 x 8 => |c, t| {
         let keep_out = cobra::Rect::new(0.0, 0.0, 80.0, 12.0);
@@ -800,20 +842,20 @@ demos! {
         c.text(10, 1, "x2", &Font::tiny().scale(2), t.ink);
         c.text(26, 1, "x3", &Font::tiny().scale(3), t.ink);
     }
-    "Font::scale_xy", 24 x 4 => |c, t| {
+    "Font::scale_xy", 28 x 4 => |c, t| {
         c.text(1, 3, "1x2", &Font::tiny().scale_xy(1, 2), GREEN);
-        c.text(18, 5, "2x1", &Font::tiny().scale_xy(2, 1), GREEN);
-        c.text(34, 1, "1x3", &Font::tiny().scale_xy(1, 3), GREEN);
+        c.text(16, 5, "2x1", &Font::tiny().scale_xy(2, 1), GREEN);
+        c.text(42, 1, "1x3", &Font::tiny().scale_xy(1, 3), GREEN);
     }
     "Font::add" | "Font::empty" | "Font::len" | "Font::is_empty", 24 x 3 => |c, t| {
         let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
         font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
         c.text(1, 1, "I ♥ dots", &font, RED);
-        c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+        c.print(0, 2, &format!("{} glyphs", font.len()), t.ink);
     }
-    "Canvas::text", 28 x 4 => |c, t| {
+    "Canvas::text", 32 x 4 => |c, t| {
         c.text(1, 1, "Dots, any\ncolour", Font::tiny(), Paint::linear((0.0, 0.0), (40.0, 0.0), CYAN, PURPLE));
-        c.text(32, 3, "BIG", &Font::tiny().scale(2), YELLOW);
+        c.text(40, 3, "BIG", &Font::tiny().scale(2), YELLOW);
     }
     // ----- text -----------------------------------------------------------------
     "Canvas::print", 24 x 3 => |c, t| {
@@ -945,9 +987,10 @@ demos! {
                 // one and a half wide, which is its scale factor.
                 let k = c.transform().scale_factor();
                 c.polyline(&[(0.0, 0.0), (16.0, 0.0)], 1.0, GREEN);
-                c.text(0, 2, &format!("k={k:.1}"), Font::tiny(), YELLOW);
+                c.polyline(&[(0.0, -3.0), (16.0, -3.0)], 1.0 / k, YELLOW); // one dot, corrected
             });
         });
+        c.print(0, 3, "1.5x wide", GREEN);
     }
     "Canvas::clear", 24 x 4 => |c, t| {
         c.fill_rect(0.0, 0.0, 48.0, 16.0, RED);
@@ -1015,7 +1058,7 @@ demos! {
         let paint = Paint::dithered(GREEN, 0.35);
         c.fill_rect(1.0, 1.0, 20.0, 14.0, paint);
         c.fill_rect(24.0, 1.0, 6.0, 14.0, paint.color().unwrap());
-        c.text(33, 5, &format!("{:.0}%", paint.coverage() * 100.0), Font::tiny(), t.ink);
+        c.print(16, 1, &format!("{:.0}%", paint.coverage() * 100.0), t.ink);
     }
     "Pen" | "Pen::new", 24 x 4 => |c, t| {
         for (y, width) in [(1.0, 1.0), (4.0, 2.0), (8.0, 3.0), (13.0, 5.0)] {
@@ -1050,7 +1093,7 @@ demos! {
         c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
         let i = a.inset(3.0); // shrunk on every side
         c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
-        c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+        c.print(19, 0, &format!("{}", a.overlap(&b) as i32), t.ink); // the area they share
     }
     // ----- path, the rest --------------------------------------------------------
     "Path::new" | "Path::move_to" | "Path::line_to" | "Path::close" | "Path::current" | "Path::is_empty", 24 x 4 => |c, t| {
@@ -1155,9 +1198,9 @@ demos! {
         let mut m = Mask::new(28, 4); // 56 × 16 dots
         m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
         c.stencil(&m, BLUE);
-        c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+        c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
         m.clear();
-        c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+        c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
     }
     "Mask::bounds" | "Mask::dots", 24 x 4 => |c, t| {
         let mut m = Mask::new(24, 4);
@@ -1199,7 +1242,7 @@ demos! {
         c.with(Transform::at(20.0, 8.0), shape); // the local origin moved to (20, 8)
         c.with(Transform::at(20.0, 8.0).translate(18.0, 0.0), shape); // moved, then placed
     }
-    "Transform::scale" | "Transform::flip_x" | "Transform::flip_y", 24 x 4 => |c, t| {
+    "Transform::scale" | "Transform::flip_x" | "Transform::flip_y" | "Transform::scaling", 24 x 4 => |c, t| {
         // A flag about the top of its pole: as drawn, stretched, mirrored, upside down.
         let flag = |c: &mut Canvas| {
             c.polyline(&[(0.0, 0.0), (0.0, 8.0)], 1.0, ORANGE);
@@ -1209,18 +1252,22 @@ demos! {
         c.with(Transform::at(2.0, 4.0), flag);
         c.with(Transform::at(14.0, 2.0).scale(1.0, 1.5), flag);
         c.with(Transform::at(36.0, 4.0).flip_x(), flag);
-        c.with(Transform::at(38.0, 12.0).flip_y(), flag);
+        c.with(Transform::scaling(1.0, -1.0).then(&Transform::at(38.0, 12.0)), flag); // flip_y, spelled out
     }
     "Transform::rotate" | "Transform::rotate_about", 24 x 4 => |c, t| {
-        // A hand pointing up from its pivot, turned about its own origin; then the
-        // same hand turned about a point that is not its origin, so it swings.
-        let hand = |c: &mut Canvas| c.fill_round_rect(-1.0, -7.0, 2.0, 8.0, 1.0, CYAN);
-        for i in 0..5 {
-            c.with(Transform::at(12.0, 9.0).rotate(i as f32 * 0.4), hand);
-            c.with(Transform::at(36.0, 9.0).rotate_about(i as f32 * 0.4, (0.0, -7.0)), hand);
+        // A clock hand pointing up from its pivot, turned about its own origin; then
+        // the same hand turned about its tip instead, so it swings from there.
+        for i in 0..4 {
+            let shade = CYAN.lerp(BLUE, i as f32 / 3.0);
+            let hand = move |c: &mut Canvas| {
+                c.polyline(&[(0.0, 0.0), (0.0, -8.0)], 1.0, shade);
+                c.disc(0.0, -8.0, 1.3, shade);
+            };
+            c.with(Transform::at(12.0, 11.0).rotate(i as f32 * 0.5), hand);
+            c.with(Transform::at(36.0, 11.0).rotate_about(i as f32 * 0.5, (0.0, -8.0)), hand);
         }
-        c.disc(12.0, 9.0, 1.2, t.ink);
-        c.disc(36.0, 2.0, 1.2, t.ink);
+        c.disc(12.0, 11.0, 1.2, t.ink); // the pivots
+        c.disc(36.0, 3.0, 1.2, t.ink);
     }
     "Transform::then" | "Transform::apply" | "Transform::inverse", 24 x 4 => |c, t| {
         let place = Transform::at(24.0, 8.0).rotate(0.5).scale(2.0, 1.0);
@@ -1234,7 +1281,7 @@ demos! {
         c.with(Transform::at(0.0, 2.0).then(&place), |c| c.rect(-6.0, -3.0, 12.0, 6.0, 1.0, GREEN));
         // The inverse maps back: the canvas's top-left corner in the box's own coordinates.
         let (u, v) = place.inverse().unwrap().apply((0.0, 0.0));
-        c.text(1, 11, &format!("{u:.0},{v:.0}"), Font::tiny(), t.ink);
+        c.print(0, 3, &format!("{u:.0},{v:.0}"), t.ink);
     }
     "Transform::is_axis_aligned" | "Transform::scale_factor", 24 x 4 => |c, t| {
         // A box stays a box under moves, scales and flips (axis-aligned, green); a
@@ -1244,7 +1291,7 @@ demos! {
         for (i, tr) in placed.into_iter().enumerate() {
             let color = if tr.is_axis_aligned() { GREEN } else { ORANGE };
             c.with(tr, |c| c.rect(-4.0, -4.0, 8.0, 8.0, 1.0, color));
-            c.text(5 + i as i32 * 16, 12, &format!("x{:.1}", tr.scale_factor()), Font::tiny(), t.ink);
+            c.print(2 + i as i32 * 8, 3, &format!("x{:.1}", tr.scale_factor()), t.ink);
         }
     }
     // ----- layer, the rest -------------------------------------------------------
@@ -1302,7 +1349,7 @@ demos! {
         hidden.visible = false; // skipped when flattening
         c.blit(layers.flatten(), 0, 0);
         let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
-        c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+        c.print(17, 1, &format!("{lit} lit"), t.ink);
     }
     "Layers::new" | "Layers::push" | "Layers::insert" | "Layers::len", 24 x 4 => |c, t| {
         // Push goes on top; insert at 0 goes underneath everything.
@@ -1311,7 +1358,7 @@ demos! {
         layers.push().disc(26.0, 8.0, 7.0, RED); // on top
         layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
         c.blit(layers.flatten(), 0, 0);
-        c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+        c.print(0, 0, &format!("len {}", layers.len()), t.ink);
     }
     "Layers::remove" | "Layers::swap", 24 x 4 => |c, t| {
         let mut layers = Layers::new(24, 4);
@@ -1336,7 +1383,7 @@ demos! {
         }
         let shown = layers.iter().filter(|l| l.visible).count();
         c.blit(layers.flatten(), 0, 0);
-        c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+        c.print(0, 0, &format!("{shown} of {} shown", layers.len()), t.ink);
     }
     "Layers::flatten" | "Layers::flat" | "Layers::clear" | "Layers::cols" | "Layers::rows" | "Layers::width" | "Layers::height", 24 x 4 => |c, t| {
         let mut layers = Layers::new(24, 4);
@@ -1368,13 +1415,13 @@ demos! {
         }
     }
     // ----- bubble, the rest ------------------------------------------------------
-    "Bubble", 40 x 8 => |c, t| {
+    "Bubble", 40 x 9 => |c, t| {
         // Two speakers; each bubble is placed by `speak` where it fits, the second
         // told to keep off the first.
-        c.disc(10.0, 26.0, 4.0, GREEN);
-        c.disc(70.0, 26.0, 4.0, PURPLE);
-        let first = Bubble::speech("Hi there!").ink(t.bg).fill(GREEN).speak(c, (10.0, 22.0), &[]);
-        Bubble::thought("Who?").ink(t.ink).border(1.0, t.ink).speak(c, (70.0, 22.0), &[first]);
+        c.disc(10.0, 30.0, 4.0, GREEN);
+        c.disc(70.0, 30.0, 4.0, PURPLE);
+        let first = Bubble::speech("Hi there!").ink(t.bg).fill(GREEN).speak(c, (10.0, 26.0), &[]);
+        Bubble::thought("Who?").ink(t.ink).border(1.0, t.ink).speak(c, (70.0, 26.0), &[first]);
     }
     "Side" | "Tail" | "Tail::new" | "Tail::len" | "Tail::width" | "Bubble::tail", 50 x 8 => |c, t| {
         // A tail from each side, at a point along it, of a length and a base width.
@@ -1414,7 +1461,7 @@ demos! {
         let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
         c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
         let (w, h) = b.size(); // the same as the body's, known before drawing
-        c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+        c.print(21, 4, &format!("{w}x{h}"), t.ink);
         c.disc(body.right(), body.y, 1.2, YELLOW);
     }
     "Bubble::place", 40 x 8 => |c, t| {
@@ -1458,14 +1505,14 @@ demos! {
         let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
         c.text(1, 1, "ab\ncd", tight, t.ink);
         c.text(14, 1, "ab\ncd", &loose, BLUE);
-        c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-        c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+        c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+        c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
     }
     "Font::advance" | "Font::measure", 24 x 4 => |c, t| {
         let font = Font::tiny();
         let (w, h) = font.measure("Hello"); // the box the text takes
         c.text(2, 3, "Hello", font, t.ink);
-        c.rect(1.0, 2.0, w as f32 + 2.0, h as f32 + 2.0, 1.0, Paint::dithered(BLUE, 0.5));
+        c.rect(0.0, 1.0, w as f32 + 4.0, h as f32 + 4.0, 1.0, BLUE);
         // Each character's advance: its width plus the spacing.
         let mut x = 2;
         for ch in "Hello".chars() {
@@ -1479,7 +1526,7 @@ demos! {
         let mut font = Font::empty();
         font.add('=', &[&ticks, &ticks, &rule]);
         c.text(8, 4, "=", &font, YELLOW);
-        c.text(8, 8, &format!("{MAX_GLYPH_WIDTH} dots"), Font::tiny(), t.ink);
+        c.print(4, 2, &format!("{MAX_GLYPH_WIDTH} dots"), t.ink);
     }
     // ----- text, the rest --------------------------------------------------------
     "Attrs" | "Attrs::NONE" | "Attrs::BOLD" | "Attrs::DIM" | "Attrs::ITALIC" | "Attrs::UNDERLINE" | "Attrs::REVERSE" | "Attrs::has" | "TextStyle::with", 32 x 3 => |c, t| {
@@ -1520,7 +1567,7 @@ demos! {
             c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
         }
         let (w, lines) = text::measure(paragraph); // unwrapped
-        c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+        c.print(16, 3, &format!("{w}x{lines} raw"), t.ink);
     }
     "Canvas::erase_text" | "Canvas::clear_text" | "Canvas::has_text", 24 x 3 => |c, t| {
         c.fill_rect(0.0, 0.0, 48.0, 12.0, Paint::pattern(t.panel, Pattern::Checker(2)));
@@ -1542,13 +1589,13 @@ demos! {
         // against the page.
         for (i, color) in [Rgb::hex(0x0d1117), BLUE, YELLOW, Rgb::hex(0xffffff)].into_iter().enumerate() {
             let x = i as f32 * 12.0;
-            c.fill_rect(x, 0.0, 12.0, 9.0, color);
+            c.fill_rect(x, 0.0, 12.0, 8.0, color);
             let ink = if color.luminance() > 0.4 { Rgb::hex(0x000000) } else { Rgb::hex(0xffffff) };
-            c.text(x as i32 + 2, 2, "Aa", Font::tiny(), ink);
-            c.text(x as i32 + 1, 10, &format!("{:.0}", color.contrast(t.bg)), Font::tiny(), t.ink);
+            c.print(i as i32 * 6 + 2, 0, "Aa", TextStyle::new(ink).on(color));
+            c.print(i as i32 * 6, 2, &format!("{:.1}", color.contrast(t.bg)), t.ink);
         }
     }
-    "Palette" | "Color::resolve" | "Palette::is_light" | "Palette::nearest_ansi", 24 x 4 => |c, t| {
+    "Palette" | "Color::resolve" | "Palette::is_light" | "Palette::nearest_ansi", 26 x 4 => |c, t| {
         // The sixteen ANSI colours of the xterm palette, resolved to RGB; then a
         // shade of orange and the ANSI colour nearest to it.
         let palette = Palette::default();
@@ -1557,7 +1604,7 @@ demos! {
         }
         c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
         c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
-        c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+        c.print(21, 3, if palette.is_light() { "light" } else { "dark" }, t.ink);
     }
     "Depth" | "Color::quantize" | "Depth::parse" | "Depth::from_env", 32 x 4 => |c, t| {
         // One gradient at every depth: what the text fallback quantises to on a
@@ -1593,7 +1640,7 @@ demos! {
         c.fill_round_rect(1.0, 1.0, 58.0, 14.0, 4.0, Paint::edge(BLUE, t.panel, 3.0));
         let style = export::Style { background: Some(t.bg), ..export::Style::default() }.scale(2);
         let png = export::png(c, &style); // the same picture as a PNG, twice the size
-        c.text(4, 5, &format!("svg / png: {} bytes", png.len()), Font::tiny(), t.ink);
+        c.print(4, 1, &format!("png: {} bytes", png.len()), TextStyle::new(t.ink).on(t.panel));
     }
     "resolve", 24 x 4 => |c, t| {
         // Palette dots baked to RGB through a palette of your own, for a file that

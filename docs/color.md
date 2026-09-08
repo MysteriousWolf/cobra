@@ -130,7 +130,7 @@ reports; the 6×6×6 cube and the grey ramp are the same on every terminal.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
-  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="416">
 </picture>
 
 ```rust
@@ -142,7 +142,7 @@ for i in 0..16u8 {
 }
 c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
 c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
-c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+c.print(21, 3, if palette.is_light() { "light" } else { "dark" }, t.ink);
 ```
 
 ## `Rgb` methods
@@ -243,10 +243,10 @@ Relative luminance in `0..=1` (sRGB, WCAG weights), for contrast checks.
 // against the page.
 for (i, color) in [Rgb::hex(0x0d1117), BLUE, YELLOW, Rgb::hex(0xffffff)].into_iter().enumerate() {
     let x = i as f32 * 12.0;
-    c.fill_rect(x, 0.0, 12.0, 9.0, color);
+    c.fill_rect(x, 0.0, 12.0, 8.0, color);
     let ink = if color.luminance() > 0.4 { Rgb::hex(0x000000) } else { Rgb::hex(0xffffff) };
-    c.text(x as i32 + 2, 2, "Aa", Font::tiny(), ink);
-    c.text(x as i32 + 1, 10, &format!("{:.0}", color.contrast(t.bg)), Font::tiny(), t.ink);
+    c.print(i as i32 * 6 + 2, 0, "Aa", TextStyle::new(ink).on(color));
+    c.print(i as i32 * 6, 2, &format!("{:.1}", color.contrast(t.bg)), t.ink);
 }
 ```
 
@@ -268,10 +268,10 @@ WCAG contrast ratio between two colours, `1..=21`.
 // against the page.
 for (i, color) in [Rgb::hex(0x0d1117), BLUE, YELLOW, Rgb::hex(0xffffff)].into_iter().enumerate() {
     let x = i as f32 * 12.0;
-    c.fill_rect(x, 0.0, 12.0, 9.0, color);
+    c.fill_rect(x, 0.0, 12.0, 8.0, color);
     let ink = if color.luminance() > 0.4 { Rgb::hex(0x000000) } else { Rgb::hex(0xffffff) };
-    c.text(x as i32 + 2, 2, "Aa", Font::tiny(), ink);
-    c.text(x as i32 + 1, 10, &format!("{:.0}", color.contrast(t.bg)), Font::tiny(), t.ink);
+    c.print(i as i32 * 6 + 2, 0, "Aa", TextStyle::new(ink).on(color));
+    c.print(i as i32 * 6, 2, &format!("{:.1}", color.contrast(t.bg)), t.ink);
 }
 ```
 
@@ -287,7 +287,7 @@ Resolves the colour to RGB through `palette`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
-  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="416">
 </picture>
 
 ```rust
@@ -299,7 +299,7 @@ for i in 0..16u8 {
 }
 c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
 c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
-c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+c.print(21, 3, if palette.is_light() { "light" } else { "dark" }, t.ink);
 ```
 
 ## `Color::quantize`
@@ -407,7 +407,7 @@ pub fn is_light(&self) -> bool
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
-  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="416">
 </picture>
 
 ```rust
@@ -419,7 +419,7 @@ for i in 0..16u8 {
 }
 c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
 c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
-c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+c.print(21, 3, if palette.is_light() { "light" } else { "dark" }, t.ink);
 ```
 
 ## `Palette::nearest_ansi`
@@ -432,7 +432,7 @@ Index of the ANSI colour (`0..=15`) closest to `c` in this palette.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/palette.svg">
-  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="384">
+  <img src="img/palette-light.svg" alt="Palette, Color::resolve, Palette::is_light, Palette::nearest_ansi" width="416">
 </picture>
 
 ```rust
@@ -444,7 +444,7 @@ for i in 0..16u8 {
 }
 c.fill_rect(0.0, 8.0, 20.0, 8.0, ORANGE);
 c.fill_rect(20.0, 8.0, 20.0, 8.0, Color::Indexed(palette.nearest_ansi(ORANGE)));
-c.text(41, 10, if palette.is_light() { "light" } else { "dark" }, Font::tiny(), t.ink);
+c.print(21, 3, if palette.is_light() { "light" } else { "dark" }, t.ink);
 ```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · **color** · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)

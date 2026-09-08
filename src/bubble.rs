@@ -707,17 +707,40 @@ fn paint_tail(canvas: &mut Canvas, tail: &Tail, anchor: Anchor, grow: f32, paint
         return;
     }
     if tail.kind == TailKind::Bubbles {
-        // Three shrinking discs on the line from base to tip, each clear of the
-        // last and the first clear of the body, centred the same in every pass so
-        // their borders stay even. Snapped to dot centres, so a disc a few dots
-        // across is round, not lopsided.
-        for (t, scale) in [(0.28, 0.8), (0.66, 0.5), (0.96, 0.3)] {
-            let r = hw * scale + grow;
-            if r <= 0.0 {
-                continue; // too small to have an inside: the border pass is the whole disc
+        // Three shrinking discs on the line from base to tip, sized from the tail's
+        // own width (not the widened root, which is for triangles), each clear of
+        // the body and of the last by a border's worth, and centred the same in
+        // every pass so their borders stay even. A tip too near the body for all
+        // three gets fewer. Snapped to dot centres, so a disc a few dots across is
+        // round, not lopsided.
+        let reach = ((tip.0 - base.0).powi(2) + (tip.1 - base.1).powi(2)).sqrt();
+        if reach <= 0.0 {
+            return;
+        }
+        let (ux, uy) = ((tip.0 - base.0) / reach, (tip.1 - base.1) / reach);
+        const GAP: f32 = 2.0;
+        const SCALES: [f32; 3] = [0.7, 0.45, 0.25];
+        // The trail shrinks to fit a short reach, and loses its smallest disc
+        // rather than shrink below what a dot grid can draw round.
+        let mut n = SCALES.len();
+        let (k, radii) = loop {
+            let radii: Vec<f32> = SCALES[..n].iter().map(|s| hw * s).collect();
+            let needed = radii.iter().map(|r| 2.0 * r + GAP).sum::<f32>();
+            let k = (reach / needed).min(1.0);
+            if n <= 1 || radii[n - 1] * k >= 0.75 {
+                break (k, radii);
             }
-            let (cx, cy) = (base.0 + (tip.0 - base.0) * t, base.1 + (tip.1 - base.1) * t);
-            canvas.fill_ellipse(cx.floor() + 0.5, cy.floor() + 0.5, r, r, paint);
+            n -= 1;
+        };
+        let mut along = GAP * k;
+        for r in radii {
+            let r = r * k;
+            let centre = along + r;
+            if r + grow > 0.0 {
+                let (cx, cy) = (base.0 + ux * centre, base.1 + uy * centre);
+                canvas.fill_ellipse(cx.floor() + 0.5, cy.floor() + 0.5, r + grow, r + grow, paint);
+            }
+            along = centre + r + GAP * k;
         }
         return;
     }
@@ -840,6 +863,33 @@ mod tests {
         }
         // The tail's own edges are border.
         assert_eq!(c.get(x - 3, body.bottom() as i32), Some(crate::Color::Rgb(INK)));
+    }
+
+    #[test]
+    fn a_thought_trail_is_separate_discs_no_wider_than_the_tail() {
+        let mut c = Canvas::new(20, 10);
+        let tail = Tail::new(Side::Bottom, 0.5, TailKind::Bubbles).len(16.0).width(8.0);
+        let body = Bubble::new("hi").tail(tail).fill(INK).ink(0u32).draw(&mut c, 8.0, 4.0);
+        let (x, bottom) = (body.center().0 as i32, body.bottom() as i32);
+        let lit_row = |y: i32| (0..40).filter(|&px| c.get(px, y).is_some()).count();
+        // Reading down the trail: a gap, a disc, a gap, a smaller disc, a gap, a smaller one.
+        let widths: Vec<usize> = (bottom..bottom + 16).map(lit_row).collect();
+        let discs: Vec<usize> =
+            widths.split(|&w| w == 0).filter(|run| !run.is_empty()).map(|run| *run.iter().max().unwrap()).collect();
+        assert_eq!(discs.len(), 3, "three discs with gaps between: {widths:?}");
+        assert!(discs[0] > discs[1] && discs[1] > discs[2], "shrinking: {discs:?}");
+        assert!(discs[0] <= 8, "no wider than the tail: {discs:?}");
+        assert_eq!(widths[0], 0, "the first disc clears the body");
+        assert!(c.get(x, bottom + 4).is_some(), "the first disc is on the axis");
+        // Too close for all three: fewer discs, never overlapping ones.
+        let mut near = Canvas::new(20, 10);
+        let tail = Tail::new(Side::Bottom, 0.5, TailKind::Bubbles).len(6.0).width(8.0);
+        let body = Bubble::new("hi").tail(tail).fill(INK).ink(0u32).draw(&mut near, 8.0, 4.0);
+        let bottom = body.bottom() as i32;
+        let widths: Vec<usize> =
+            (bottom..bottom + 10).map(|y| (0..40).filter(|&px| near.get(px, y).is_some()).count()).collect();
+        let discs = widths.split(|&w| w == 0).filter(|run| !run.is_empty()).count();
+        assert!((1..=2).contains(&discs), "{widths:?}");
     }
 
     #[test]

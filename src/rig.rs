@@ -6,10 +6,11 @@
 //! This is the whole of rigging here and on purpose: a part is rigid, hangs off
 //! one parent, and is posed by one transform. No inverse kinematics, weights,
 //! skinning, timelines or easing; a pose is data, a frame is the caller's clock,
-//! and `t` in [`Transform::mix`] and [`Path::mix`] is the caller's number.
+//! and `t` in [`Rig::mix`], [`Transform::mix`] and [`Path::mix`] is the caller's
+//! number.
 //!
 //! ```
-//! use cobra::{Canvas, Mask, Part, Path, Rgb, Rig, Transform};
+//! use cobra::{Canvas, Part, Path, Rgb, Rig, Transform};
 //!
 //! let mut body = Path::new();
 //! body.ellipse(0.0, 0.0, 8.0, 5.0);
@@ -21,14 +22,17 @@
 //! bird.add("wing", Some("body"), Part::new(wing).at(Transform::at(-2.0, -1.0)));
 //! bird.mark("beak", "body", (8.0, 0.0));
 //!
-//! bird.place(Transform::at(20.0, 10.0));                   // the whole figure
-//! bird.pose("wing", Transform::IDENTITY.rotate(-0.4));   // one joint
-//! let beak = bird.point("beak");                          // follows the pose
+//! bird.place(Transform::at(20.0, 10.0));       // the whole figure
+//! bird.pose("wing", Transform::rotation(-0.4)); // one joint
+//! let beak = bird.point("beak");                // follows the pose
 //!
 //! let mut canvas = Canvas::new(20, 5);
 //! canvas.stencil(bird.mask(20, 5), Rgb::hex(0x56d364));
 //! assert!((beak.0 - 28.0).abs() < 1e-3 && (beak.1 - 10.0).abs() < 1e-3);
 //! ```
+//!
+//! Names are literals, so a name the rig does not have is a typo, and every
+//! method that takes one panics on it rather than draw the wrong figure quietly.
 
 use crate::{Canvas, Mask, Paint, Path, Point, Transform};
 
@@ -96,24 +100,24 @@ impl Rig {
     ///
     /// # Panics
     ///
-    /// If `parent` names no part, or `name` is already taken: a rig is built from
-    /// literals, and a typo there is a bug worth stopping on.
+    /// If `parent` names no part, or `name` is already taken.
     pub fn add(&mut self, name: &str, parent: Option<&str>, part: Part) -> &mut Self {
         assert!(self.index(name).is_none(), "rig already has a part named {name:?}");
-        let parent = parent.map(|p| self.index(p).unwrap_or_else(|| panic!("rig has no part named {p:?}")));
+        let parent = parent.map(|p| self.find(p));
         self.nodes.push(Node { name: name.to_string(), parent, part, pose: Transform::IDENTITY, raster: None });
+        self.whole = None;
         self
     }
 
     /// Names point `at` (in `part`'s coordinates) `name`, so [`point`](Self::point)
     /// can find it wherever the pose puts it: where a hat sits, where a hand is,
-    /// where a speech bubble's tail should aim.
+    /// where a speech bubble's tail should aim. Marking a name again moves it.
     ///
     /// # Panics
     ///
     /// If `part` names no part.
     pub fn mark(&mut self, name: &str, part: &str, at: Point) -> &mut Self {
-        let i = self.index(part).unwrap_or_else(|| panic!("rig has no part named {part:?}"));
+        let i = self.find(part);
         match self.points.iter_mut().find(|(n, ..)| n == name) {
             Some(entry) => *entry = (name.to_string(), i, at),
             None => self.points.push((name.to_string(), i, at)),
@@ -122,20 +126,26 @@ impl Rig {
     }
 
     /// Poses `part`: `t` is applied about its joint, before its resting place, so
-    /// `Transform::IDENTITY.rotate(0.3)` swings it and `.translate(0.0, -2.0)` lifts
-    /// it. Everything hung off the part moves with it. Does nothing for an unknown
-    /// name.
+    /// `Transform::rotation(0.3)` swings it and `Transform::at(0.0, -2.0)` lifts
+    /// it. Everything hung off the part moves with it.
+    ///
+    /// # Panics
+    ///
+    /// If `part` names no part.
     pub fn pose(&mut self, part: &str, t: Transform) -> &mut Self {
-        if let Some(i) = self.index(part) {
-            self.nodes[i].pose = t;
-            self.whole = None;
-        }
+        let i = self.find(part);
+        self.nodes[i].pose = t;
+        self.whole = None;
         self
     }
 
-    /// The pose of `part`, the identity when unposed or unknown.
+    /// The pose of `part`, the identity when unposed.
+    ///
+    /// # Panics
+    ///
+    /// If `part` names no part.
     pub fn posed(&self, part: &str) -> Transform {
-        self.index(part).map_or(Transform::IDENTITY, |i| self.nodes[i].pose)
+        self.nodes[self.find(part)].pose
     }
 
     /// Places the whole figure: where its root sits on the canvas, facing which way,
@@ -151,19 +161,51 @@ impl Rig {
         self.root
     }
 
+    /// The rig between `a` (at `t = 0`) and `b` (at `t = 1`): the same figure with
+    /// every pose, and its place, [mixed](Transform::mix) between the two. Two
+    /// keyframes and one number is a walk cycle, a nod, a wave. The rasters cached
+    /// in `a` come along, so parts posed the same in both are not drawn again.
+    ///
+    /// # Panics
+    ///
+    /// If the two rigs are not the same figure: the same parts in the same order.
+    pub fn mix(a: &Rig, b: &Rig, t: f32) -> Rig {
+        assert!(a.parts().eq(b.parts()), "Rig::mix needs two poses of the same rig");
+        let mut out = a.clone();
+        for (node, other) in out.nodes.iter_mut().zip(&b.nodes) {
+            node.pose = Transform::mix(&node.pose, &other.pose, t);
+        }
+        out.root = Transform::mix(&a.root, &b.root, t);
+        out.whole = None;
+        out
+    }
+
     /// The part called `name`.
-    pub fn part(&self, name: &str) -> Option<&Part> {
-        self.index(name).map(|i| &self.nodes[i].part)
+    ///
+    /// # Panics
+    ///
+    /// If `name` names no part.
+    pub fn part(&self, name: &str) -> &Part {
+        &self.nodes[self.find(name)].part
     }
 
     /// The part called `name`, to change. Changing a part's path or resting place
     /// is what a pose cannot do (a beak opening is two paths, [`Path::mix`]ed); the
     /// part is rasterised anew.
-    pub fn part_mut(&mut self, name: &str) -> Option<&mut Part> {
-        let i = self.index(name)?;
+    ///
+    /// # Panics
+    ///
+    /// If `name` names no part.
+    pub fn part_mut(&mut self, name: &str) -> &mut Part {
+        let i = self.find(name);
         self.nodes[i].raster = None;
         self.whole = None;
-        Some(&mut self.nodes[i].part)
+        &mut self.nodes[i].part
+    }
+
+    /// Whether the rig has a part called `name`.
+    pub fn has(&self, name: &str) -> bool {
+        self.index(name).is_some()
     }
 
     /// The names of the parts, in drawing order.
@@ -172,15 +214,24 @@ impl Rig {
     }
 
     /// The transform from `part`'s own coordinates to the canvas, with every pose
-    /// above it applied; the identity for an unknown name.
+    /// above it applied.
+    ///
+    /// # Panics
+    ///
+    /// If `part` names no part.
     pub fn world(&self, part: &str) -> Transform {
-        self.index(part).map_or(self.root, |i| self.world_of(i))
+        self.world_of(self.find(part))
     }
 
-    /// Where the point named `name` is on the canvas, posed. `(0, 0)` for a name
-    /// that was never [marked](Self::mark).
+    /// Where the point named `name` is on the canvas, posed.
+    ///
+    /// # Panics
+    ///
+    /// If nothing was [marked](Self::mark) `name`.
     pub fn point(&self, name: &str) -> Point {
-        self.points.iter().find(|(n, ..)| n == name).map_or((0.0, 0.0), |&(_, i, p)| self.world_of(i).apply(p))
+        let &(_, i, p) =
+            self.points.iter().find(|(n, ..)| n == name).unwrap_or_else(|| panic!("rig has no point named {name:?}"));
+        self.world_of(i).apply(p)
     }
 
     /// Calls `f` for every part in drawing order with its name, its path and the
@@ -227,6 +278,10 @@ impl Rig {
         self.nodes.iter().position(|n| n.name == name)
     }
 
+    fn find(&self, name: &str) -> usize {
+        self.index(name).unwrap_or_else(|| panic!("rig has no part named {name:?}"))
+    }
+
     /// `pose`, then `at`, then the parent's world, then the root.
     fn world_of(&self, i: usize) -> Transform {
         let node = &self.nodes[i];
@@ -262,15 +317,16 @@ mod tests {
         rig.mark("finger", "hand", (2.0, 0.0));
         rig.place(Transform::at(10.0, 10.0));
         assert!(near(rig.point("finger"), (20.0, 10.0)));
-        rig.pose("arm", Transform::IDENTITY.rotate(std::f32::consts::FRAC_PI_2));
+        rig.pose("arm", Transform::rotation(std::f32::consts::FRAC_PI_2));
         assert!(near(rig.point("finger"), (14.0, 16.0)), "{:?}", rig.point("finger"));
         assert!(near(rig.world("hand").apply((0.0, 0.0)), (14.0, 14.0)));
-        rig.pose("body", Transform::IDENTITY.flip_x());
+        rig.pose("body", Transform::scaling(-1.0, 1.0));
         assert!(near(rig.point("finger"), (6.0, 16.0)), "a flipped body flips the arm's swing");
-        assert!(near(rig.point("nothing"), (0.0, 0.0)));
         assert_eq!(rig.posed("arm").apply((1.0, 0.0)).1.round(), 1.0);
         assert_eq!(rig.parts().collect::<Vec<_>>(), ["body", "arm", "hand"]);
-        assert!(rig.part("arm").is_some() && rig.part("leg").is_none());
+        assert!(rig.has("arm") && !rig.has("leg"));
+        rig.mark("finger", "arm", (0.0, 0.0));
+        assert!(near(rig.point("finger"), (6.0, 10.0)), "marking again moves the point");
     }
 
     #[test]
@@ -283,21 +339,56 @@ mod tests {
         assert_eq!(first.len(), 32);
         assert!(first.contains(9, 9) && first.contains(15, 9));
         let ptr = rig.nodes[0].raster.as_ref().map(|(_, m)| m as *const Mask);
-        rig.pose("arm", Transform::IDENTITY.translate(0.0, 5.0));
+        rig.pose("arm", Transform::at(0.0, 5.0));
         let moved = rig.mask(12, 5).clone();
         assert!(moved.contains(15, 14) && !moved.contains(15, 9), "the arm moved");
         assert_eq!(rig.nodes[0].raster.as_ref().map(|(_, m)| m as *const Mask), ptr, "the body kept its raster");
         assert_ne!(first, moved);
-        rig.part_mut("body").unwrap().path = Path::new();
+        rig.part_mut("body").path = Path::new();
         assert_eq!(rig.mask(12, 5).len(), 16, "a changed part is rasterised anew");
         let mut c = Canvas::new(12, 5);
         rig.draw(&mut c, Rgb::hex(0xffffff));
         assert!(c.get(15, 14).is_some() && c.get(9, 9).is_none());
+        assert_eq!(rig.part("arm").at, Transform::at(6.0, 0.0));
+    }
+
+    #[test]
+    fn mixing_two_poses_tweens_every_joint_and_the_place() {
+        let mut a = Rig::new();
+        a.add("body", None, Part::new(square()));
+        a.add("arm", Some("body"), Part::new(square()).at(Transform::at(4.0, 0.0)));
+        a.mark("tip", "arm", (4.0, 0.0));
+        a.place(Transform::at(0.0, 0.0));
+        let mut b = a.clone();
+        b.pose("arm", Transform::rotation(std::f32::consts::FRAC_PI_2));
+        b.place(Transform::at(10.0, 0.0));
+        let half = Rig::mix(&a, &b, 0.5);
+        let tip = half.point("tip");
+        let k = 4.0 * std::f32::consts::FRAC_1_SQRT_2;
+        assert!(near(tip, (5.0 + 4.0 + k, k)), "{tip:?}");
+        assert!(near(Rig::mix(&a, &b, 0.0).point("tip"), a.point("tip")));
+        assert!(near(Rig::mix(&a, &b, 1.0).point("tip"), b.point("tip")));
     }
 
     #[test]
     #[should_panic(expected = "no part named")]
     fn an_unknown_parent_is_a_bug() {
         Rig::new().add("wing", Some("body"), Part::new(square()));
+    }
+
+    #[test]
+    #[should_panic(expected = "no part named")]
+    fn posing_an_unknown_part_is_a_bug() {
+        Rig::new().pose("wing", Transform::IDENTITY);
+    }
+
+    #[test]
+    #[should_panic(expected = "same rig")]
+    fn mixing_different_rigs_is_a_bug() {
+        let mut a = Rig::new();
+        a.add("body", None, Part::new(square()));
+        let mut b = Rig::new();
+        b.add("torso", None, Part::new(square()));
+        Rig::mix(&a, &b, 0.5);
     }
 }
