@@ -79,7 +79,7 @@ head.transform(&Transform::at(20.0, 10.0).flip_x());
 canvas.stencil(&head, Paint::cel(dark, (-1.0, -1.0), &[(-0.2, mid), (0.5, light)]).per_cell());
 ```
 
-**Text.** [`Canvas::text`](docs/font.md) draws with a bitmap font (a 3×5 one is built in,
+**Text.** [`Canvas::text`](docs/font.md) draws with a bitmap font (a 3×5 and a 5×9 monospace one are built in,
 scalable per axis), so a label is dots like everything else. [`Canvas::print`](docs/text.md)
 puts real characters on a text layer over the dots: copyable, any glyph the terminal has,
 with bold, italic, underline and a background. [`Bubble`](docs/bubble.md) wraps text in a

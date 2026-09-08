@@ -686,6 +686,11 @@ demos! {
         c.text(1, 1, "Hello, 3x5!", Font::tiny(), t.ink);
         c.text(1, 7, "abc XYZ 0123", Font::tiny(), BLUE);
     }
+    "Font::mono", 30 x 5 => |c, t| {
+        // Fixed width, so columns line up; the face PNG exports print text with.
+        c.text(1, 1, "Hello, 5x9!", Font::mono(), t.ink);
+        c.text(1, 11, "abc XYZ 0123 gjpqy", Font::mono(), BLUE);
+    }
     "Font::scale", 24 x 4 => |c, t| {
         c.text(1, 1, "x1", Font::tiny(), t.ink);
         c.text(10, 1, "x2", &Font::tiny().scale(2), t.ink);

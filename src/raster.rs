@@ -97,8 +97,10 @@ impl Raster {
         (w as u32, h as u32)
     }
 
-    /// Draws one text cell with a bitmap font, stretched to fill the cell box. Export
-    /// has no terminal to print real characters, so this is the best it can do.
+    /// Draws one text cell with a bitmap font. The glyph is scaled by whole pixels
+    /// (the largest factors that leave a column and a row of gap in the cell) and
+    /// centred, so at 2× a 5×9 face fills a 10×20 cell crisply; a cell too small for
+    /// that gets the glyph stretched to fit instead.
     fn glyph(&mut self, text: crate::TextCell, font: &Font, palette: &Palette, col: u16, row: u16, w: usize) {
         let (cw, ch) = (self.cell.width as usize, self.cell.height as usize);
         let rgba = |c: Color| {
@@ -108,19 +110,28 @@ impl Raster {
         let bg = text.style.bg.map(rgba);
         let fg = rgba(text.style.fg.unwrap_or(Color::Foreground));
         let glyph = (!text.is_continuation()).then(|| font.glyph(text.ch)).flatten();
+        // Where the glyph's pixels go: `(x - ox) / sx` is the glyph column of pixel `x`.
+        let place = |cell: usize, dots: usize| -> (usize, usize) {
+            let scale = (cell / (dots + 1)).max(1);
+            let span = dots * scale;
+            if span <= cell { (scale, (cell - span) / 2) } else { (0, 0) }
+        };
+        let (gw, gh) = glyph.as_ref().map_or((1, 1), |g| (g.width.max(1) as usize, g.height.max(1) as usize));
+        let ((sx, ox), (sy, oy)) = (place(cw, gw), place(ch, gh));
+        let at = |p: usize, s: usize, o: usize, cell: usize, dots: usize| -> Option<usize> {
+            if s == 0 { Some(p * dots / cell.max(1)) } else { (p >= o && p < o + s * dots).then(|| (p - o) / s) }
+        };
         for y in 0..ch {
             let line = &mut self.rgba[(row as usize * ch + y) * w * 4 + col as usize * cw * 4..][..cw * 4];
+            let gy = at(y, sy, oy, ch, gh);
             for (x, px) in line.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 if let Some(bg) = bg {
                     *px = bg;
                 }
-                // Nearest neighbour, with a dot of margin so glyphs do not touch.
-                if let Some(g) = &glyph {
-                    let gx = (x * g.width as usize / cw.max(1)) as u8;
-                    let gy = (y * (g.height as usize + 1) / ch.max(1)) as u8;
-                    if g.dot(gx, gy) {
-                        *px = fg;
-                    }
+                if let (Some(g), Some(gx), Some(gy)) = (&glyph, at(x, sx, ox, cw, gw), gy)
+                    && g.dot(gx as u8, gy as u8)
+                {
+                    *px = fg;
                 }
             }
         }

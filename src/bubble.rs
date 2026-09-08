@@ -36,7 +36,7 @@
 //! ```
 
 use crate::text::{Align, TextStyle};
-use crate::{Canvas, Font, Paint, Point, Rect, text};
+use crate::{Canvas, Color, Effect, Font, Mask, Paint, Point, Rect, text};
 
 /// A cell in dots, as the `f32` the geometry works in.
 const CELL_W: f32 = crate::DOTS_X as f32;
@@ -363,12 +363,17 @@ impl<'a> Bubble<'a> {
         if self.clear_behind {
             self.paint(canvas, body, self.border_width(), Paint::erase());
         }
-        // Border first, then the fill inset by it: one path draws every shape, and an
-        // unfilled body carves its inside back out.
         match (self.border, self.fill) {
             (Some((t, border)), fill) => {
-                self.paint(canvas, body, 0.0, border);
-                self.paint(canvas, body, -t, fill.unwrap_or(Paint::erase()));
+                // The silhouette, body and tail as one, rasterised once; the fill goes
+                // through it and the border is its rim by distance. A rim found that
+                // way is continuous however the shape's curves round to dots, is the
+                // thickness asked for everywhere, and has no seam where the tail
+                // joins. An unfilled body clears its inside so the text reads.
+                let mut shape = Mask::new(canvas.cols(), canvas.rows());
+                shape.draw(|c| self.paint(c, body, 0.0, Paint::new(Color::Foreground)));
+                canvas.stencil(&shape, fill.unwrap_or(Paint::erase()));
+                canvas.effects(&shape, &[Effect::rim(t).paint(border)]);
             }
             (None, Some(fill)) => self.paint(canvas, body, 0.0, fill),
             (None, None) => {}
