@@ -294,7 +294,7 @@ Adds [`Attrs::UNDERLINE`](text.md#attrsunderline).
 ## `TextCell::CONTINUATION`
 
 ```rust
-pub const CONTINUATION: char = '\u1}'
+pub const CONTINUATION: char = '\u{1}'
 ```
 
 Placeholder in the cell that a double-width character spills into.
