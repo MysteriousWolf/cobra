@@ -1,6 +1,6 @@
 # `path`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · **path** · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · **path** · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Arbitrary outlines: straight lines, Bézier curves, arcs and splines in any
 combination, filled or stroked with [`Canvas::fill_path`](draw.md#canvasfill_path) and
@@ -9,7 +9,7 @@ combination, filled or stroked with [`Canvas::fill_path`](draw.md#canvasfill_pat
 ## Contents
 
 - [`Path`](#path)
-- `Path`: [`Path::new`](path.md#pathnew), [`Path::is_empty`](path.md#pathis_empty), [`Path::current`](path.md#pathcurrent), [`Path::move_to`](path.md#pathmove_to), [`Path::line_to`](path.md#pathline_to), [`Path::quad_to`](path.md#pathquad_to), [`Path::cubic_to`](path.md#pathcubic_to), [`Path::arc_to`](path.md#patharc_to), [`Path::curve_through`](path.md#pathcurve_through), [`Path::close`](path.md#pathclose), [`Path::rect`](path.md#pathrect), [`Path::round_rect`](path.md#pathround_rect), [`Path::apply`](path.md#pathapply), [`Path::ellipse`](path.md#pathellipse), [`Path::polygon`](path.md#pathpolygon), [`Path::transform`](path.md#pathtransform), [`Path::translate`](path.md#pathtranslate), [`Path::scale`](path.md#pathscale), [`Path::rotate`](path.md#pathrotate), [`Path::bounds`](path.md#pathbounds), [`Path::subpaths`](path.md#pathsubpaths)
+- `Path`: [`Path::new`](path.md#pathnew), [`Path::is_empty`](path.md#pathis_empty), [`Path::current`](path.md#pathcurrent), [`Path::move_to`](path.md#pathmove_to), [`Path::line_to`](path.md#pathline_to), [`Path::quad_to`](path.md#pathquad_to), [`Path::cubic_to`](path.md#pathcubic_to), [`Path::arc_to`](path.md#patharc_to), [`Path::curve_through`](path.md#pathcurve_through), [`Path::close`](path.md#pathclose), [`Path::rect`](path.md#pathrect), [`Path::round_rect`](path.md#pathround_rect), [`Path::apply`](path.md#pathapply), [`Path::ellipse`](path.md#pathellipse), [`Path::polygon`](path.md#pathpolygon), [`Path::transform`](path.md#pathtransform), [`Path::translate`](path.md#pathtranslate), [`Path::scale`](path.md#pathscale), [`Path::rotate`](path.md#pathrotate), [`Path::mix`](path.md#pathmix), [`Path::bounds`](path.md#pathbounds), [`Path::subpaths`](path.md#pathsubpaths)
 
 ## `Path`
 
@@ -498,6 +498,35 @@ for i in 0..5 {
 }
 ```
 
+## `Path::mix`
+
+```rust
+pub fn mix(a: &Path, b: &Path, t: f32) -> Option<Path>
+```
+
+The path between `a` (at `t = 0`) and `b` (at `t = 1`), every point moved
+straight towards its counterpart: two poses of one shape, one number. The
+paths must be built from the same sequence of commands (the same shape,
+drawn twice with different points); `None` otherwise. Not clamped.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/path-mix.svg">
+  <img src="img/path-mix-light.svg" alt="Path::mix" width="384">
+</picture>
+
+```rust
+// A beak opening: the same path drawn twice, and one number between them.
+let mut shut = Path::new();
+shut.move_to((0.0, 0.0)).quad_to((6.0, 0.0), (12.0, 0.0)).quad_to((6.0, 0.0), (0.0, 0.0)).close();
+let mut open = Path::new();
+open.move_to((0.0, 0.0)).quad_to((6.0, -6.0), (12.0, -5.0)).quad_to((6.0, 6.0), (0.0, 0.0)).close();
+for i in 0..4 {
+    let mut beak = Path::mix(&shut, &open, i as f32 / 3.0).unwrap();
+    beak.translate(1.0 + 12.0 * i as f32, 8.0);
+    c.fill_path(&beak, YELLOW);
+}
+```
+
 ## `Path::bounds`
 
 ```rust
@@ -546,5 +575,5 @@ p.subpaths(|pts, _closed| {
 });
 ```
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · **path** · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · **path** · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

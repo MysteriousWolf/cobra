@@ -1,6 +1,6 @@
 # `draw`
 
-[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Vector primitives: rectangles, polygons, ellipses, arcs, Bézier curves, splines
 and [`Path`](path.md#path)s, filled or stroked, drawn straight into the dot buffer.
@@ -1606,5 +1606,5 @@ c.arrow((2.0, 13.0), (22.0, 3.0), 1.0, 5.0, GREEN);
 c.arrow((26.0, 8.0), (46.0, 8.0), 3.0, 8.0, BLUE);
 ```
 
-[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

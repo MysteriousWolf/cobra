@@ -221,6 +221,29 @@ impl Path {
         })
     }
 
+    /// The path between `a` (at `t = 0`) and `b` (at `t = 1`), every point moved
+    /// straight towards its counterpart: two poses of one shape, one number. The
+    /// paths must be built from the same sequence of commands (the same shape,
+    /// drawn twice with different points); `None` otherwise. Not clamped.
+    pub fn mix(a: &Path, b: &Path, t: f32) -> Option<Path> {
+        if a.cmds.len() != b.cmds.len() {
+            return None;
+        }
+        let l = |p: Point, q: Point| (p.0 + (q.0 - p.0) * t, p.1 + (q.1 - p.1) * t);
+        let mut cmds = Vec::with_capacity(a.cmds.len());
+        for (x, y) in a.cmds.iter().zip(&b.cmds) {
+            cmds.push(match (x, y) {
+                (Cmd::Move(p), Cmd::Move(q)) => Cmd::Move(l(*p, *q)),
+                (Cmd::Line(p), Cmd::Line(q)) => Cmd::Line(l(*p, *q)),
+                (Cmd::Quad(c, p), Cmd::Quad(d, q)) => Cmd::Quad(l(*c, *d), l(*p, *q)),
+                (Cmd::Cubic(c1, c2, p), Cmd::Cubic(d1, d2, q)) => Cmd::Cubic(l(*c1, *d1), l(*c2, *d2), l(*p, *q)),
+                (Cmd::Close, Cmd::Close) => Cmd::Close,
+                _ => return None,
+            });
+        }
+        Some(Path { cmds, start: l(a.start, b.start) })
+    }
+
     /// The box around every point of the path, control points included; `None`
     /// when empty.
     pub fn bounds(&self) -> Option<Rect> {
@@ -331,6 +354,20 @@ mod tests {
         let mut s2 = Canvas::new(10, 1);
         s2.stroke_path(&line, Pen::new(1.0).dash(3.0, 3.0).phase(3.0), C);
         assert!(s2.get(0, 2).is_none() && s2.get(3, 2).is_some(), "the phase shifts the pattern");
+    }
+
+    #[test]
+    fn mixing_two_poses() {
+        let mut open = Path::new();
+        open.move_to((0.0, 0.0)).quad_to((5.0, 0.0), (10.0, 0.0)).close();
+        let mut wide = Path::new();
+        wide.move_to((0.0, 0.0)).quad_to((5.0, 8.0), (10.0, 0.0)).close();
+        let half = Path::mix(&open, &wide, 0.5).unwrap();
+        assert_eq!(half.cmds[1], Cmd::Quad((5.0, 4.0), (10.0, 0.0)));
+        assert_eq!(Path::mix(&open, &wide, 0.0).unwrap(), open);
+        let mut other = Path::new();
+        other.move_to((0.0, 0.0)).line_to((10.0, 0.0)).close();
+        assert!(Path::mix(&open, &other, 0.5).is_none(), "different commands do not mix");
     }
 
     #[test]

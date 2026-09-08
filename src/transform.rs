@@ -120,6 +120,81 @@ impl Transform {
     pub fn rotate_about(self, angle: f32, center: Point) -> Self {
         self.translate(center.0, center.1).rotate(angle).translate(-center.0, -center.1)
     }
+
+    /// A shear, before everything so far: `x` gains `kx · y` and `y` gains `ky · x`,
+    /// so `skew(0.3, 0.0)` leans a figure to the right as it goes up the screen.
+    ///
+    /// On a dot grid a shear is the deformation that keeps a shape's dots: it slides
+    /// whole rows sideways, so only the outline leans, where a rotation resamples a
+    /// small silhouette into a different one. A lean into a walk, a squash on
+    /// landing, a tree in wind, a tail raking towards its speaker: all shears.
+    pub fn skew(self, kx: f32, ky: f32) -> Self {
+        Self { m: [1.0, ky, kx, 1.0, 0.0, 0.0] }.then(&self)
+    }
+
+    /// The same transform with its rotation rounded to the nearest of `steps`
+    /// equal angles around the turn (eight gives every 45°); scale, shear and
+    /// translation are kept. A limb drawn at a few chosen angles reads better on a
+    /// dot grid than one rotated smoothly through them, since each chosen angle
+    /// is a shape and the in-betweens are resampling.
+    pub fn snapped(self, steps: u32) -> Self {
+        let mut d = self.decompose();
+        let step = std::f32::consts::TAU / steps.max(1) as f32;
+        d.angle = (d.angle / step).round() * step;
+        d.compose()
+    }
+
+    /// The transform between `a` (at `t = 0`) and `b` (at `t = 1`): rotation,
+    /// scale, shear and translation interpolated separately, the rotation the short
+    /// way round, so a limb tweened between two poses turns instead of shrinking
+    /// through the middle. Not clamped: `t` outside `0..=1` extrapolates.
+    pub fn mix(a: &Transform, b: &Transform, t: f32) -> Self {
+        let (p, q) = (a.decompose(), b.decompose());
+        let mut turn = q.angle - p.angle;
+        if turn > std::f32::consts::PI {
+            turn -= std::f32::consts::TAU;
+        } else if turn < -std::f32::consts::PI {
+            turn += std::f32::consts::TAU;
+        }
+        let lerp = |x: f32, y: f32| x + (y - x) * t;
+        Parts {
+            angle: p.angle + turn * t,
+            sx: lerp(p.sx, q.sx),
+            sy: lerp(p.sy, q.sy),
+            shear: lerp(p.shear, q.shear),
+            dx: lerp(p.dx, q.dx),
+            dy: lerp(p.dy, q.dy),
+        }
+        .compose()
+    }
+
+    /// Splits the matrix into a rotation followed by a scale-and-shear (its QR
+    /// form): `M = R(angle) · [sx shear; 0 sy]`. A flip shows as a negative `sy`.
+    fn decompose(&self) -> Parts {
+        let [a, b, c, d, e, f] = self.m;
+        let angle = b.atan2(a);
+        let (sin, cos) = angle.sin_cos();
+        Parts { angle, sx: (a * a + b * b).sqrt(), shear: c * cos + d * sin, sy: d * cos - c * sin, dx: e, dy: f }
+    }
+}
+
+/// A transform taken apart; see [`Transform::decompose`].
+#[derive(Clone, Copy, Debug)]
+struct Parts {
+    angle: f32,
+    sx: f32,
+    sy: f32,
+    shear: f32,
+    dx: f32,
+    dy: f32,
+}
+
+impl Parts {
+    fn compose(self) -> Transform {
+        let (sin, cos) = self.angle.sin_cos();
+        let (sx, sy, k) = (self.sx, self.sy, self.shear);
+        Transform { m: [cos * sx, sin * sx, cos * k - sin * sy, sin * k + cos * sy, self.dx, self.dy] }
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +218,31 @@ mod tests {
         assert!(!r.is_axis_aligned() && Transform::at(1.0, 2.0).flip_y().is_axis_aligned());
         let about = Transform::IDENTITY.rotate_about(std::f32::consts::PI, (5.0, 5.0));
         assert!(near(about.apply((6.0, 5.0)), (4.0, 5.0)));
+    }
+
+    #[test]
+    fn skew_snap_and_mix() {
+        let lean = Transform::IDENTITY.skew(0.5, 0.0);
+        assert!(near(lean.apply((0.0, 2.0)), (1.0, 2.0)), "x gains half of y");
+        assert!(near(lean.apply((3.0, 0.0)), (3.0, 0.0)), "rows keep their y");
+        let t = Transform::at(3.0, 4.0).scale(2.0, 3.0).rotate(0.7).skew(0.2, 0.0);
+        let back = t.decompose().compose();
+        assert!((0..6).all(|i| (t.m[i] - back.m[i]).abs() < 1e-4), "decomposing round-trips: {back:?}");
+        let snapped = Transform::IDENTITY.rotate(0.7).snapped(8);
+        assert!(near(snapped.apply((1.0, 0.0)), (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2)));
+        assert!(near(Transform::IDENTITY.rotate(0.3).snapped(4).apply((1.0, 0.0)), (1.0, 0.0)));
+        let flipped = Transform::at(1.0, 1.0).flip_y().snapped(4);
+        assert!(near(flipped.apply((2.0, 3.0)), (3.0, -2.0)), "a flip survives snapping");
+        let (a, b) = (Transform::at(0.0, 0.0), Transform::at(10.0, 0.0).rotate(std::f32::consts::FRAC_PI_2));
+        let mid = Transform::mix(&a, &b, 0.5);
+        let p = mid.apply((1.0, 0.0));
+        assert!(near((p.0 - 5.0, p.1), (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2)), "{p:?}");
+        assert!(near(Transform::mix(&a, &b, 0.0).apply((1.0, 2.0)), (1.0, 2.0)));
+        assert!(near(Transform::mix(&a, &b, 1.0).apply((1.0, 0.0)), (10.0, 1.0)));
+        // Three quarters of a turn is a quarter the other way.
+        let far = Transform::IDENTITY.rotate(3.0 * std::f32::consts::FRAC_PI_2);
+        let half = Transform::mix(&a, &far, 0.5);
+        assert!(near(half.apply((1.0, 0.0)), (std::f32::consts::FRAC_1_SQRT_2, -std::f32::consts::FRAC_1_SQRT_2)));
     }
 
     #[test]

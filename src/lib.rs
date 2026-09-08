@@ -41,8 +41,9 @@
 //! and for the colour scheme. Terminals do not expose font names or point sizes; the
 //! cell box in pixels is what they publish and what alignment needs. The dot diameter
 //! is a style choice, `COBRA_DOT`, that `cargo run --example calibrate` helps pick.
-//! Inside tmux/screen, or when the cell size cannot be learned, the text protocol is
-//! used.
+//! Inside tmux the outer terminal is read from the environment and images go through
+//! tmux's passthrough (`allow-passthrough on`); under screen, or when the cell size
+//! cannot be learned, the text protocol is used. See [`Terminal::detect`].
 //!
 //! ## Drawing
 //!
@@ -56,7 +57,8 @@
 //! dashed. A [`Mask`] is a shape on its own, to combine, move with a [`Transform`]
 //! and paint through ([`Canvas::stencil`], [`Canvas::clip`], [`Canvas::cut`],
 //! [`Canvas::clipped`], [`Canvas::effects`]); [`Canvas::with`] draws in local
-//! coordinates. See the [`mask`] module.
+//! coordinates. See the [`mask`] module. A [`Rig`] is a figure of [`Part`]s to pose;
+//! see the [`rig`] module.
 //!
 //! ## Text
 //!
@@ -127,6 +129,7 @@ pub mod mask;
 mod path;
 mod raster;
 mod render;
+pub mod rig;
 mod term;
 pub mod text;
 mod transform;
@@ -144,6 +147,7 @@ pub use layer::{Effect, Field, Layer, Layers, Sample};
 pub use mask::{Mask, Silhouette};
 pub use path::Path;
 pub use render::{Options, Placement, Renderer};
+pub use rig::{Part, Rig};
 pub use term::{CellSize, Protocol, Terminal};
 pub use text::{Align, Attrs, TextCell, TextStyle};
 pub use transform::Transform;

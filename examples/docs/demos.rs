@@ -6,8 +6,8 @@ use std::f32::consts::{PI, TAU};
 
 use cobra::{
     Align, Attrs, Bubble, Canvas, Color, DOTS_X, DOTS_Y, Depth, Effect, Field, Font, Layers, MAX_GLYPH_WIDTH, Mask,
-    Paint, Palette, Path, Pattern, Pen, Point, Probe, Rect, Rgb, Shape, Side, Tail, TailKind, TextStyle, Transform,
-    bayer, export, text,
+    Paint, Palette, Part, Path, Pattern, Pen, Point, Probe, Rect, Rgb, Rig, Shape, Side, Tail, TailKind, TextStyle,
+    Transform, bayer, export, text,
 };
 
 /// The colours that depend on what is behind the picture.
@@ -367,6 +367,18 @@ demos! {
             c.disc(q.0, q.1, 1.2, t.ink);
         }
     }
+    "Path::mix", 24 x 4 => |c, t| {
+        // A beak opening: the same path drawn twice, and one number between them.
+        let mut shut = Path::new();
+        shut.move_to((0.0, 0.0)).quad_to((6.0, 0.0), (12.0, 0.0)).quad_to((6.0, 0.0), (0.0, 0.0)).close();
+        let mut open = Path::new();
+        open.move_to((0.0, 0.0)).quad_to((6.0, -6.0), (12.0, -5.0)).quad_to((6.0, 6.0), (0.0, 0.0)).close();
+        for i in 0..4 {
+            let mut beak = Path::mix(&shut, &open, i as f32 / 3.0).unwrap();
+            beak.translate(1.0 + 12.0 * i as f32, 8.0);
+            c.fill_path(&beak, YELLOW);
+        }
+    }
     "Path::rotate", 24 x 4 => |c, t| {
         for i in 0..5 {
             let mut p = Path::new();
@@ -446,6 +458,16 @@ demos! {
             c.stencil(&placed, CYAN.lerp(PURPLE, i as f32 / 2.0));
         }
     }
+    "Mask::path", 24 x 4 => |c, t| {
+        // Pose the control points, rasterise once.
+        let mut leaf = Path::new();
+        leaf.move_to((0.0, 0.0)).quad_to((10.0, -8.0), (20.0, 0.0)).quad_to((10.0, 8.0), (0.0, 0.0)).close();
+        for i in 0..3 {
+            let mut posed = leaf.clone();
+            posed.apply(&Transform::at(4.0 + 14.0 * i as f32, 8.0).rotate(0.4 * i as f32 - 0.4));
+            c.stencil(&Mask::path(24, 4, &posed), GREEN.lerp(YELLOW, i as f32 / 2.0));
+        }
+    }
     "Mask::flip_x", 24 x 4 => |c, t| {
         let mut fish = Mask::new(24, 4);
         fish.draw(|c| {
@@ -464,6 +486,32 @@ demos! {
             c.with(at, |c| c.fill_rect(-3.0, -3.0, 6.0, 6.0, RED.lerp(YELLOW, i as f32 / 4.0)));
         }
     }
+    "Transform::skew", 24 x 4 => |c, t| {
+        // A lean: rows slide sideways and keep their dots; only the outline tilts.
+        for (i, k) in [-0.4, 0.0, 0.4].into_iter().enumerate() {
+            c.with(Transform::at(8.0 + 16.0 * i as f32, 15.0).skew(k, 0.0), |c| {
+                c.fill_round_rect(-4.0, -14.0, 8.0, 14.0, 2.0, GREEN.lerp(CYAN, i as f32 / 2.0));
+            });
+        }
+    }
+    "Transform::snapped", 24 x 4 => |c, t| {
+        // The same limb at angles that increase smoothly, snapped to eighths of a turn:
+        // three chosen shapes instead of five resampled ones.
+        for i in 0..5 {
+            let angle = 0.25 * i as f32;
+            c.with(Transform::at(5.0 + 9.5 * i as f32, 3.0).rotate(angle).snapped(8), |c| {
+                c.fill_round_rect(-1.5, 0.0, 3.0, 11.0, 1.5, ORANGE);
+            });
+        }
+    }
+    "Transform::mix", 24 x 4 => |c, t| {
+        // Tweening: five frames between two poses, the rotation taking the short way.
+        let (from, to) = (Transform::at(6.0, 4.0), Transform::at(40.0, 4.0).rotate(2.5).scale(1.6, 1.6));
+        for i in 0..5 {
+            let at = Transform::mix(&from, &to, i as f32 / 4.0);
+            c.with(at, |c| c.fill_polygon(&[(-3.0, 0.0), (3.0, 0.0), (0.0, 6.0)], BLUE.lerp(PURPLE, i as f32 / 4.0)));
+        }
+    }
     "Canvas::with", 24 x 4 => |c, t| {
         // A figure drawn about its own origin, facing either way.
         let figure = |c: &mut Canvas| {
@@ -474,6 +522,62 @@ demos! {
         };
         c.with(Transform::at(12.0, 8.0), figure);
         c.with(Transform::at(36.0, 8.0).flip_x(), figure);
+    }
+    // ----- rig ------------------------------------------------------------------
+    "Rig" | "Rig::new" | "Rig::add" | "Rig::pose" | "Rig::place" | "Rig::mask", 32 x 5 => |c, t| {
+        // One bird, described once; three poses of it, stamped.
+        let mut body = Path::new();
+        body.ellipse(0.0, 0.0, 7.0, 4.5);
+        let mut head = Path::new();
+        head.ellipse(0.0, 0.0, 3.0, 2.8);
+        let mut wing = Path::new();
+        wing.polygon(&[(0.0, 0.0), (8.0, -1.0), (9.0, 2.5), (1.0, 3.0)]);
+        let mut bird = Rig::new();
+        bird.add("body", None, Part::new(body));
+        bird.add("head", Some("body"), Part::new(head).at(Transform::at(6.5, -4.5)));
+        bird.add("wing", Some("body"), Part::new(wing).at(Transform::at(-3.0, -1.0)));
+        for (i, lift) in [0.0, -0.5, -1.0].into_iter().enumerate() {
+            let mut posed = bird.clone();
+            posed.place(Transform::at(12.0 + 20.0 * i as f32, 12.0));
+            posed.pose("wing", Transform::IDENTITY.rotate(lift));
+            posed.pose("head", Transform::IDENTITY.rotate(0.2 * i as f32));
+            c.stencil(posed.mask(32, 5), Paint::cel(GREEN.dim(0.5), (-1.0, -1.0), &[(-0.1, GREEN)]).per_cell());
+        }
+    }
+    "Rig::point" | "Rig::mark" | "Rig::draw", 24 x 4 => |c, t| {
+        // A named point follows the pose, so a hat lands wherever the head went.
+        let mut body = Path::new();
+        body.ellipse(0.0, 0.0, 6.0, 4.0);
+        let mut head = Path::new();
+        head.ellipse(0.0, 0.0, 2.8, 2.8);
+        let mut figure = Rig::new();
+        figure.add("body", None, Part::new(body));
+        figure.add("head", Some("body"), Part::new(head).at(Transform::at(6.0, -4.0)));
+        figure.mark("crown", "head", (0.0, -2.8));
+        for (i, nod) in [-0.5, 0.0, 0.5].into_iter().enumerate() {
+            figure.place(Transform::at(6.0 + 16.0 * i as f32, 11.0));
+            figure.pose("head", Transform::IDENTITY.rotate(nod));
+            figure.draw(c, BLUE);
+            let (hx, hy) = figure.point("crown");
+            c.fill_rect(hx - 2.5, hy - 3.0, 5.0, 3.0, RED); // the hat
+        }
+    }
+    "Part" | "Part::new" | "Part::at" | "Rig::part_mut", 24 x 4 => |c, t| {
+        // A part is a path about its joint, and where the joint sits on the parent.
+        let mut arm = Path::new();
+        arm.round_rect(0.0, -1.5, 12.0, 3.0, 1.5);
+        let mut figure = Rig::new();
+        let mut torso = Path::new();
+        torso.rect(-4.0, -6.0, 8.0, 12.0);
+        figure.add("torso", None, Part::new(torso));
+        figure.add("arm", Some("torso"), Part::new(arm).at(Transform::at(4.0, -4.0)));
+        figure.place(Transform::at(12.0, 8.0));
+        figure.draw(c, t.panel);
+        c.disc(16.0, 4.0, 1.0, RED); // the joint
+        figure.place(Transform::at(34.0, 8.0));
+        figure.pose("arm", Transform::IDENTITY.rotate(0.9));
+        figure.part_mut("arm").unwrap().path.ellipse(12.0, 0.0, 2.5, 2.5); // a hand, added to the part
+        figure.draw(c, PURPLE);
     }
     // ----- layer ----------------------------------------------------------------
     "Layers", 24 x 4 => |c, t| {
