@@ -1,6 +1,6 @@
 # `layer`
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · **layer** · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · **layer** · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Stacked canvases with occlusion and effects between them.
 
@@ -56,12 +56,12 @@ read as solid in that fallback where it falls on another shape.
 - [`Layer`](#layer)
 - [`Layers`](#layers)
 - [`Field`](#field)
-- `Sample`: [`Sample::inside`](layer.md#sampleinside), [`Sample::layer`](layer.md#samplelayer), [`Sample::covered`](layer.md#samplecovered)
+- `Sample`: [`Sample::inside`](layer.md#sampleinside), [`Sample::layer`](layer.md#samplelayer), [`Sample::lit`](layer.md#samplelit), [`Sample::covered`](layer.md#samplecovered)
 - `Effect`: [`Effect::shadow`](layer.md#effectshadow), [`Effect::outline`](layer.md#effectoutline), [`Effect::glow`](layer.md#effectglow), [`Effect::gap`](layer.md#effectgap), [`Effect::rim`](layer.md#effectrim), [`Effect::paint`](layer.md#effectpaint), [`Effect::shader`](layer.md#effectshader)
 - `Layer`: [`Layer::effect`](layer.md#layereffect), [`Layer::scroll`](layer.md#layerscroll), [`Layer::canvas`](layer.md#layercanvas), [`Layer::canvas_mut`](layer.md#layercanvas_mut)
 - `Layers`: [`Layers::new`](layer.md#layersnew), [`Layers::cols`](layer.md#layerscols), [`Layers::rows`](layer.md#layersrows), [`Layers::width`](layer.md#layerswidth), [`Layers::height`](layer.md#layersheight), [`Layers::len`](layer.md#layerslen), [`Layers::is_empty`](layer.md#layersis_empty), [`Layers::push`](layer.md#layerspush), [`Layers::insert`](layer.md#layersinsert), [`Layers::remove`](layer.md#layersremove), [`Layers::swap`](layer.md#layersswap), [`Layers::get`](layer.md#layersget), [`Layers::get_mut`](layer.md#layersget_mut), [`Layers::iter`](layer.md#layersiter), [`Layers::iter_mut`](layer.md#layersiter_mut), [`Layers::clear`](layer.md#layersclear), [`Layers::flat`](layer.md#layersflat), [`Layers::flatten`](layer.md#layersflatten)
-- `Field`: [`Field::new`](layer.md#fieldnew), [`Field::effects`](layer.md#fieldeffects)
-- `Canvas`: [`Canvas::effects`](layer.md#canvaseffects)
+- `Field`: [`Field::new`](layer.md#fieldnew), [`Field::effects`](layer.md#fieldeffects), [`Field::effects_in`](layer.md#fieldeffects_in)
+- `Canvas`: [`Canvas::effects`](layer.md#canvaseffects), [`Canvas::effects_in`](layer.md#canvaseffects_in)
 
 ## `Sample`
 
@@ -74,6 +74,7 @@ One dot as an effect sees it; see [`Effect::shader`](layer.md#effectshader).
 - `pub x: i32` — Dot coordinates.
 - `pub y: i32` — Dot coordinates.
 - `pub dist: f32` — Distance in dots to the nearest dot on the other side of the layer's silhouette: positive outside, negative inside (the edge is at `±1`).
+- `pub normal: (f32, f32)` — The unit normal of the silhouette's edge nearest the dot, pointing outwards: which way the shape faces there. `(0, 0)` where no distance field was needed (a shadow alone) or on a ridge equidistant from two edges.
 - `pub color: Option<Color>` — What the dot shows right now: the layer's own colour inside the silhouette, whatever the layers below (and earlier effects) left outside it.
 
 ## `Effect`
@@ -263,12 +264,22 @@ Whether the dot is part of the silhouette.
 ## `Sample::layer`
 
 ```rust
-pub fn layer(&self) -> &Canvas
+pub fn layer(&self) -> Option<&Canvas>
 ```
 
-The layer being shaded. Its dots are in its own coordinates; the sample's
-`x` and `y` are in the flattened canvas's, which differ by the layer's
+The layer being shaded, `None` when the effects run around a mask that is
+not a canvas. Its dots are in its own coordinates; the sample's `x` and `y`
+are in the flattened canvas's, which differ by the layer's
 [offset](layer.md#layer).
+
+## `Sample::lit`
+
+```rust
+pub fn lit(&self, light: (f32, f32)) -> f32
+```
+
+How much the edge faces `light`, a direction towards the light: `normal ·
+light`, `1` facing it and `-1` away. See [`Probe::lit`](draw.md#probelit).
 
 ## `Sample::covered`
 
@@ -684,18 +695,27 @@ An empty scratch; the first call grows it to fit and later ones reuse it.
 ## `Field::effects`
 
 ```rust
-pub fn effects(&mut self, target: &mut Canvas, mask: &Canvas, effects: &[Effect])
+pub fn effects(&mut self, target: &mut Canvas, mask: &impl Silhouette, effects: &[Effect])
 ```
 
 Runs `effects` around the silhouette of `mask` on `target`, exactly as
 [`Canvas::effects`](layer.md#canvaseffects) does, with this scratch instead of a fresh one.
+
+## `Field::effects_in`
+
+```rust
+pub fn effects_in(&mut self, target: &mut Canvas, within: &impl Silhouette, mask: &impl Silhouette, effects: &[Effect])
+```
+
+[`effects`](layer.md#fieldeffects) painting only inside `within`; see
+[`Canvas::effects_in`](layer.md#canvaseffects_in).
 
 ## `Canvas` methods
 
 ## `Canvas::effects`
 
 ```rust
-pub fn effects(&mut self, mask: &Canvas, effects: &[Effect])
+pub fn effects(&mut self, mask: &impl Silhouette, effects: &[Effect])
 ```
 
 Runs `effects` around the silhouette of `mask` (its set dots and printed
@@ -727,5 +747,52 @@ mask.text(3, 3, "MASK", &Font::tiny().scale(2), t.ink);
 c.effects(&mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(GREEN)]);
 ```
 
-[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · **layer** · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+## `Canvas::effects_in`
+
+```rust
+pub fn effects_in(&mut self, within: &impl Silhouette, mask: &impl Silhouette, effects: &[Effect])
+```
+
+[`effects`](layer.md#canvaseffects) around `mask`, painting only where `within`
+covers: shading by proximity to another shape. A figure darkened where it
+meets the ground is a shader around the ground, run within the figure; the
+work is bounded to where the two overlap.
+
+```rust
+use cobra::{Canvas, Color, Effect, Mask, Paint, Rgb};
+
+let mut ground = Mask::new(20, 5);
+ground.draw(|c| c.fill_rect(0.0, 16.0, 40.0, 4.0, Rgb::hex(0)));
+let mut figure = Mask::new(20, 5);
+figure.draw(|c| c.fill_ellipse(20.0, 10.0, 6.0, 7.0, Rgb::hex(0)));
+let mut canvas = Canvas::new(20, 5);
+canvas.stencil(&figure, Rgb::hex(0xffa657));
+// Contact shadow: the figure's dots within three of the ground go darker.
+canvas.effects_in(&figure, &ground, &[Effect::shader(3.0, 0.0, |s| match s.color {
+    Some(Color::Rgb(c)) => Some(Paint::new(c.dim(1.0 - 0.6 * (1.0 - s.dist / 4.0)))),
+    _ => None,
+})]);
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-effects_in.svg">
+  <img src="img/canvas-effects_in-light.svg" alt="Canvas::effects_in" width="384">
+</picture>
+
+```rust
+let mut ground = Mask::new(24, 4);
+ground.draw(|c| c.fill_rect(0.0, 13.0, 48.0, 3.0, t.ink));
+let mut figure = Mask::new(24, 4);
+figure.draw(|c| c.fill_ellipse(24.0, 7.0, 9.0, 6.5, t.ink));
+c.stencil(&ground, t.panel);
+c.stencil(&figure, YELLOW);
+// Contact shadow: the figure darkens within four dots of the ground, and
+// nothing else does.
+c.effects_in(&figure, &ground, &[Effect::shader(4.0, 0.0, |s| match s.color {
+    Some(Color::Rgb(c)) => Some(Paint::new(c.dim(0.45 + 0.5 * s.dist / 4.0))),
+    _ => None,
+})]);
+```
+
+[Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · **layer** · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

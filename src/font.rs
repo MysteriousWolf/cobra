@@ -335,11 +335,12 @@ impl Canvas {
                     cy += font.line_height();
                     continue;
                 }
+                // Off-canvas glyphs are skipped, but only where local coordinates are
+                // canvas coordinates.
+                let local = c.transform().is_identity();
                 if let Some(g) = font.glyph(ch)
-                    && cy < c.height()
-                    && cy + g.height as i32 > 0
-                    && cx < c.width()
-                    && cx + g.width as i32 > 0
+                    && (!local
+                        || (cy < c.height() && cy + g.height as i32 > 0 && cx < c.width() && cx + g.width as i32 > 0))
                 {
                     for row in 0..g.height {
                         let mut bits = g.row(row);
@@ -347,7 +348,12 @@ impl Canvas {
                         while bits != 0 {
                             let start = bits.trailing_zeros();
                             let len = (bits >> start).trailing_ones();
-                            c.span(cy + row as i32, cx + start as i32, cx + (start + len) as i32, paint);
+                            let (x0, x1) = (cx + start as i32, cx + (start + len) as i32);
+                            if c.transform().is_identity() {
+                                c.span(cy + row as i32, x0, x1, paint);
+                            } else {
+                                c.fill_rect(x0 as f32, (cy + row as i32) as f32, len as f32, 1.0, paint);
+                            }
                             bits &= u64::MAX.checked_shl(start + len).unwrap_or(0);
                         }
                     }

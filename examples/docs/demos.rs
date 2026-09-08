@@ -5,8 +5,8 @@
 use std::f32::consts::{PI, TAU};
 
 use cobra::{
-    Align, Attrs, Bubble, Canvas, Color, Effect, Field, Font, Layers, Paint, Path, Pattern, Pen, Rect, Rgb, Shape,
-    Side, Tail, TailKind, TextStyle,
+    Align, Attrs, Bubble, Canvas, Color, Effect, Field, Font, Layers, Mask, Paint, Path, Pattern, Pen, Rect, Rgb,
+    Shape, Side, Tail, TailKind, TextStyle, Transform,
 };
 
 /// The colours that depend on what is behind the picture.
@@ -208,6 +208,16 @@ demos! {
         mask.disc(24.0, 8.0, 7.5, t.ink);
         c.cut(&mask);
     }
+    "Canvas::clipped", 24 x 4 => |c, t| {
+        let mut body = Mask::new(24, 4);
+        body.draw(|c| c.fill_ellipse(24.0, 8.0, 18.0, 7.0, t.ink));
+        c.stencil(&body, ORANGE);
+        // Creases that stay inside the body wherever the points go.
+        c.clipped(&body, |c| {
+            c.spline(&[(0.0, 2.0), (16.0, 12.0), (30.0, 3.0), (48.0, 14.0)], false, 1.5, Rgb::hex(0x7a3e00));
+            c.polyline(&[(20.0, -4.0), (28.0, 20.0)], 1.0, Rgb::hex(0x7a3e00));
+        });
+    }
     "Canvas::fill_path", 24 x 4 => |c, t| {
         let mut p = Path::new();
         p.move_to((2.0, 14.0)).quad_to((12.0, -8.0), (22.0, 14.0)).close();
@@ -265,7 +275,7 @@ demos! {
         let lit = Paint::shader(BLUE, t.ink, |p| Some(p.mix(1.0 - (p.u + p.v) / 2.0)));
         c.disc(9.0, 8.0, 7.5, lit);
         // Rings, from the distance to the edge.
-        let rings = Paint::shader(GREEN, YELLOW, |p| Some(p.mix(((p.edge / 2.0) % 2.0 < 1.0) as i32 as f32)));
+        let rings = Paint::shader(GREEN, YELLOW, |p| Some(p.mix(((-p.dist / 2.0) % 2.0 < 1.0) as i32 as f32)));
         c.fill_rect(20.0, 0.0, 28.0, 16.0, rings);
     }
     "Paint::dither", 24 x 4 => |c, t| {
@@ -279,6 +289,37 @@ demos! {
             let x = 1.0 + i as f32 * 12.0;
             c.fill_rect(x, 2.0, 10.0, 12.0, Paint::pattern(ORANGE, Pattern::Grid(4)).anchor(x as i32, 2));
         }
+    }
+    "Paint::cel", 24 x 4 => |c, t| {
+        // Three tones by how much the surface faces the light, from the upper left.
+        let ball = Paint::cel(Rgb::hex(0x7a3e00), (-1.0, -1.0), &[(-0.2, ORANGE), (0.5, YELLOW)]);
+        c.disc(9.0, 8.0, 7.5, ball);
+        c.fill_round_rect(20.0, 1.0, 26.0, 14.0, 6.0, ball);
+    }
+    "Paint::per_cell", 24 x 4 => |c, t| {
+        // Left: bands wherever the normal says. Right: the same, decided once per
+        // cell, so every band is at least a cell and survives the text fallback.
+        let ball = Paint::cel(BLUE.dim(0.4), (-1.0, -1.0), &[(-0.2, BLUE), (0.5, t.ink)]);
+        c.disc(10.0, 8.0, 7.5, ball);
+        c.disc(36.0, 8.0, 7.5, ball.per_cell());
+    }
+    "Paint::soften", 24 x 4 => |c, t| {
+        // A hard terminator, and one that dissolves into a dither over the band edge.
+        let ball = Paint::cel(PURPLE.dim(0.4), (-1.0, -0.5), &[(0.1, PURPLE)]);
+        c.disc(10.0, 8.0, 7.5, ball);
+        c.disc(36.0, 8.0, 7.5, ball.soften(0.35));
+    }
+    "Paint::hashed", 24 x 4 => |c, t| {
+        // The same coverage: ordered on the left reads as a lattice, hashed on the
+        // right reads as grain.
+        c.fill_rect(0.0, 0.0, 23.0, 16.0, Paint::dithered(GREEN, 0.15));
+        c.fill_rect(25.0, 0.0, 23.0, 16.0, Paint::dithered(GREEN, 0.15).hashed());
+    }
+    "Probe::lit", 24 x 4 => |c, t| {
+        // Smooth shading from the normal: `lit` is -1..1, mixed into a colour.
+        let lit = Paint::shader(CYAN.dim(0.3), CYAN, |p| Some(p.mix((p.lit((-1.0, -1.0)) + 1.0) / 2.0)));
+        c.disc(9.0, 8.0, 7.5, lit);
+        c.fill_round_rect(20.0, 1.0, 26.0, 14.0, 5.0, lit);
     }
     "Pen::dash", 24 x 4 => |c, t| {
         c.polyline(&[(1.0, 3.0), (47.0, 3.0)], Pen::new(1.0).dash(3.0, 2.0), GREEN);
@@ -332,6 +373,98 @@ demos! {
             copy.scale(1.0 + i as f32 * 0.3, 1.0 + i as f32 * 0.3).translate(2.0 + i as f32 * 8.0, 2.0);
             c.fill_path(&copy, ORANGE);
         }
+    }
+    // ----- mask -----------------------------------------------------------------
+    "Mask", 24 x 4 => |c, t| {
+        // A silhouette built from parts, then painted, shaded and outlined as one.
+        let mut duck = Mask::new(24, 4);
+        duck.draw(|c| {
+            c.fill_ellipse(20.0, 10.0, 11.0, 5.0, t.ink);
+            c.fill_ellipse(30.0, 4.0, 4.0, 3.5, t.ink);
+            c.fill_polygon(&[(33.0, 4.0), (40.0, 3.0), (33.0, 6.0)], t.ink);
+        });
+        let mut eye = Mask::new(24, 4);
+        eye.draw(|c| c.disc(31.0, 3.0, 0.8, t.ink));
+        duck.subtract(&eye);
+        c.stencil(&duck, Paint::cel(Rgb::hex(0x7a3e00), (-1.0, -1.0), &[(-0.1, ORANGE), (0.5, YELLOW)]).per_cell());
+        c.effects(&duck, &[Effect::outline(1.0).paint(t.ink)]);
+    }
+    "Mask::draw", 24 x 4 => |c, t| {
+        let mut m = Mask::new(24, 4);
+        m.draw(|c| {
+            c.fill_star(10.0, 8.0, 7.5, 3.5, 5, -PI / 2.0, t.ink);          // any primitive
+            c.fill_rect(20.0, 2.0, 26.0, 12.0, Paint::dithered(t.ink, 0.5)); // any paint
+        });
+        c.stencil(&m, GREEN);
+    }
+    "Mask::subtract", 24 x 4 => |c, t| {
+        let mut a = Mask::new(24, 4);
+        a.draw(|c| c.disc(10.0, 8.0, 7.0, t.ink));
+        let mut b = Mask::new(24, 4);
+        b.draw(|c| c.disc(15.0, 8.0, 7.0, t.ink));
+        let (mut union, mut cut, mut both) = (a.clone(), a.clone(), a.clone());
+        union.union(&b);
+        cut.subtract(&b);
+        both.intersect(&b);
+        union.translate(0, 0);
+        cut.translate(20, 0);
+        both.translate(34, 0);
+        c.stencil(&union, RED);
+        c.stencil(&cut, YELLOW);
+        c.stencil(&both, BLUE);
+    }
+    "Mask::boundary_with", 24 x 4 => |c, t| {
+        let mut body = Mask::new(24, 4);
+        body.draw(|c| c.fill_ellipse(22.0, 10.0, 12.0, 5.5, t.ink));
+        let mut head = Mask::new(24, 4);
+        head.draw(|c| c.fill_ellipse(32.0, 5.0, 5.0, 4.5, t.ink));
+        body.subtract(&head);
+        c.stencil(&body, ORANGE);
+        c.stencil(&head, GREEN);
+        // The seam where the two meet: a collar, drawn on the body's side.
+        c.stencil(&body.boundary_with(&head), t.ink);
+    }
+    "Mask::transform", 24 x 4 => |c, t| {
+        // One limb, built once, hung from its pivot at three angles.
+        let mut limb = Mask::new(24, 4);
+        limb.draw(|c| {
+            c.fill_round_rect(2.5, 1.0, 3.0, 10.0, 1.5, t.ink);
+            c.disc(4.0, 12.0, 2.5, t.ink);
+        });
+        for (i, angle) in [-0.5, 0.0, 0.5].into_iter().enumerate() {
+            let mut placed = limb.clone();
+            placed.transform(&Transform::at(6.0 + 14.0 * i as f32, 0.0).rotate_about(angle, (4.0, 1.0)));
+            c.stencil(&placed, CYAN.lerp(PURPLE, i as f32 / 2.0));
+        }
+    }
+    "Mask::flip_x", 24 x 4 => |c, t| {
+        let mut fish = Mask::new(24, 4);
+        fish.draw(|c| {
+            c.fill_ellipse(12.0, 8.0, 8.0, 4.0, t.ink);
+            c.fill_polygon(&[(4.0, 8.0), (0.0, 3.0), (0.0, 13.0)], t.ink);
+        });
+        c.stencil(&fish, BLUE);
+        fish.flip_x(24.0); // mirrored about the middle of the canvas: facing left
+        c.stencil(&fish, GREEN);
+    }
+    // ----- transform ------------------------------------------------------------
+    "Transform", 24 x 4 => |c, t| {
+        // A chain reads outer to inner: rotated, then scaled, then placed.
+        for i in 0..5 {
+            let at = Transform::at(5.0 + 9.5 * i as f32, 8.0).scale(1.0 + 0.2 * i as f32, 1.0).rotate(0.3 * i as f32);
+            c.with(at, |c| c.fill_rect(-3.0, -3.0, 6.0, 6.0, RED.lerp(YELLOW, i as f32 / 4.0)));
+        }
+    }
+    "Canvas::with", 24 x 4 => |c, t| {
+        // A figure drawn about its own origin, facing either way.
+        let figure = |c: &mut Canvas| {
+            c.fill_ellipse(0.0, 0.0, 5.0, 3.5, GREEN);      // body
+            c.disc(5.0, -4.0, 2.2, GREEN);                  // head
+            c.polyline(&[(7.0, -4.0), (10.0, -3.0)], 1.0, ORANGE); // beak
+            c.polyline(&[(-1.0, 3.0), (-1.0, 7.0)], 1.0, ORANGE);  // leg
+        };
+        c.with(Transform::at(12.0, 8.0), figure);
+        c.with(Transform::at(36.0, 8.0).flip_x(), figure);
     }
     // ----- layer ----------------------------------------------------------------
     "Layers", 24 x 4 => |c, t| {
@@ -452,6 +585,20 @@ demos! {
         let mut mask = Canvas::new(24, 4);
         mask.text(3, 3, "MASK", &Font::tiny().scale(2), t.ink);
         c.effects(&mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(GREEN)]);
+    }
+    "Canvas::effects_in", 24 x 4 => |c, t| {
+        let mut ground = Mask::new(24, 4);
+        ground.draw(|c| c.fill_rect(0.0, 13.0, 48.0, 3.0, t.ink));
+        let mut figure = Mask::new(24, 4);
+        figure.draw(|c| c.fill_ellipse(24.0, 7.0, 9.0, 6.5, t.ink));
+        c.stencil(&ground, t.panel);
+        c.stencil(&figure, YELLOW);
+        // Contact shadow: the figure darkens within four dots of the ground, and
+        // nothing else does.
+        c.effects_in(&figure, &ground, &[Effect::shader(4.0, 0.0, |s| match s.color {
+            Some(Color::Rgb(c)) => Some(Paint::new(c.dim(0.45 + 0.5 * s.dist / 4.0))),
+            _ => None,
+        })]);
     }
     "Field", 24 x 4 => |c, t| {
         c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));

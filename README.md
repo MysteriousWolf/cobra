@@ -54,18 +54,30 @@ canvas.fill_star(20.0, 10.0, 9.0, 4.0, 5, 0.0, Rgb::hex(0xf2cc60));
 canvas.polyline(&[(2.0, 18.0), (38.0, 2.0)], Pen::new(2.0).dash(4.0, 2.0), Rgb::hex(0x58a6ff));
 ```
 
-**Paints.** Every shape takes a [`Paint`](docs/draw.md#paint): a colour, a dither, a
-hatch or checker [pattern](docs/draw.md#pattern), a linear or radial gradient, a gradient
-from the shape's own edge inwards, or a shader given each dot's place in the shape.
-`Paint::erase` unsets dots instead, and `anchor` pins a texture to its shape.
+**Paints.** Every shape takes a [`Paint`](docs/draw.md#paint): a colour, a dither (ordered
+or hashed), a hatch or checker [pattern](docs/draw.md#pattern), a linear or radial gradient,
+a gradient from the shape's own edge inwards, cel bands lit from a direction, or a shader
+given each dot's place in the shape and the surface normal there. `per_cell` makes any of
+them decide once per cell so bands survive the text fallback; `anchor` pins a texture to its
+shape; `Paint::erase` unsets dots instead.
 
 ```rust
 canvas.disc(20.0, 10.0, 8.0, Paint::edge(Rgb::hex(0xffffff), Rgb::hex(0x3355ff), 3.0));
 canvas.fill_rect(0.0, 0.0, 40.0, 4.0, Paint::pattern(Rgb::hex(0x56d364), Pattern::Diagonal(3)));
 ```
 
-**Masks.** `stencil` paints through any canvas, `clip` and `cut` intersect and subtract
-one, and `effects` runs outlines, glows and rims around any mask.
+**Masks.** A [`Mask`](docs/mask.md) is a shape without a colour: drawn with the same
+primitives, combined with other masks, moved with a [`Transform`](docs/transform.md), and
+kept between frames. `stencil` paints through one, `clip` and `cut` keep or remove what it
+covers, `clipped` draws inside it, and `effects` runs outlines, glows and rims around it.
+`Canvas::with` draws everything in local coordinates through a transform.
+
+```rust
+let mut head = Mask::new(20, 5);
+head.draw(|c| c.fill_ellipse(0.0, 0.0, 5.0, 4.0, Rgb::hex(0)));
+head.transform(&Transform::at(20.0, 10.0).flip_x());
+canvas.stencil(&head, Paint::cel(dark, (-1.0, -1.0), &[(-0.2, mid), (0.5, light)]).per_cell());
+```
 
 **Text.** [`Canvas::text`](docs/font.md) draws with a bitmap font (a 3×5 one is built in,
 scalable per axis), so a label is dots like everything else. [`Canvas::print`](docs/text.md)

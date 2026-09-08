@@ -1,6 +1,6 @@
 # `draw`
 
-[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 
 Vector primitives: rectangles, polygons, ellipses, arcs, Bézier curves, splines
 and [`Path`](path.md#path)s, filled or stroked, drawn straight into the dot buffer.
@@ -30,11 +30,11 @@ with a dash pattern; a bare `f32` is a solid pen).
 - [`Point`](#point)
 - [`Rect`](#rect)
 - `Pattern`: [`Pattern::on`](draw.md#patternon)
-- `Probe`: [`Probe::mix`](draw.md#probemix)
-- `Paint`: [`Paint::new`](draw.md#paintnew), [`Paint::dithered`](draw.md#paintdithered), [`Paint::erase`](draw.md#painterase), [`Paint::pattern`](draw.md#paintpattern), [`Paint::linear`](draw.md#paintlinear), [`Paint::radial`](draw.md#paintradial), [`Paint::edge`](draw.md#paintedge), [`Paint::shader`](draw.md#paintshader), [`Paint::dither`](draw.md#paintdither), [`Paint::anchor`](draw.md#paintanchor), [`Paint::color`](draw.md#paintcolor), [`Paint::coverage`](draw.md#paintcoverage)
+- `Probe`: [`Probe::mix`](draw.md#probemix), [`Probe::lit`](draw.md#probelit)
+- `Paint`: [`Paint::new`](draw.md#paintnew), [`Paint::dithered`](draw.md#paintdithered), [`Paint::erase`](draw.md#painterase), [`Paint::pattern`](draw.md#paintpattern), [`Paint::linear`](draw.md#paintlinear), [`Paint::radial`](draw.md#paintradial), [`Paint::edge`](draw.md#paintedge), [`Paint::cel`](draw.md#paintcel), [`Paint::shader`](draw.md#paintshader), [`Paint::dither`](draw.md#paintdither), [`Paint::hashed`](draw.md#painthashed), [`Paint::per_cell`](draw.md#paintper_cell), [`Paint::soften`](draw.md#paintsoften), [`Paint::anchor`](draw.md#paintanchor), [`Paint::color`](draw.md#paintcolor), [`Paint::coverage`](draw.md#paintcoverage)
 - `Pen`: [`Pen::new`](draw.md#pennew), [`Pen::dash`](draw.md#pendash), [`Pen::dotted`](draw.md#pendotted), [`Pen::phase`](draw.md#penphase)
 - `Rect`: [`Rect::new`](draw.md#rectnew), [`Rect::around`](draw.md#rectaround), [`Rect::right`](draw.md#rectright), [`Rect::bottom`](draw.md#rectbottom), [`Rect::center`](draw.md#rectcenter), [`Rect::contains`](draw.md#rectcontains), [`Rect::inset`](draw.md#rectinset), [`Rect::offset`](draw.md#rectoffset), [`Rect::overlap`](draw.md#rectoverlap)
-- `Canvas`: [`Canvas::span`](draw.md#canvasspan), [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::stencil_in`](draw.md#canvasstencil_in), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut), [`Canvas::fill_rect`](draw.md#canvasfill_rect), [`Canvas::rect`](draw.md#canvasrect), [`Canvas::fill_ellipse`](draw.md#canvasfill_ellipse), [`Canvas::ellipse`](draw.md#canvasellipse), [`Canvas::arc`](draw.md#canvasarc), [`Canvas::polyline`](draw.md#canvaspolyline), [`Canvas::polygon`](draw.md#canvaspolygon), [`Canvas::fill_polygon`](draw.md#canvasfill_polygon), [`Canvas::fill_path`](draw.md#canvasfill_path), [`Canvas::stroke_path`](draw.md#canvasstroke_path), [`Canvas::bezier`](draw.md#canvasbezier), [`Canvas::spline`](draw.md#canvasspline), [`Canvas::fill_round_rect`](draw.md#canvasfill_round_rect), [`Canvas::round_rect`](draw.md#canvasround_rect), [`Canvas::ring`](draw.md#canvasring), [`Canvas::fill_pie`](draw.md#canvasfill_pie), [`Canvas::fill_ngon`](draw.md#canvasfill_ngon), [`Canvas::ngon`](draw.md#canvasngon), [`Canvas::fill_star`](draw.md#canvasfill_star), [`Canvas::star`](draw.md#canvasstar), [`Canvas::arrow`](draw.md#canvasarrow)
+- `Canvas`: [`Canvas::span`](draw.md#canvasspan), [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::stencil_in`](draw.md#canvasstencil_in), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut), [`Canvas::clipped`](draw.md#canvasclipped), [`Canvas::fill_rect`](draw.md#canvasfill_rect), [`Canvas::rect`](draw.md#canvasrect), [`Canvas::fill_ellipse`](draw.md#canvasfill_ellipse), [`Canvas::ellipse`](draw.md#canvasellipse), [`Canvas::arc`](draw.md#canvasarc), [`Canvas::polyline`](draw.md#canvaspolyline), [`Canvas::polygon`](draw.md#canvaspolygon), [`Canvas::fill_polygon`](draw.md#canvasfill_polygon), [`Canvas::fill_path`](draw.md#canvasfill_path), [`Canvas::stroke_path`](draw.md#canvasstroke_path), [`Canvas::bezier`](draw.md#canvasbezier), [`Canvas::spline`](draw.md#canvasspline), [`Canvas::fill_round_rect`](draw.md#canvasfill_round_rect), [`Canvas::round_rect`](draw.md#canvasround_rect), [`Canvas::ring`](draw.md#canvasring), [`Canvas::fill_pie`](draw.md#canvasfill_pie), [`Canvas::fill_ngon`](draw.md#canvasfill_ngon), [`Canvas::ngon`](draw.md#canvasngon), [`Canvas::fill_star`](draw.md#canvasfill_star), [`Canvas::star`](draw.md#canvasstar), [`Canvas::arrow`](draw.md#canvasarrow)
 
 ## `Pattern`
 
@@ -86,11 +86,17 @@ pub struct Probe
 
 One dot as a [`Paint::shader`](draw.md#paintshader) sees it: where it is, and where in the shape.
 
+The shape-relative fields (`u`, `v`, `dist`, `normal`) come from the shape the
+paint is filling: its bounding box and its distance field. With
+[`Paint::per_cell`](draw.md#paintper_cell) they are those of one dot per cell, so what a shader decides
+is decided per cell.
+
 - `pub x: i32` — The dot, relative to the paint's [anchor](draw.md#paintanchor).
 - `pub y: i32` — The dot, relative to the paint's [anchor](draw.md#paintanchor).
 - `pub u: f32` — Where the dot sits across the shape's bounding box, `0..1` left to right.
 - `pub v: f32` — Where the dot sits down the shape's bounding box, `0..1` top to bottom.
-- `pub edge: f32` — Distance in dots to the nearest dot outside the shape: `1` on its edge.
+- `pub dist: f32` — Signed distance in dots to the shape's edge: `-1` on the edge, more negative deeper inside. (A paint only ever fills the inside, so it is never positive.)
+- `pub normal: (f32, f32)` — The unit normal of the shape's surface at this dot, pointing outwards: the direction to the nearest edge, which for a rounded shape is the direction it faces. `(0, 0)` on a ridge equidistant from two edges. Dot it with a light direction and the shape is lit.
 - `pub a: Color` — The paint's first colour.
 - `pub b: Color` — The paint's second colour.
 
@@ -105,23 +111,28 @@ What a shape is drawn with.
 The simplest paint is a colour ([`Paint::new`](draw.md#paintnew), or any colour converted with
 `into()`), and [`Paint::erase`](draw.md#painterase) unsets dots instead. On top of that:
 
-* [`dithered`](draw.md#paintdithered) draws a fraction of the dots in an ordered pattern;
+* [`dithered`](draw.md#paintdithered) draws a fraction of the dots in an ordered pattern
+  ([`hashed`](draw.md#painthashed) spreads them without the pattern);
 * [`pattern`](draw.md#paintpattern) draws hatching, grids, checkers or dots;
 * [`linear`](draw.md#paintlinear) and [`radial`](draw.md#paintradial) blend between two colours
   across the canvas;
 * [`edge`](draw.md#paintedge) blends from the edge of the shape inwards;
-* [`shader`](draw.md#paintshader) is a function of your own, given the dot's position
-  and where it lies in the shape.
+* [`cel`](draw.md#paintcel) lights the shape from a direction in flat bands;
+* [`shader`](draw.md#paintshader) is a function of your own, given the dot's position,
+  where it lies in the shape and which way the shape faces there.
 
 Dithers, patterns and gradients are laid out in canvas coordinates, so a shape
 drawn in the same paint at another position shows another slice of the texture.
 [`anchor`](draw.md#paintanchor) moves the paint's origin to a point of the shape, so the
 texture moves with it.
 
-Edge and shader paints are *shape-relative*: the shape is first rasterised into a
-scratch mask (one kept per thread, so it costs an allocation once), and the paint
-is then evaluated per dot of that mask with its position in the shape's bounding
-box and its distance to the shape's edge.
+Edge, cel and shader paints are *shape-relative*: the shape is first rasterised
+into a scratch mask (one kept per thread, so it costs an allocation once), its
+distance field is computed, and the paint is then evaluated per dot with its
+position in the shape's bounding box, its distance to the edge and the surface
+normal there. [`per_cell`](draw.md#paintper_cell) evaluates once per cell instead, so
+that whatever the paint decides lands on cell boundaries and survives the text
+fallback, where a cell has one colour.
 
 ```rust
 use cobra::{Canvas, Paint, Pattern, Rgb};
@@ -218,6 +229,28 @@ pub fn mix(&self, t: f32) -> Paint
 
 Solid `a` blended towards `b` by `t` (`0..=1`): a true blend for RGB colours,
 an ordered dither between the two for palette colours.
+
+## `Probe::lit`
+
+```rust
+pub fn lit(&self, light: Point) -> f32
+```
+
+How much the surface faces `light`, a direction towards the light: `1`
+facing it, `0` side on, `-1` facing away. This is `normal · light` with
+`light` normalised, the number every kind of shading starts from.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/probe-lit.svg">
+  <img src="img/probe-lit-light.svg" alt="Probe::lit" width="384">
+</picture>
+
+```rust
+// Smooth shading from the normal: `lit` is -1..1, mixed into a colour.
+let lit = Paint::shader(CYAN.dim(0.3), CYAN, |p| Some(p.mix((p.lit((-1.0, -1.0)) + 1.0) / 2.0)));
+c.disc(9.0, 8.0, 7.5, lit);
+c.fill_round_rect(20.0, 1.0, 26.0, 14.0, 5.0, lit);
+```
 
 ## `Paint` methods
 
@@ -353,6 +386,43 @@ c.fill_star(9.0, 8.0, 8.0, 3.5, 5, -PI / 2.0, Paint::edge(YELLOW, RED, 3.0));
 c.fill_round_rect(20.0, 1.0, 26.0, 14.0, 5.0, Paint::edge(t.ink, BLUE, 4.0));
 ```
 
+## `Paint::cel`
+
+```rust
+pub fn cel<P: Into<Paint> + Copy>(base: impl Into<Color>, light: Point, bands: &[(f32, P)]) -> Self
+```
+
+Cel shading: `base` where the shape faces away from `light` (a direction
+towards the light, such as `(-1.0, -1.0)` for light from the upper left), and
+each of `bands` where the surface faces it at least as much as the band's
+threshold, `-1..=1` as [`Probe::lit`](draw.md#probelit) gives it. A band's paint lends its
+colour, coverage and pattern, so a band can be a flat ink, a dither or a
+hatch. Up to four bands, in any order. Shape-relative; see the [type
+docs](Self), and [`per_cell`](draw.md#paintper_cell) for bands that survive the text
+fallback, [`soften`](draw.md#paintsoften) for band edges that dissolve instead of
+stepping.
+
+```rust
+use cobra::{Canvas, Paint, Rgb};
+
+let (dark, mid, light) = (Rgb::hex(0x7a3e00), Rgb::hex(0xff8c1a), Rgb::hex(0xffe08a));
+let ball = Paint::cel(dark, (-1.0, -1.0), &[(-0.2, mid), (0.5, light)]).per_cell();
+let mut canvas = Canvas::new(10, 5);
+canvas.disc(10.0, 10.0, 9.0, ball);
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint-cel.svg">
+  <img src="img/paint-cel-light.svg" alt="Paint::cel" width="384">
+</picture>
+
+```rust
+// Three tones by how much the surface faces the light, from the upper left.
+let ball = Paint::cel(Rgb::hex(0x7a3e00), (-1.0, -1.0), &[(-0.2, ORANGE), (0.5, YELLOW)]);
+c.disc(9.0, 8.0, 7.5, ball);
+c.fill_round_rect(20.0, 1.0, 26.0, 14.0, 6.0, ball);
+```
+
 ## `Paint::shader`
 
 ```rust
@@ -360,17 +430,18 @@ pub fn shader(a: impl Into<Color>, b: impl Into<Color>, f: Shader) -> Self
 ```
 
 A paint computed per dot by `f`, given a [`Probe`](draw.md#probe) carrying the dot's
-position, its place in the shape and the two colours `a` and `b`. `f` returns
-the paint for the dot (its colour and coverage are used) or `None` to leave
-the dot as it is. Shape-relative; see the type docs.
+position, its place in the shape, the surface normal there and the two
+colours `a` and `b`. `f` returns the paint for the dot (its colour, coverage
+and pattern are used) or `None` to leave the dot as it is. Shape-relative;
+see the type docs.
 
 ```rust
 use cobra::{Canvas, Paint, Rgb};
 
 // Horizontal bands of the two colours, four dots tall.
 let bands = Paint::shader(Rgb::hex(0xffffff), Rgb::hex(0x808080), |p| Some(p.mix((p.y / 4 % 2) as f32)));
-// Lit from the top left: `b` in the corner, `a` far from it.
-let lit = Paint::shader(Rgb::hex(0x203040), Rgb::hex(0x80c0ff), |p| Some(p.mix(1.0 - (p.u + p.v) / 2.0)));
+// Lit from the top left, smoothly: the surface normal against the light.
+let lit = Paint::shader(Rgb::hex(0x203040), Rgb::hex(0x80c0ff), |p| Some(p.mix(p.lit((-1.0, -1.0)))));
 let mut canvas = Canvas::new(10, 5);
 canvas.disc(10.0, 10.0, 8.0, lit);
 canvas.fill_rect(0.0, 0.0, 20.0, 4.0, bands);
@@ -386,7 +457,7 @@ canvas.fill_rect(0.0, 0.0, 20.0, 4.0, bands);
 let lit = Paint::shader(BLUE, t.ink, |p| Some(p.mix(1.0 - (p.u + p.v) / 2.0)));
 c.disc(9.0, 8.0, 7.5, lit);
 // Rings, from the distance to the edge.
-let rings = Paint::shader(GREEN, YELLOW, |p| Some(p.mix(((p.edge / 2.0) % 2.0 < 1.0) as i32 as f32)));
+let rings = Paint::shader(GREEN, YELLOW, |p| Some(p.mix(((-p.dist / 2.0) % 2.0 < 1.0) as i32 as f32)));
 c.fill_rect(20.0, 0.0, 28.0, 16.0, rings);
 ```
 
@@ -408,6 +479,77 @@ pattern of [`Canvas::set_dithered`](canvas.md#canvasset_dithered).
 let grad = Paint::linear((0.0, 0.0), (48.0, 0.0), PURPLE, CYAN);
 c.fill_rect(0.0, 0.0, 48.0, 7.0, grad);
 c.fill_rect(0.0, 9.0, 48.0, 7.0, grad.dither(0.5));
+```
+
+## `Paint::hashed`
+
+```rust
+pub fn hashed(mut self) -> Self
+```
+
+Spreads the paint's coverage by a hash of each dot's position instead of the
+Bayer lattice: the same share of dots, with no visible grid. Ordered dither
+is right for a gradient, where the eye wants regularity; this is right for a
+texture, where it reads regularity as a material.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint-hashed.svg">
+  <img src="img/paint-hashed-light.svg" alt="Paint::hashed" width="384">
+</picture>
+
+```rust
+// The same coverage: ordered on the left reads as a lattice, hashed on the
+// right reads as grain.
+c.fill_rect(0.0, 0.0, 23.0, 16.0, Paint::dithered(GREEN, 0.15));
+c.fill_rect(25.0, 0.0, 23.0, 16.0, Paint::dithered(GREEN, 0.15).hashed());
+```
+
+## `Paint::per_cell`
+
+```rust
+pub fn per_cell(mut self) -> Self
+```
+
+Evaluates the paint once per cell, at the covered dot nearest the cell's
+centre, and gives every dot of the cell the answer: gradients, cel bands and
+shaders then change colour only on cell boundaries, so a band is never
+thinner than the one colour a cell has in the text fallback. The coverage
+dither stays per dot.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint-per_cell.svg">
+  <img src="img/paint-per_cell-light.svg" alt="Paint::per_cell" width="384">
+</picture>
+
+```rust
+// Left: bands wherever the normal says. Right: the same, decided once per
+// cell, so every band is at least a cell and survives the text fallback.
+let ball = Paint::cel(BLUE.dim(0.4), (-1.0, -1.0), &[(-0.2, BLUE), (0.5, t.ink)]);
+c.disc(10.0, 8.0, 7.5, ball);
+c.disc(36.0, 8.0, 7.5, ball.per_cell());
+```
+
+## `Paint::soften`
+
+```rust
+pub fn soften(mut self, width: f32) -> Self
+```
+
+For a [`cel`](draw.md#paintcel) paint: within `width` (in units of [`Probe::lit`](draw.md#probelit),
+so about `0.1`–`0.3`) of a band's threshold, dither between the two bands
+instead of stepping, so the terminator dissolves over a few dots. Ignored by
+other paints.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint-soften.svg">
+  <img src="img/paint-soften-light.svg" alt="Paint::soften" width="384">
+</picture>
+
+```rust
+// A hard terminator, and one that dissolves into a dither over the band edge.
+let ball = Paint::cel(PURPLE.dim(0.4), (-1.0, -0.5), &[(0.1, PURPLE)]);
+c.disc(10.0, 8.0, 7.5, ball);
+c.disc(36.0, 8.0, 7.5, ball.soften(0.35));
 ```
 
 ## `Paint::anchor`
@@ -440,7 +582,7 @@ pub fn color(&self) -> Option<Color>
 ```
 
 The colour, `None` for [`erase`](draw.md#painterase). For a gradient or a shader, the
-first of its two colours.
+first of its two colours; for a cel paint, its base.
 
 ## `Paint::coverage`
 
@@ -601,7 +743,7 @@ pub fn span(&mut self, y: i32, x0: i32, x1: i32, paint: Paint)
 ```
 
 Paints dots `x0..x1` of row `y`, clipped to the canvas. This is the primitive
-every fill and stroke ends up in.
+every fill and stroke ends up in. It is not transformed by [`with`](canvas.md#canvaswith).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/canvas-span.svg">
@@ -617,13 +759,13 @@ for y in 0..16 {
 ## `Canvas::stencil`
 
 ```rust
-pub fn stencil(&mut self, mask: &Canvas, paint: impl Into<Paint>)
+pub fn stencil(&mut self, mask: &impl Silhouette, paint: impl Into<Paint>)
 ```
 
-Paints every dot that is set in `mask` (a canvas of the same size). This is
-how a shape-relative [`Paint`](draw.md#paint) is applied, and it works for any paint: the
-mask is the shape, whatever drew it. The mask is scanned for the box around
-its dots first; [`stencil_in`](draw.md#canvasstencil_in) takes that box from you.
+Paints every dot that `mask` covers: a [`Mask`](mask.md#mask), or a canvas of
+the same size (its set dots and printed cells). This is how a shape-relative
+[`Paint`](draw.md#paint) is applied, and it works for any paint: the mask is the shape,
+whatever drew it. [`stencil_in`](draw.md#canvasstencil_in) limits it to a box.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/canvas-stencil.svg">
@@ -639,15 +781,14 @@ c.stencil(&mask, Paint::linear((0.0, 0.0), (48.0, 0.0), RED, BLUE));
 ## `Canvas::stencil_in`
 
 ```rust
-pub fn stencil_in(&mut self, mask: &Canvas, area: Rect, paint: impl Into<Paint>)
+pub fn stencil_in(&mut self, mask: &impl Silhouette, area: Rect, paint: impl Into<Paint>)
 ```
 
 [`stencil`](draw.md#canvasstencil) within `area` only. The dots of `mask` outside it
-are neither painted nor looked at, so a caller that knows where its shape is
-(it drew it a moment ago) skips the scan over the whole mask. The area is
-also the frame a shape-relative paint works in: a gradient runs across it,
-and an edge paint measures to its border as to the mask's own. It covers the
-dots [`fill_rect`](draw.md#canvasfill_rect) would with the same box.
+are neither painted nor looked at. The area is also the frame a
+shape-relative paint works in: a gradient runs across it, and an edge paint
+measures to its border as to the mask's own. It covers the dots
+[`fill_rect`](draw.md#canvasfill_rect) would with the same box.
 
 ```rust
 use cobra::{Canvas, Paint, Rect, Rgb};
@@ -674,10 +815,10 @@ c.stencil_in(&mask, Rect::new(4.0, 2.0, 40.0, 12.0), Paint::edge(BLUE, t.panel, 
 ## `Canvas::clip`
 
 ```rust
-pub fn clip(&mut self, mask: &Canvas)
+pub fn clip(&mut self, mask: &impl Silhouette)
 ```
 
-Keeps only the dots that are also set in `mask`: clips the canvas to a shape.
+Keeps only the dots that `mask` covers: clips the canvas to a shape.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/canvas-clip.svg">
@@ -694,10 +835,10 @@ c.clip(&mask);
 ## `Canvas::cut`
 
 ```rust
-pub fn cut(&mut self, mask: &Canvas)
+pub fn cut(&mut self, mask: &impl Silhouette)
 ```
 
-Unsets every dot that is set in `mask`: cuts a shape out of the canvas.
+Unsets every dot that `mask` covers: cuts a shape out of the canvas.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/canvas-cut.svg">
@@ -709,6 +850,44 @@ c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::pattern(GREEN, Pattern::Diagonal(3)));
 let mut mask = Canvas::new(24, 4);
 mask.disc(24.0, 8.0, 7.5, t.ink);
 c.cut(&mask);
+```
+
+## `Canvas::clipped`
+
+```rust
+pub fn clipped(&mut self, mask: &impl Silhouette, f: impl FnOnce(&mut Canvas))
+```
+
+Draws everything in `f`, then keeps only what landed inside `mask`: a line
+clipped to a body, a texture that stops at a silhouette. `f` draws on a
+scratch canvas under the current transform, with any primitive and any paint;
+what it erases there does not erase here.
+
+```rust
+use cobra::{Canvas, Mask, Rgb};
+
+let mut body = Mask::new(20, 5);
+body.draw(|c| c.fill_ellipse(20.0, 10.0, 14.0, 8.0, Rgb::hex(0)));
+let mut canvas = Canvas::new(20, 5);
+canvas.stencil(&body, Rgb::hex(0xffa657));
+// A crease that cannot escape the body however the points move.
+canvas.clipped(&body, |c| c.spline(&[(2.0, 4.0), (20.0, 14.0), (38.0, 6.0)], false, 1.0, Rgb::hex(0x7a3e00)));
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-clipped.svg">
+  <img src="img/canvas-clipped-light.svg" alt="Canvas::clipped" width="384">
+</picture>
+
+```rust
+let mut body = Mask::new(24, 4);
+body.draw(|c| c.fill_ellipse(24.0, 8.0, 18.0, 7.0, t.ink));
+c.stencil(&body, ORANGE);
+// Creases that stay inside the body wherever the points go.
+c.clipped(&body, |c| {
+    c.spline(&[(0.0, 2.0), (16.0, 12.0), (30.0, 3.0), (48.0, 14.0)], false, 1.5, Rgb::hex(0x7a3e00));
+    c.polyline(&[(20.0, -4.0), (28.0, 20.0)], 1.0, Rgb::hex(0x7a3e00));
+});
 ```
 
 ## `Canvas::fill_rect`
@@ -1111,5 +1290,5 @@ c.arrow((2.0, 13.0), (22.0, 3.0), 1.0, 5.0, GREEN);
 c.arrow((26.0, 8.0), (46.0, 8.0), 3.0, 8.0, BLUE);
 ```
 
-[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
+[Index](README.md) · [canvas](canvas.md) · **draw** · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

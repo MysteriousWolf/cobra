@@ -24,6 +24,8 @@ const PAGES: &[(&str, &str, &str)] = &[
     ("canvas", "src/canvas.rs", "The dot grid: cells, dots, colours per dot."),
     ("draw", "src/draw.rs", "Shapes, strokes, paints, patterns, gradients, shaders and masks."),
     ("path", "src/path.rs", "Outlines from lines, curves and arcs, filled or stroked."),
+    ("mask", "src/mask.rs", "Shapes as things: bit masks to build, combine, move, and paint through."),
+    ("transform", "src/transform.rs", "Affine transforms: drawing in local coordinates."),
     ("layer", "src/layer.rs", "Stacked canvases, mattes, and effects around silhouettes."),
     ("bubble", "src/bubble.rs", "Text boxes and speech bubbles that aim at a speaker."),
     ("font", "src/font.rs", "Bitmap fonts drawn as dots."),

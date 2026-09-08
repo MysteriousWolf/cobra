@@ -150,6 +150,27 @@ impl Path {
         self.move_to((x, y)).line_to((x + w, y)).line_to((x + w, y + h)).line_to((x, y + h)).close()
     }
 
+    /// A closed box with corners rounded to radius `r`, as its own subpath.
+    pub fn round_rect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32) -> &mut Self {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let r = r.clamp(0.0, w.min(h) / 2.0);
+        if r <= 0.0 {
+            return self.rect(x, y, w, h);
+        }
+        let (right, bottom) = (x + w, y + h);
+        self.move_to((x + r, y));
+        self.arc_to(right - r, y + r, r, r, -FRAC_PI_2, 0.0);
+        self.arc_to(right - r, bottom - r, r, r, 0.0, FRAC_PI_2);
+        self.arc_to(x + r, bottom - r, r, r, FRAC_PI_2, PI);
+        self.arc_to(x + r, y + r, r, r, PI, 1.5 * PI);
+        self.close()
+    }
+
+    /// Applies `t` to every point (control points included).
+    pub fn apply(&mut self, t: &crate::Transform) -> &mut Self {
+        self.transform(|p| t.apply(p))
+    }
+
     /// A closed ellipse as its own subpath.
     pub fn ellipse(&mut self, cx: f32, cy: f32, rx: f32, ry: f32) -> &mut Self {
         self.move_to((cx + rx, cy)).arc_to(cx, cy, rx, ry, 0.0, std::f32::consts::TAU).close()
