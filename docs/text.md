@@ -184,7 +184,7 @@ for (i, line) in text::wrap(paragraph, 14).enumerate() {
     c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
 }
 let (w, lines) = text::measure(paragraph); // unwrapped
-c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+c.print(16, 3, &format!("{w}x{lines} raw"), t.ink);
 ```
 
 ## `char_width`
@@ -213,7 +213,7 @@ for (i, line) in text::wrap(paragraph, 14).enumerate() {
     c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
 }
 let (w, lines) = text::measure(paragraph); // unwrapped
-c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+c.print(16, 3, &format!("{w}x{lines} raw"), t.ink);
 ```
 
 ## `width`
@@ -238,7 +238,7 @@ for (i, line) in text::wrap(paragraph, 14).enumerate() {
     c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
 }
 let (w, lines) = text::measure(paragraph); // unwrapped
-c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+c.print(16, 3, &format!("{w}x{lines} raw"), t.ink);
 ```
 
 ## `measure`
@@ -263,7 +263,7 @@ for (i, line) in text::wrap(paragraph, 14).enumerate() {
     c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
 }
 let (w, lines) = text::measure(paragraph); // unwrapped
-c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+c.print(16, 3, &format!("{w}x{lines} raw"), t.ink);
 ```
 
 ## `wrap`
@@ -297,7 +297,7 @@ for (i, line) in text::wrap(paragraph, 14).enumerate() {
     c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
 }
 let (w, lines) = text::measure(paragraph); // unwrapped
-c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+c.print(16, 3, &format!("{w}x{lines} raw"), t.ink);
 ```
 
 ## `Attrs` methods

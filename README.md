@@ -99,8 +99,9 @@ stack and wrap around it: scroll each by its own amount and the scene is a paral
 
 **Rigs.** A [`Rig`](docs/rig.md) is a figure as parts in a tree: each part a path about
 its own joint, hung off a parent, posed by one transform, with named points that follow
-the pose. `Transform::skew`, `snapped`, `mix` and `Path::mix` are the moves a dot grid
-affords; a rig rasterises once and keeps the parts that did not move.
+the pose. `Rig::mix` tweens two poses of it; `Transform::skew`, `snapped`, `mix` and
+`Path::mix` are the moves a dot grid affords. A rig rasterises once and keeps the parts
+that did not move.
 
 **Colours.** Dots take an RGB colour, a palette index or the terminal's default
 foreground; palette colours follow the user's theme in every protocol, and the text

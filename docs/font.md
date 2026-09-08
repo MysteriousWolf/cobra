@@ -33,7 +33,7 @@ let (ticks, rule) = ("#...".repeat(MAX_GLYPH_WIDTH / 4), "#".repeat(MAX_GLYPH_WI
 let mut font = Font::empty();
 font.add('=', &[&ticks, &ticks, &rule]);
 c.text(8, 4, "=", &font, YELLOW);
-c.text(8, 8, &format!("{MAX_GLYPH_WIDTH} dots"), Font::tiny(), t.ink);
+c.print(4, 2, &format!("{MAX_GLYPH_WIDTH} dots"), t.ink);
 ```
 
 ## `Font`
@@ -231,7 +231,7 @@ A font with no glyphs, one dot of spacing and no line gap.
 let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
 font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
 c.text(1, 1, "I ♥ dots", &font, RED);
-c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+c.print(0, 2, &format!("{} glyphs", font.len()), t.ink);
 ```
 
 ## `Font::tiny`
@@ -315,7 +315,7 @@ text format. Rows may differ in length; the glyph is as wide as the longest.
 let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
 font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
 c.text(1, 1, "I ♥ dots", &font, RED);
-c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+c.print(0, 2, &format!("{} glyphs", font.len()), t.ink);
 ```
 
 ## `Font::glyph`
@@ -368,8 +368,8 @@ let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
 let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
 c.text(1, 1, "ab\ncd", tight, t.ink);
 c.text(14, 1, "ab\ncd", &loose, BLUE);
-c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
 ```
 
 ## `Font::spacing`
@@ -390,8 +390,8 @@ let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
 let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
 c.text(1, 1, "ab\ncd", tight, t.ink);
 c.text(14, 1, "ab\ncd", &loose, BLUE);
-c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
 ```
 
 ## `Font::line_gap`
@@ -412,8 +412,8 @@ let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
 let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
 c.text(1, 1, "ab\ncd", tight, t.ink);
 c.text(14, 1, "ab\ncd", &loose, BLUE);
-c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
 ```
 
 ## `Font::line_height`
@@ -434,8 +434,8 @@ let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
 let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
 c.text(1, 1, "ab\ncd", tight, t.ink);
 c.text(14, 1, "ab\ncd", &loose, BLUE);
-c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
 ```
 
 ## `Font::len`
@@ -455,7 +455,7 @@ Number of glyphs.
 let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
 font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
 c.text(1, 1, "I ♥ dots", &font, RED);
-c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+c.print(0, 2, &format!("{} glyphs", font.len()), t.ink);
 ```
 
 ## `Font::is_empty`
@@ -475,7 +475,7 @@ pub fn is_empty(&self) -> bool
 let mut font = Font::tiny().clone();          // 95 glyphs; `Font::empty()` has none
 font.add('♥', &[".#.#.", "#####", "#####", ".###.", "..#.."]);
 c.text(1, 1, "I ♥ dots", &font, RED);
-c.text(28, 1, &format!("{} glyphs", font.len()), Font::tiny(), t.ink);
+c.print(0, 2, &format!("{} glyphs", font.len()), t.ink);
 ```
 
 ## `Font::with_spacing`
@@ -496,8 +496,8 @@ let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
 let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
 c.text(1, 1, "ab\ncd", tight, t.ink);
 c.text(14, 1, "ab\ncd", &loose, BLUE);
-c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
 ```
 
 ## `Font::with_line_gap`
@@ -518,8 +518,8 @@ let tight = Font::tiny(); // 5 high, 1 between glyphs, 0 between lines
 let loose = Font::tiny().clone().with_spacing(3).with_line_gap(3);
 c.text(1, 1, "ab\ncd", tight, t.ink);
 c.text(14, 1, "ab\ncd", &loose, BLUE);
-c.text(30, 1, &format!("{}+{}", loose.height(), loose.line_gap()), Font::tiny(), t.panel);
-c.text(30, 8, &format!("={}", loose.line_height()), Font::tiny(), t.panel);
+c.print(15, 0, &format!("{}+{}", loose.height(), loose.line_gap()), t.ink);
+c.print(15, 1, &format!("={} line", loose.line_height()), t.ink);
 ```
 
 ## `Font::advance`
@@ -540,7 +540,7 @@ advance by the width of the space glyph (or half the height).
 let font = Font::tiny();
 let (w, h) = font.measure("Hello"); // the box the text takes
 c.text(2, 3, "Hello", font, t.ink);
-c.rect(1.0, 2.0, w as f32 + 2.0, h as f32 + 2.0, 1.0, Paint::dithered(BLUE, 0.5));
+c.rect(0.0, 1.0, w as f32 + 4.0, h as f32 + 4.0, 1.0, BLUE);
 // Each character's advance: its width plus the spacing.
 let mut x = 2;
 for ch in "Hello".chars() {
@@ -566,7 +566,7 @@ Size in dots of `text` when drawn (newlines start new lines).
 let font = Font::tiny();
 let (w, h) = font.measure("Hello"); // the box the text takes
 c.text(2, 3, "Hello", font, t.ink);
-c.rect(1.0, 2.0, w as f32 + 2.0, h as f32 + 2.0, 1.0, Paint::dithered(BLUE, 0.5));
+c.rect(0.0, 1.0, w as f32 + 4.0, h as f32 + 4.0, 1.0, BLUE);
 // Each character's advance: its width plus the spacing.
 let mut x = 2;
 for ch in "Hello".chars() {
@@ -607,13 +607,13 @@ becomes an `nx × ny` block. A cell is two dots wide and four tall, so
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/font-scale_xy.svg">
-  <img src="img/font-scale_xy-light.svg" alt="Font::scale_xy" width="384">
+  <img src="img/font-scale_xy-light.svg" alt="Font::scale_xy" width="448">
 </picture>
 
 ```rust
 c.text(1, 3, "1x2", &Font::tiny().scale_xy(1, 2), GREEN);
-c.text(18, 5, "2x1", &Font::tiny().scale_xy(2, 1), GREEN);
-c.text(34, 1, "1x3", &Font::tiny().scale_xy(1, 3), GREEN);
+c.text(16, 5, "2x1", &Font::tiny().scale_xy(2, 1), GREEN);
+c.text(42, 1, "1x3", &Font::tiny().scale_xy(1, 3), GREEN);
 ```
 
 ## `Canvas` methods
@@ -629,12 +629,12 @@ line; characters the font lacks leave a space. Returns the size drawn.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/canvas-text.svg">
-  <img src="img/canvas-text-light.svg" alt="Canvas::text" width="448">
+  <img src="img/canvas-text-light.svg" alt="Canvas::text" width="512">
 </picture>
 
 ```rust
 c.text(1, 1, "Dots, any\ncolour", Font::tiny(), Paint::linear((0.0, 0.0), (40.0, 0.0), CYAN, PURPLE));
-c.text(32, 3, "BIG", &Font::tiny().scale(2), YELLOW);
+c.text(40, 3, "BIG", &Font::tiny().scale(2), YELLOW);
 ```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · **font** · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)

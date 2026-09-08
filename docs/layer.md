@@ -260,7 +260,7 @@ hidden.disc(40.0, 8.0, 6.0, RED);
 hidden.visible = false; // skipped when flattening
 c.blit(layers.flatten(), 0, 0);
 let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
-c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+c.print(17, 1, &format!("{lit} lit"), t.ink);
 ```
 
 **`matte`**
@@ -741,7 +741,7 @@ hidden.disc(40.0, 8.0, 6.0, RED);
 hidden.visible = false; // skipped when flattening
 c.blit(layers.flatten(), 0, 0);
 let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
-c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+c.print(17, 1, &format!("{lit} lit"), t.ink);
 ```
 
 ## `Layer::scroll`
@@ -783,8 +783,8 @@ layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
 let comet = layers.push();
 comet.disc(6.0, 8.0, 3.0, CYAN);
 comet.effect(Effect::glow(3.0).paint(CYAN));
-// Ten frames on, the comet is further right; each frame moved it by four dots.
-for _ in 0..10 {
+// Eight frames on, the comet is further right; each frame moved it by four dots.
+for _ in 0..8 {
     comet.scroll(4, 0);
 }
 *c = layers.flatten().clone();
@@ -814,7 +814,7 @@ hidden.disc(40.0, 8.0, 6.0, RED);
 hidden.visible = false; // skipped when flattening
 c.blit(layers.flatten(), 0, 0);
 let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
-c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+c.print(17, 1, &format!("{lit} lit"), t.ink);
 ```
 
 ## `Layer::canvas_mut`
@@ -841,7 +841,7 @@ hidden.disc(40.0, 8.0, 6.0, RED);
 hidden.visible = false; // skipped when flattening
 c.blit(layers.flatten(), 0, 0);
 let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
-c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+c.print(17, 1, &format!("{lit} lit"), t.ink);
 ```
 
 ## `Layers` methods
@@ -866,7 +866,7 @@ layers[0].disc(18.0, 8.0, 7.0, BLUE);
 layers.push().disc(26.0, 8.0, 7.0, RED); // on top
 layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("len {}", layers.len()), t.ink);
 ```
 
 ## `Layers::cols`
@@ -989,7 +989,7 @@ layers[0].disc(18.0, 8.0, 7.0, BLUE);
 layers.push().disc(26.0, 8.0, 7.0, RED); // on top
 layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("len {}", layers.len()), t.ink);
 ```
 
 ## `Layers::is_empty`
@@ -1018,7 +1018,7 @@ if let Some(third) = layers.get_mut(3) {
 }
 let shown = layers.iter().filter(|l| l.visible).count();
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("{shown} of {} shown", layers.len()), t.ink);
 ```
 
 ## `Layers::push`
@@ -1041,7 +1041,7 @@ layers[0].disc(18.0, 8.0, 7.0, BLUE);
 layers.push().disc(26.0, 8.0, 7.0, RED); // on top
 layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("len {}", layers.len()), t.ink);
 ```
 
 ## `Layers::insert`
@@ -1065,7 +1065,7 @@ layers[0].disc(18.0, 8.0, 7.0, BLUE);
 layers.push().disc(26.0, 8.0, 7.0, RED); // on top
 layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("len {}", layers.len()), t.ink);
 ```
 
 ## `Layers::remove`
@@ -1142,7 +1142,7 @@ if let Some(third) = layers.get_mut(3) {
 }
 let shown = layers.iter().filter(|l| l.visible).count();
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("{shown} of {} shown", layers.len()), t.ink);
 ```
 
 ## `Layers::get_mut`
@@ -1171,7 +1171,7 @@ if let Some(third) = layers.get_mut(3) {
 }
 let shown = layers.iter().filter(|l| l.visible).count();
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("{shown} of {} shown", layers.len()), t.ink);
 ```
 
 ## `Layers::iter`
@@ -1200,7 +1200,7 @@ if let Some(third) = layers.get_mut(3) {
 }
 let shown = layers.iter().filter(|l| l.visible).count();
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("{shown} of {} shown", layers.len()), t.ink);
 ```
 
 ## `Layers::iter_mut`
@@ -1229,7 +1229,7 @@ if let Some(third) = layers.get_mut(3) {
 }
 let shown = layers.iter().filter(|l| l.visible).count();
 c.blit(layers.flatten(), 0, 0);
-c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+c.print(0, 0, &format!("{shown} of {} shown", layers.len()), t.ink);
 ```
 
 ## `Layers::clear`

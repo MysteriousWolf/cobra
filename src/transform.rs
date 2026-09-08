@@ -44,6 +44,17 @@ impl Transform {
         Self { m: [1.0, 0.0, 0.0, 1.0, dx, dy] }
     }
 
+    /// A rotation by `angle` radians about the origin (clockwise on screen, since
+    /// `y` grows downwards) and nothing else: what a joint is posed with.
+    pub fn rotation(angle: f32) -> Self {
+        Self::IDENTITY.rotate(angle)
+    }
+
+    /// A scale about the origin and nothing else; `scaling(-1.0, 1.0)` is a flip.
+    pub const fn scaling(sx: f32, sy: f32) -> Self {
+        Self { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] }
+    }
+
     /// Whether this is the identity.
     #[inline]
     pub fn is_identity(&self) -> bool {
@@ -95,7 +106,7 @@ impl Transform {
 
     /// A scale about the origin, before everything so far.
     pub fn scale(self, sx: f32, sy: f32) -> Self {
-        Self { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] }.then(&self)
+        Self::scaling(sx, sy).then(&self)
     }
 
     /// A left-to-right mirror about the origin (`x` becomes `-x`), before
@@ -230,7 +241,9 @@ mod tests {
         assert!((0..6).all(|i| (t.m[i] - back.m[i]).abs() < 1e-4), "decomposing round-trips: {back:?}");
         let snapped = Transform::IDENTITY.rotate(0.7).snapped(8);
         assert!(near(snapped.apply((1.0, 0.0)), (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2)));
-        assert!(near(Transform::IDENTITY.rotate(0.3).snapped(4).apply((1.0, 0.0)), (1.0, 0.0)));
+        assert!(near(Transform::rotation(0.3).snapped(4).apply((1.0, 0.0)), (1.0, 0.0)));
+        assert_eq!(Transform::rotation(0.7), Transform::IDENTITY.rotate(0.7));
+        assert_eq!(Transform::scaling(2.0, -1.0), Transform::IDENTITY.flip_y().scale(2.0, 1.0));
         let flipped = Transform::at(1.0, 1.0).flip_y().snapped(4);
         assert!(near(flipped.apply((2.0, 3.0)), (3.0, -2.0)), "a flip survives snapping");
         let (a, b) = (Transform::at(0.0, 0.0), Transform::at(10.0, 0.0).rotate(std::f32::consts::FRAC_PI_2));

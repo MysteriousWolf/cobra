@@ -73,8 +73,7 @@ const NO_PICTURE: &[(&str, &str)] = &[
     ("Rig::placed", "a getter"),
     ("Rig::part", "a getter"),
     ("Rig::parts", "lists names"),
-    ("Rig::world", "a transform, which `Rig::point` shows applied"),
-    ("Rig::each", "walks the parts; `Rig::draw` is it with a fill"),
+    ("Rig::has", "a predicate"),
     ("Terminal::is_graphical", "a predicate"),
     ("Terminal::detect", "talks to the terminal"),
     ("Braille", "draws into a ratatui buffer, which needs a terminal"),
@@ -217,7 +216,8 @@ fn sheets(demos: &[Demo], theme: Theme) -> Vec<Canvas> {
             for pair in chunk.chunks(2) {
                 for (k, d) in pair.iter().enumerate() {
                     let (x0, y0) = (k as u16 * COL_W, y + 1);
-                    sheet.print(x0 as i32, y as i32, &d.items.join(" | "), theme.ink);
+                    let label: String = d.items.join(" | ").chars().take(COL_W as usize - 1).collect();
+                    sheet.print(x0 as i32, y as i32, &label, theme.ink);
                     let mut canvas = Canvas::new(d.cols, d.rows);
                     (d.draw)(&mut canvas, theme);
                     sheet.blit(&canvas, x0 as i32 * 2, y0 as i32 * 4);

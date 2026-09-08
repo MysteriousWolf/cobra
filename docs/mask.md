@@ -199,9 +199,9 @@ Width in cells.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::rows`
@@ -221,9 +221,9 @@ Height in cells.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::width`
@@ -243,9 +243,9 @@ Width in dots.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::height`
@@ -265,9 +265,9 @@ Height in dots.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::contains`
@@ -389,9 +389,9 @@ Unsets everything. Keeps the allocation.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::is_empty`
@@ -411,9 +411,9 @@ Whether no dot is set.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::len`
@@ -433,9 +433,9 @@ How many dots are set.
 let mut m = Mask::new(28, 4); // 56 × 16 dots
 m.draw(|c| c.disc(8.0, 8.0, 7.0, t.ink));
 c.stencil(&m, BLUE);
-c.text(20, 1, &format!("{}/{}", m.len(), m.width() * m.height()), Font::tiny(), t.ink);
+c.print(9, 0, &format!("{} of {} dots", m.len(), m.width() * m.height()), t.ink);
 m.clear();
-c.text(20, 9, if m.is_empty() { "cleared" } else { "not empty" }, Font::tiny(), t.panel);
+c.print(9, 2, if m.is_empty() { "cleared" } else { "not empty" }, t.ink);
 ```
 
 ## `Mask::bounds`

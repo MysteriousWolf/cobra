@@ -7,7 +7,7 @@ Affine transforms: where a shape drawn in its own coordinates lands on the canva
 ## Contents
 
 - [`Transform`](#transform)
-- `Transform`: [`Transform::IDENTITY`](transform.md#transformidentity), [`Transform::at`](transform.md#transformat), [`Transform::is_identity`](transform.md#transformis_identity), [`Transform::is_axis_aligned`](transform.md#transformis_axis_aligned), [`Transform::scale_factor`](transform.md#transformscale_factor), [`Transform::apply`](transform.md#transformapply), [`Transform::then`](transform.md#transformthen), [`Transform::inverse`](transform.md#transforminverse), [`Transform::translate`](transform.md#transformtranslate), [`Transform::scale`](transform.md#transformscale), [`Transform::flip_x`](transform.md#transformflip_x), [`Transform::flip_y`](transform.md#transformflip_y), [`Transform::rotate`](transform.md#transformrotate), [`Transform::rotate_about`](transform.md#transformrotate_about), [`Transform::skew`](transform.md#transformskew), [`Transform::snapped`](transform.md#transformsnapped), [`Transform::mix`](transform.md#transformmix)
+- `Transform`: [`Transform::IDENTITY`](transform.md#transformidentity), [`Transform::at`](transform.md#transformat), [`Transform::rotation`](transform.md#transformrotation), [`Transform::scaling`](transform.md#transformscaling), [`Transform::is_identity`](transform.md#transformis_identity), [`Transform::is_axis_aligned`](transform.md#transformis_axis_aligned), [`Transform::scale_factor`](transform.md#transformscale_factor), [`Transform::apply`](transform.md#transformapply), [`Transform::then`](transform.md#transformthen), [`Transform::inverse`](transform.md#transforminverse), [`Transform::translate`](transform.md#transformtranslate), [`Transform::scale`](transform.md#transformscale), [`Transform::flip_x`](transform.md#transformflip_x), [`Transform::flip_y`](transform.md#transformflip_y), [`Transform::rotate`](transform.md#transformrotate), [`Transform::rotate_about`](transform.md#transformrotate_about), [`Transform::skew`](transform.md#transformskew), [`Transform::snapped`](transform.md#transformsnapped), [`Transform::mix`](transform.md#transformmix)
 
 ## `Transform`
 
@@ -94,6 +94,79 @@ c.with(Transform::at(20.0, 8.0), shape); // the local origin moved to (20, 8)
 c.with(Transform::at(20.0, 8.0).translate(18.0, 0.0), shape); // moved, then placed
 ```
 
+## `Transform::rotation`
+
+```rust
+pub fn rotation(angle: f32) -> Self
+```
+
+A rotation by `angle` radians about the origin (clockwise on screen, since
+`y` grows downwards) and nothing else: what a joint is posed with.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rig.svg">
+  <img src="img/rig-light.svg" alt="Rig, Rig::new, Rig::add, Rig::pose, Rig::place, Rig::mask, Transform::rotation" width="512">
+</picture>
+
+```rust
+// One puppet, described once about its hip; three poses of it, stamped.
+let limb = |w: f32, len: f32| {
+    let mut p = Path::new();
+    p.round_rect(-w / 2.0, 0.0, w, len, w / 2.0); // hangs down from its joint
+    p
+};
+let mut torso = Path::new();
+torso.round_rect(-2.5, -7.0, 5.0, 7.5, 1.5);
+let mut head = Path::new();
+head.ellipse(0.0, -3.0, 2.5, 2.8);
+let mut puppet = Rig::new();
+puppet.add("torso", None, Part::new(torso));
+puppet.add("head", Some("torso"), Part::new(head).at(Transform::at(0.0, -7.0)));
+for (side, x) in [("l", -1.0), ("r", 1.0)] {
+    puppet.add(&format!("arm_{side}"), Some("torso"), Part::new(limb(2.0, 6.0)).at(Transform::at(2.5 * x, -6.5)));
+    puppet.add(&format!("leg_{side}"), Some("torso"), Part::new(limb(2.4, 6.5)).at(Transform::at(1.3 * x, 0.0)));
+}
+let poses: [&[(&str, f32)]; 3] = [
+    &[],
+    &[("arm_l", 0.7), ("arm_r", -0.7), ("leg_l", -0.4), ("leg_r", 0.4)],
+    &[("arm_l", 2.6), ("arm_r", -2.6), ("leg_l", -0.3), ("leg_r", 0.3), ("head", 0.2)],
+];
+for (i, pose) in poses.into_iter().enumerate() {
+    let mut posed = puppet.clone();
+    posed.place(Transform::at(10.0 + 22.0 * i as f32, 13.0)); // the hip
+    for &(part, angle) in pose {
+        posed.pose(part, Transform::rotation(angle)); // about its joint
+    }
+    c.stencil(posed.mask(32, 5), GREEN);
+}
+```
+
+## `Transform::scaling`
+
+```rust
+pub const fn scaling(sx: f32, sy: f32) -> Self
+```
+
+A scale about the origin and nothing else; `scaling(-1.0, 1.0)` is a flip.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/transform-scale.svg">
+  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y, Transform::scaling" width="384">
+</picture>
+
+```rust
+// A flag about the top of its pole: as drawn, stretched, mirrored, upside down.
+let flag = |c: &mut Canvas| {
+    c.polyline(&[(0.0, 0.0), (0.0, 8.0)], 1.0, ORANGE);
+    c.fill_rect(1.0, 0.0, 6.0, 4.0, YELLOW);
+    c.fill_polygon(&[(7.0, 0.0), (10.0, 2.0), (7.0, 4.0)], RED);
+};
+c.with(Transform::at(2.0, 4.0), flag);
+c.with(Transform::at(14.0, 2.0).scale(1.0, 1.5), flag);
+c.with(Transform::at(36.0, 4.0).flip_x(), flag);
+c.with(Transform::scaling(1.0, -1.0).then(&Transform::at(38.0, 12.0)), flag); // flip_y, spelled out
+```
+
 ## `Transform::is_identity`
 
 ```rust
@@ -136,7 +209,7 @@ let placed = [Transform::at(8.0, 6.0), Transform::at(24.0, 6.0).scale(2.0, 1.0),
 for (i, tr) in placed.into_iter().enumerate() {
     let color = if tr.is_axis_aligned() { GREEN } else { ORANGE };
     c.with(tr, |c| c.rect(-4.0, -4.0, 8.0, 8.0, 1.0, color));
-    c.text(5 + i as i32 * 16, 12, &format!("x{:.1}", tr.scale_factor()), Font::tiny(), t.ink);
+    c.print(2 + i as i32 * 8, 3, &format!("x{:.1}", tr.scale_factor()), t.ink);
 }
 ```
 
@@ -161,7 +234,7 @@ let placed = [Transform::at(8.0, 6.0), Transform::at(24.0, 6.0).scale(2.0, 1.0),
 for (i, tr) in placed.into_iter().enumerate() {
     let color = if tr.is_axis_aligned() { GREEN } else { ORANGE };
     c.with(tr, |c| c.rect(-4.0, -4.0, 8.0, 8.0, 1.0, color));
-    c.text(5 + i as i32 * 16, 12, &format!("x{:.1}", tr.scale_factor()), Font::tiny(), t.ink);
+    c.print(2 + i as i32 * 8, 3, &format!("x{:.1}", tr.scale_factor()), t.ink);
 }
 ```
 
@@ -190,7 +263,7 @@ for corner in [(-6.0, -3.0), (6.0, -3.0), (6.0, 3.0), (-6.0, 3.0)] {
 c.with(Transform::at(0.0, 2.0).then(&place), |c| c.rect(-6.0, -3.0, 12.0, 6.0, 1.0, GREEN));
 // The inverse maps back: the canvas's top-left corner in the box's own coordinates.
 let (u, v) = place.inverse().unwrap().apply((0.0, 0.0));
-c.text(1, 11, &format!("{u:.0},{v:.0}"), Font::tiny(), t.ink);
+c.print(0, 3, &format!("{u:.0},{v:.0}"), t.ink);
 ```
 
 ## `Transform::then`
@@ -218,7 +291,7 @@ for corner in [(-6.0, -3.0), (6.0, -3.0), (6.0, 3.0), (-6.0, 3.0)] {
 c.with(Transform::at(0.0, 2.0).then(&place), |c| c.rect(-6.0, -3.0, 12.0, 6.0, 1.0, GREEN));
 // The inverse maps back: the canvas's top-left corner in the box's own coordinates.
 let (u, v) = place.inverse().unwrap().apply((0.0, 0.0));
-c.text(1, 11, &format!("{u:.0},{v:.0}"), Font::tiny(), t.ink);
+c.print(0, 3, &format!("{u:.0},{v:.0}"), t.ink);
 ```
 
 ## `Transform::inverse`
@@ -246,7 +319,7 @@ for corner in [(-6.0, -3.0), (6.0, -3.0), (6.0, 3.0), (-6.0, 3.0)] {
 c.with(Transform::at(0.0, 2.0).then(&place), |c| c.rect(-6.0, -3.0, 12.0, 6.0, 1.0, GREEN));
 // The inverse maps back: the canvas's top-left corner in the box's own coordinates.
 let (u, v) = place.inverse().unwrap().apply((0.0, 0.0));
-c.text(1, 11, &format!("{u:.0},{v:.0}"), Font::tiny(), t.ink);
+c.print(0, 3, &format!("{u:.0},{v:.0}"), t.ink);
 ```
 
 ## `Transform::translate`
@@ -279,7 +352,7 @@ A scale about the origin, before everything so far.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/transform-scale.svg">
-  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y" width="384">
+  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y, Transform::scaling" width="384">
 </picture>
 
 ```rust
@@ -292,7 +365,7 @@ let flag = |c: &mut Canvas| {
 c.with(Transform::at(2.0, 4.0), flag);
 c.with(Transform::at(14.0, 2.0).scale(1.0, 1.5), flag);
 c.with(Transform::at(36.0, 4.0).flip_x(), flag);
-c.with(Transform::at(38.0, 12.0).flip_y(), flag);
+c.with(Transform::scaling(1.0, -1.0).then(&Transform::at(38.0, 12.0)), flag); // flip_y, spelled out
 ```
 
 ## `Transform::flip_x`
@@ -306,7 +379,7 @@ everything so far.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/transform-scale.svg">
-  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y" width="384">
+  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y, Transform::scaling" width="384">
 </picture>
 
 ```rust
@@ -319,7 +392,7 @@ let flag = |c: &mut Canvas| {
 c.with(Transform::at(2.0, 4.0), flag);
 c.with(Transform::at(14.0, 2.0).scale(1.0, 1.5), flag);
 c.with(Transform::at(36.0, 4.0).flip_x(), flag);
-c.with(Transform::at(38.0, 12.0).flip_y(), flag);
+c.with(Transform::scaling(1.0, -1.0).then(&Transform::at(38.0, 12.0)), flag); // flip_y, spelled out
 ```
 
 ## `Transform::flip_y`
@@ -332,7 +405,7 @@ A top-to-bottom mirror about the origin, before everything so far.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/transform-scale.svg">
-  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y" width="384">
+  <img src="img/transform-scale-light.svg" alt="Transform::scale, Transform::flip_x, Transform::flip_y, Transform::scaling" width="384">
 </picture>
 
 ```rust
@@ -345,7 +418,7 @@ let flag = |c: &mut Canvas| {
 c.with(Transform::at(2.0, 4.0), flag);
 c.with(Transform::at(14.0, 2.0).scale(1.0, 1.5), flag);
 c.with(Transform::at(36.0, 4.0).flip_x(), flag);
-c.with(Transform::at(38.0, 12.0).flip_y(), flag);
+c.with(Transform::scaling(1.0, -1.0).then(&Transform::at(38.0, 12.0)), flag); // flip_y, spelled out
 ```
 
 ## `Transform::rotate`
@@ -363,15 +436,19 @@ A rotation by `angle` radians about the origin (clockwise on screen, since
 </picture>
 
 ```rust
-// A hand pointing up from its pivot, turned about its own origin; then the
-// same hand turned about a point that is not its origin, so it swings.
-let hand = |c: &mut Canvas| c.fill_round_rect(-1.0, -7.0, 2.0, 8.0, 1.0, CYAN);
-for i in 0..5 {
-    c.with(Transform::at(12.0, 9.0).rotate(i as f32 * 0.4), hand);
-    c.with(Transform::at(36.0, 9.0).rotate_about(i as f32 * 0.4, (0.0, -7.0)), hand);
+// A clock hand pointing up from its pivot, turned about its own origin; then
+// the same hand turned about its tip instead, so it swings from there.
+for i in 0..4 {
+    let shade = CYAN.lerp(BLUE, i as f32 / 3.0);
+    let hand = move |c: &mut Canvas| {
+        c.polyline(&[(0.0, 0.0), (0.0, -8.0)], 1.0, shade);
+        c.disc(0.0, -8.0, 1.3, shade);
+    };
+    c.with(Transform::at(12.0, 11.0).rotate(i as f32 * 0.5), hand);
+    c.with(Transform::at(36.0, 11.0).rotate_about(i as f32 * 0.5, (0.0, -8.0)), hand);
 }
-c.disc(12.0, 9.0, 1.2, t.ink);
-c.disc(36.0, 2.0, 1.2, t.ink);
+c.disc(12.0, 11.0, 1.2, t.ink); // the pivots
+c.disc(36.0, 3.0, 1.2, t.ink);
 ```
 
 ## `Transform::rotate_about`
@@ -388,15 +465,19 @@ A rotation by `angle` radians about `center`, before everything so far.
 </picture>
 
 ```rust
-// A hand pointing up from its pivot, turned about its own origin; then the
-// same hand turned about a point that is not its origin, so it swings.
-let hand = |c: &mut Canvas| c.fill_round_rect(-1.0, -7.0, 2.0, 8.0, 1.0, CYAN);
-for i in 0..5 {
-    c.with(Transform::at(12.0, 9.0).rotate(i as f32 * 0.4), hand);
-    c.with(Transform::at(36.0, 9.0).rotate_about(i as f32 * 0.4, (0.0, -7.0)), hand);
+// A clock hand pointing up from its pivot, turned about its own origin; then
+// the same hand turned about its tip instead, so it swings from there.
+for i in 0..4 {
+    let shade = CYAN.lerp(BLUE, i as f32 / 3.0);
+    let hand = move |c: &mut Canvas| {
+        c.polyline(&[(0.0, 0.0), (0.0, -8.0)], 1.0, shade);
+        c.disc(0.0, -8.0, 1.3, shade);
+    };
+    c.with(Transform::at(12.0, 11.0).rotate(i as f32 * 0.5), hand);
+    c.with(Transform::at(36.0, 11.0).rotate_about(i as f32 * 0.5, (0.0, -8.0)), hand);
 }
-c.disc(12.0, 9.0, 1.2, t.ink);
-c.disc(36.0, 2.0, 1.2, t.ink);
+c.disc(12.0, 11.0, 1.2, t.ink); // the pivots
+c.disc(36.0, 3.0, 1.2, t.ink);
 ```
 
 ## `Transform::skew`

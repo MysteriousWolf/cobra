@@ -223,10 +223,10 @@ A text box, or a chat bubble when it has a [`Tail`](bubble.md#tail). See the mod
 ```rust
 // Two speakers; each bubble is placed by `speak` where it fits, the second
 // told to keep off the first.
-c.disc(10.0, 26.0, 4.0, GREEN);
-c.disc(70.0, 26.0, 4.0, PURPLE);
-let first = Bubble::speech("Hi there!").ink(t.bg).fill(GREEN).speak(c, (10.0, 22.0), &[]);
-Bubble::thought("Who?").ink(t.ink).border(1.0, t.ink).speak(c, (70.0, 22.0), &[first]);
+c.disc(10.0, 30.0, 4.0, GREEN);
+c.disc(70.0, 30.0, 4.0, PURPLE);
+let first = Bubble::speech("Hi there!").ink(t.bg).fill(GREEN).speak(c, (10.0, 26.0), &[]);
+Bubble::thought("Who?").ink(t.ink).border(1.0, t.ink).speak(c, (70.0, 26.0), &[first]);
 ```
 
 ## `Tail` methods
@@ -360,8 +360,8 @@ A cloud with a trail of discs: a thought bubble.
 </picture>
 
 ```rust
-c.disc(10.0, 24.0, 3.0, GREEN);
-Bubble::thought("hmm").ink(t.ink).border(1.0, t.ink).speak(c, (10.0, 22.0), &[]);
+c.disc(10.0, 32.0, 3.0, GREEN);
+Bubble::thought("hmm").ink(t.ink).border(1.0, t.ink).speak(c, (10.0, 30.0), &[]);
 ```
 
 ## `Bubble::shout`
@@ -396,8 +396,8 @@ A rounded box with a curling comic tail: an aside.
 </picture>
 
 ```rust
-c.disc(8.0, 20.0, 3.0, GREEN);
-Bubble::whisper("psst").ink(t.ink).border(1.0, t.ink).speak(c, (8.0, 18.0), &[]);
+c.disc(8.0, 24.0, 3.0, GREEN);
+Bubble::whisper("psst").ink(t.ink).border(1.0, t.ink).speak(c, (8.0, 22.0), &[]);
 ```
 
 ## `Bubble::shape`
@@ -639,7 +639,7 @@ let body = b.draw(c, 4.0, 4.0); // the body's box, a whole number of cells
 let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
 c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
 let (w, h) = b.size(); // the same as the body's, known before drawing
-c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+c.print(21, 4, &format!("{w}x{h}"), t.ink);
 c.disc(body.right(), body.y, 1.2, YELLOW);
 ```
 
@@ -663,7 +663,7 @@ let body = b.draw(c, 4.0, 4.0); // the body's box, a whole number of cells
 let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
 c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
 let (w, h) = b.size(); // the same as the body's, known before drawing
-c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+c.print(21, 4, &format!("{w}x{h}"), t.ink);
 c.disc(body.right(), body.y, 1.2, YELLOW);
 ```
 
@@ -687,7 +687,7 @@ let body = b.draw(c, 4.0, 4.0); // the body's box, a whole number of cells
 let all = b.bounds(4.0, 4.0); // body and tail: a keep-out zone for the next bubble
 c.rect(all.x, all.y, all.w, all.h, 1.0, Paint::dithered(t.ink, 0.5));
 let (w, h) = b.size(); // the same as the body's, known before drawing
-c.text(42, 18, &format!("{w}x{h}"), Font::tiny(), t.ink);
+c.print(21, 4, &format!("{w}x{h}"), t.ink);
 c.disc(body.right(), body.y, 1.2, YELLOW);
 ```
 

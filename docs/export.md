@@ -47,7 +47,7 @@ Geometry and colours for an export.
 c.fill_round_rect(1.0, 1.0, 58.0, 14.0, 4.0, Paint::edge(BLUE, t.panel, 3.0));
 let style = export::Style { background: Some(t.bg), ..export::Style::default() }.scale(2);
 let png = export::png(c, &style); // the same picture as a PNG, twice the size
-c.text(4, 5, &format!("svg / png: {} bytes", png.len()), Font::tiny(), t.ink);
+c.print(4, 1, &format!("png: {} bytes", png.len()), TextStyle::new(t.ink).on(t.panel));
 ```
 
 ## `png`
@@ -70,7 +70,7 @@ Encodes `canvas` as an RGBA PNG. Unset dots are transparent unless
 c.fill_round_rect(1.0, 1.0, 58.0, 14.0, 4.0, Paint::edge(BLUE, t.panel, 3.0));
 let style = export::Style { background: Some(t.bg), ..export::Style::default() }.scale(2);
 let png = export::png(c, &style); // the same picture as a PNG, twice the size
-c.text(4, 5, &format!("svg / png: {} bytes", png.len()), Font::tiny(), t.ink);
+c.print(4, 1, &format!("png: {} bytes", png.len()), TextStyle::new(t.ink).on(t.panel));
 ```
 
 ## `svg`
@@ -93,7 +93,7 @@ same cell grid as [`png`](export.md#png). The `viewBox` is in pixels of `style.c
 c.fill_round_rect(1.0, 1.0, 58.0, 14.0, 4.0, Paint::edge(BLUE, t.panel, 3.0));
 let style = export::Style { background: Some(t.bg), ..export::Style::default() }.scale(2);
 let png = export::png(c, &style); // the same picture as a PNG, twice the size
-c.text(4, 5, &format!("svg / png: {} bytes", png.len()), Font::tiny(), t.ink);
+c.print(4, 1, &format!("png: {} bytes", png.len()), TextStyle::new(t.ink).on(t.panel));
 ```
 
 ## `resolve`
@@ -146,7 +146,7 @@ crisp README logo.
 c.fill_round_rect(1.0, 1.0, 58.0, 14.0, 4.0, Paint::edge(BLUE, t.panel, 3.0));
 let style = export::Style { background: Some(t.bg), ..export::Style::default() }.scale(2);
 let png = export::png(c, &style); // the same picture as a PNG, twice the size
-c.text(4, 5, &format!("svg / png: {} bytes", png.len()), Font::tiny(), t.ink);
+c.print(4, 1, &format!("png: {} bytes", png.len()), TextStyle::new(t.ink).on(t.panel));
 ```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [rig](rig.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · [text](text.md) · [color](color.md) · [render](render.md) · [term](term.md) · **export** · [ratatui](ratatui.md)
