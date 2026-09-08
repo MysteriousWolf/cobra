@@ -78,6 +78,21 @@ pub type Shader = fn(&Probe) -> Option<Paint>
 
 A shader for [`Paint::shader`](draw.md#paintshader): the paint for one dot, or `None` to leave it.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/shader.svg">
+  <img src="img/shader-light.svg" alt="Shader, Probe::mix" width="384">
+</picture>
+
+```rust
+// A shader is a plain function. `mix` blends `a` towards `b` for RGB colours
+// and dithers between them for palette colours, which cannot blend.
+fn across(p: &Probe) -> Option<Paint> {
+    Some(p.mix(p.u))
+}
+c.fill_round_rect(1.0, 1.0, 22.0, 14.0, 4.0, Paint::shader(RED, BLUE, across));
+c.fill_round_rect(25.0, 1.0, 22.0, 14.0, 4.0, Paint::shader(Color::Indexed(1), Color::Indexed(4), across));
+```
+
 ## `Probe`
 
 ```rust
@@ -99,6 +114,19 @@ is decided per cell.
 - `pub normal: (f32, f32)` — The unit normal of the shape's surface at this dot, pointing outwards: the direction to the nearest edge, which for a rounded shape is the direction it faces. `(0, 0)` on a ridge equidistant from two edges. Dot it with a light direction and the shape is lit.
 - `pub a: Color` — The paint's first colour.
 - `pub b: Color` — The paint's second colour.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/probe.svg">
+  <img src="img/probe-light.svg" alt="Probe" width="384">
+</picture>
+
+```rust
+// What a shader is told about a dot: where it sits across the shape (`u`,
+// `v`), how deep inside it is (`dist`), and which way the surface faces there.
+c.fill_round_rect(1.0, 1.0, 14.0, 14.0, 4.0, Paint::shader(RED, BLUE, |p| Some(p.mix(p.v))));
+c.fill_round_rect(17.0, 1.0, 14.0, 14.0, 4.0, Paint::shader(YELLOW, PURPLE, |p| Some(p.mix(-p.dist / 6.0))));
+c.fill_round_rect(33.0, 1.0, 14.0, 14.0, 4.0, Paint::shader(GREEN, CYAN, |p| Some(p.mix((p.normal.0 + 1.0) / 2.0))));
+```
 
 ## `Paint`
 
@@ -144,6 +172,27 @@ canvas.disc(30.0, 10.0, 8.0, Paint::edge(blue, red, 3.0));
 canvas.fill_rect(0.0, 0.0, 40.0, 4.0, Paint::pattern(red, Pattern::Diagonal(3)).anchor(0, 0));
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint.svg">
+  <img src="img/paint-light.svg" alt="Paint" width="384">
+</picture>
+
+```rust
+// One shape in six paints: a colour, a dither, a pattern, a gradient, an
+// edge gradient and cel bands.
+let paints = [
+    Paint::new(BLUE),
+    Paint::dithered(BLUE, 0.4),
+    Paint::pattern(BLUE, Pattern::Diagonal(3)),
+    Paint::linear((0.0, 0.0), (0.0, 16.0), BLUE, GREEN),
+    Paint::edge(t.ink, BLUE, 2.5),
+    Paint::cel(BLUE.dim(0.4), (-1.0, -1.0), &[(-0.2, BLUE), (0.5, CYAN)]),
+];
+for (i, paint) in paints.into_iter().enumerate() {
+    c.fill_round_rect(i as f32 * 8.0 + 0.5, 1.0, 7.0, 14.0, 2.5, paint);
+}
+```
+
 ## `Pen`
 
 ```rust
@@ -159,6 +208,17 @@ that width, so `canvas.polyline(&pts, 2.0, paint)` and
 - `pub width: f32` — Width in dots. Up to `1.0` the stroke is a one-dot Bresenham line; wider ones are quads with round joins and caps.
 - `pub dash: Option<(f32, f32)>` — Dash pattern as `(on, off)` lengths in dots, `None` for a solid stroke.
 - `pub phase: f32` — Where in the dash pattern the stroke starts, in dots; animate it for a marching-ants effect.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/pen.svg">
+  <img src="img/pen-light.svg" alt="Pen, Pen::new" width="384">
+</picture>
+
+```rust
+for (y, width) in [(1.0, 1.0), (4.0, 2.0), (8.0, 3.0), (13.0, 5.0)] {
+    c.polyline(&[(2.0, y), (46.0, y)], Pen::new(width), BLUE);
+}
+```
 
 **`dash`**
 
@@ -195,6 +255,21 @@ pub type Point = (f32, f32)
 
 A point in dot coordinates.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/point.svg">
+  <img src="img/point-light.svg" alt="Point" width="384">
+</picture>
+
+```rust
+// Dot coordinates as `f32`: dot `(x, y)` spans `x..x+1`, so its centre is
+// `(x + 0.5, y + 0.5)`.
+let pts: [Point; 4] = [(4.0, 12.0), (16.0, 3.0), (30.0, 13.0), (44.0, 4.0)];
+c.polyline(&pts, 1.0, t.panel);
+for p in pts {
+    c.disc(p.0, p.1, 1.5, RED);
+}
+```
+
 ## `Rect`
 
 ```rust
@@ -209,6 +284,24 @@ and what a keep-out zone is.
 - `pub w: f32` — Width in dots.
 - `pub h: f32` — Height in dots.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
+
 ## `Pattern` methods
 
 ## `Pattern::on`
@@ -218,6 +311,22 @@ pub fn on(self, x: i32, y: i32) -> bool
 ```
 
 Whether the pattern has a dot at `(x, y)`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/pattern-on.svg">
+  <img src="img/pattern-on-light.svg" alt="Pattern::on" width="384">
+</picture>
+
+```rust
+// The pattern as a predicate, for when a paint is not what is wanted.
+for y in 0..16 {
+    for x in 0..48 {
+        if Pattern::Dots(4).on(x, y) {
+            c.disc(x as f32 + 0.5, y as f32 + 0.5, 1.2, CYAN);
+        }
+    }
+}
+```
 
 ## `Probe` methods
 
@@ -229,6 +338,21 @@ pub fn mix(&self, t: f32) -> Paint
 
 Solid `a` blended towards `b` by `t` (`0..=1`): a true blend for RGB colours,
 an ordered dither between the two for palette colours.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/shader.svg">
+  <img src="img/shader-light.svg" alt="Shader, Probe::mix" width="384">
+</picture>
+
+```rust
+// A shader is a plain function. `mix` blends `a` towards `b` for RGB colours
+// and dithers between them for palette colours, which cannot blend.
+fn across(p: &Probe) -> Option<Paint> {
+    Some(p.mix(p.u))
+}
+c.fill_round_rect(1.0, 1.0, 22.0, 14.0, 4.0, Paint::shader(RED, BLUE, across));
+c.fill_round_rect(25.0, 1.0, 22.0, 14.0, 4.0, Paint::shader(Color::Indexed(1), Color::Indexed(4), across));
+```
 
 ## `Probe::lit`
 
@@ -584,6 +708,20 @@ pub fn color(&self) -> Option<Color>
 The colour, `None` for [`erase`](draw.md#painterase). For a gradient or a shader, the
 first of its two colours; for a cel paint, its base.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint-color.svg">
+  <img src="img/paint-color-light.svg" alt="Paint::color, Paint::coverage" width="384">
+</picture>
+
+```rust
+// What a paint says about itself: the dithered swatch, then its colour solid
+// and its coverage as a number.
+let paint = Paint::dithered(GREEN, 0.35);
+c.fill_rect(1.0, 1.0, 20.0, 14.0, paint);
+c.fill_rect(24.0, 1.0, 6.0, 14.0, paint.color().unwrap());
+c.text(33, 5, &format!("{:.0}%", paint.coverage() * 100.0), Font::tiny(), t.ink);
+```
+
 ## `Paint::coverage`
 
 ```rust
@@ -591,6 +729,20 @@ pub fn coverage(&self) -> f32
 ```
 
 Dither coverage, `1.0` when solid.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/paint-color.svg">
+  <img src="img/paint-color-light.svg" alt="Paint::color, Paint::coverage" width="384">
+</picture>
+
+```rust
+// What a paint says about itself: the dithered swatch, then its colour solid
+// and its coverage as a number.
+let paint = Paint::dithered(GREEN, 0.35);
+c.fill_rect(1.0, 1.0, 20.0, 14.0, paint);
+c.fill_rect(24.0, 1.0, 6.0, 14.0, paint.color().unwrap());
+c.text(33, 5, &format!("{:.0}%", paint.coverage() * 100.0), Font::tiny(), t.ink);
+```
 
 ## `Pen` methods
 
@@ -601,6 +753,17 @@ pub const fn new(width: f32) -> Self
 ```
 
 A solid pen `width` dots wide.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/pen.svg">
+  <img src="img/pen-light.svg" alt="Pen, Pen::new" width="384">
+</picture>
+
+```rust
+for (y, width) in [(1.0, 1.0), (4.0, 2.0), (8.0, 3.0), (13.0, 5.0)] {
+    c.polyline(&[(2.0, y), (46.0, y)], Pen::new(width), BLUE);
+}
+```
 
 ## `Pen::dash`
 
@@ -670,6 +833,24 @@ pub const fn new(x: f32, y: f32, w: f32, h: f32) -> Self
 
 A box from its corner and size.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
+
 ## `Rect::around`
 
 ```rust
@@ -677,6 +858,24 @@ pub fn around(center: Point, w: f32, h: f32) -> Self
 ```
 
 A box around `center`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
 
 ## `Rect::right`
 
@@ -686,6 +885,24 @@ pub fn right(&self) -> f32
 
 Right edge (`x + w`).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
+
 ## `Rect::bottom`
 
 ```rust
@@ -693,6 +910,24 @@ pub fn bottom(&self) -> f32
 ```
 
 Bottom edge (`y + h`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
 
 ## `Rect::center`
 
@@ -702,6 +937,24 @@ pub fn center(&self) -> Point
 
 Centre point.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
+
 ## `Rect::contains`
 
 ```rust
@@ -709,6 +962,24 @@ pub fn contains(&self, p: Point) -> bool
 ```
 
 Whether `p` is inside.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect.svg">
+  <img src="img/rect-light.svg" alt="Rect, Rect::new, Rect::around, Rect::right, Rect::bottom, Rect::center, Rect::contains" width="384">
+</picture>
+
+```rust
+let r = Rect::new(3.0, 2.0, 20.0, 12.0);
+c.rect(r.x, r.y, r.w, r.h, 1.0, BLUE);
+let (cx, cy) = r.center();
+c.disc(cx, cy, 1.5, YELLOW);
+c.disc(r.right(), r.bottom(), 1.5, YELLOW);
+let a = Rect::around((36.0, 8.0), 14.0, 8.0); // by its centre
+c.rect(a.x, a.y, a.w, a.h, 1.0, GREEN);
+for p in [(31.0, 6.0), (36.0, 8.0), (45.0, 3.0), (40.0, 13.0)] {
+    c.disc(p.0, p.1, 1.2, if a.contains(p) { GREEN } else { RED });
+}
+```
 
 ## `Rect::inset`
 
@@ -718,6 +989,21 @@ pub fn inset(&self, d: f32) -> Rect
 
 A copy shrunk by `d` on every side (grown when `d` is negative).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect-inset.svg">
+  <img src="img/rect-inset-light.svg" alt="Rect::inset, Rect::offset, Rect::overlap" width="384">
+</picture>
+
+```rust
+let a = Rect::new(2.0, 1.0, 20.0, 12.0);
+let b = a.offset(14.0, 3.0); // moved
+c.fill_rect(a.x, a.y, a.w, a.h, Paint::dithered(BLUE, 0.5));
+c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
+let i = a.inset(3.0); // shrunk on every side
+c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
+c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+```
+
 ## `Rect::offset`
 
 ```rust
@@ -726,6 +1012,21 @@ pub fn offset(&self, dx: f32, dy: f32) -> Rect
 
 A copy moved by `(dx, dy)`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect-inset.svg">
+  <img src="img/rect-inset-light.svg" alt="Rect::inset, Rect::offset, Rect::overlap" width="384">
+</picture>
+
+```rust
+let a = Rect::new(2.0, 1.0, 20.0, 12.0);
+let b = a.offset(14.0, 3.0); // moved
+c.fill_rect(a.x, a.y, a.w, a.h, Paint::dithered(BLUE, 0.5));
+c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
+let i = a.inset(3.0); // shrunk on every side
+c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
+c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+```
+
 ## `Rect::overlap`
 
 ```rust
@@ -733,6 +1034,21 @@ pub fn overlap(&self, other: &Rect) -> f32
 ```
 
 Area the two boxes share, `0.0` when they do not touch.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/rect-inset.svg">
+  <img src="img/rect-inset-light.svg" alt="Rect::inset, Rect::offset, Rect::overlap" width="384">
+</picture>
+
+```rust
+let a = Rect::new(2.0, 1.0, 20.0, 12.0);
+let b = a.offset(14.0, 3.0); // moved
+c.fill_rect(a.x, a.y, a.w, a.h, Paint::dithered(BLUE, 0.5));
+c.fill_rect(b.x, b.y, b.w, b.h, Paint::dithered(RED, 0.5));
+let i = a.inset(3.0); // shrunk on every side
+c.rect(i.x, i.y, i.w, i.h, 1.0, t.ink);
+c.text(38, 1, &format!("{}", a.overlap(&b) as i32), Font::tiny(), t.ink); // the area they share
+```
 
 ## `Canvas` methods
 

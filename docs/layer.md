@@ -77,6 +77,30 @@ One dot as an effect sees it; see [`Effect::shader`](layer.md#effectshader).
 - `pub normal: (f32, f32)` — The unit normal of the silhouette's edge nearest the dot, pointing outwards: which way the shape faces there. `(0, 0)` where no distance field was needed (a shadow alone) or on a ridge equidistant from two edges.
 - `pub color: Option<Color>` — What the dot shows right now: the layer's own colour inside the silhouette, whatever the layers below (and earlier effects) left outside it.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/sample.svg">
+  <img src="img/sample-light.svg" alt="Sample, Sample::inside, Sample::lit, Sample::covered, Sample::layer" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let ball = layers.push();
+ball.disc(14.0, 8.0, 6.5, ORANGE);
+ball.disc(32.0, 8.0, 6.5, CYAN);
+// Inside: shaded by how much the edge faces the light. Outside: a shadow
+// wherever the layer's own dots are three right and two up, in their colour.
+ball.effect(Effect::shader(3.0, 3.0, |s| {
+    if s.inside() {
+        return s.color.map(|c| Paint::new(c.resolve(&Palette::default()).dim(0.6 + 0.4 * s.lit((-1.0, -1.0)))));
+    }
+    let (x, y) = (s.x - 3, s.y - 2);
+    let shade = s.layer()?.get(x, y)?.resolve(&Palette::default()).dim(0.5);
+    s.covered(x, y).then(|| Paint::dithered(shade, 0.6))
+}));
+*c = layers.flatten().clone();
+```
+
 ## `Effect`
 
 ```rust
@@ -106,6 +130,105 @@ flattened. See the module docs for how effects are evaluated.
   - `depth: f32` — How far inside it.
   - `f: Arc<ShaderFn>` — The shader.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/effect.svg">
+  <img src="img/effect-light.svg" alt="Effect" width="384">
+</picture>
+
+```rust
+// One shape, every effect: a shadow, an outline, a gap, a glow, a rim.
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::pattern(t.panel, Pattern::Cross(4)));
+let effects =
+    [Effect::shadow(2, 2), Effect::outline(1.0).paint(t.ink), Effect::gap(2.0), Effect::glow(4.0).paint(CYAN), Effect::rim(2.0)];
+for (i, effect) in effects.into_iter().enumerate() {
+    let shape = layers.push();
+    shape.disc(5.0 + i as f32 * 9.5, 8.0, 3.5, CYAN);
+    shape.effect(effect);
+}
+*c = layers.flatten().clone();
+```
+
+**`paint`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/effect-paint.svg">
+  <img src="img/effect-paint-light.svg" alt="Effect::paint" width="384">
+</picture>
+
+```rust
+// The same shadow in the default grey, in a colour, and dithered thin.
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let shadows = [Effect::shadow(2, 2), Effect::shadow(2, 2).paint(PURPLE), Effect::shadow(2, 2).paint(Paint::dithered(RED, 0.3))];
+for (i, shadow) in shadows.into_iter().enumerate() {
+    let card = layers.push();
+    card.fill_round_rect(2.0 + i as f32 * 16.0, 2.0, 11.0, 10.0, 2.0, YELLOW);
+    card.effect(shadow);
+}
+*c = layers.flatten().clone();
+```
+
+**`paint`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/effect-paint.svg">
+  <img src="img/effect-paint-light.svg" alt="Effect::paint" width="384">
+</picture>
+
+```rust
+// The same shadow in the default grey, in a colour, and dithered thin.
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let shadows = [Effect::shadow(2, 2), Effect::shadow(2, 2).paint(PURPLE), Effect::shadow(2, 2).paint(Paint::dithered(RED, 0.3))];
+for (i, shadow) in shadows.into_iter().enumerate() {
+    let card = layers.push();
+    card.fill_round_rect(2.0 + i as f32 * 16.0, 2.0, 11.0, 10.0, 2.0, YELLOW);
+    card.effect(shadow);
+}
+*c = layers.flatten().clone();
+```
+
+**`paint`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/effect-paint.svg">
+  <img src="img/effect-paint-light.svg" alt="Effect::paint" width="384">
+</picture>
+
+```rust
+// The same shadow in the default grey, in a colour, and dithered thin.
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let shadows = [Effect::shadow(2, 2), Effect::shadow(2, 2).paint(PURPLE), Effect::shadow(2, 2).paint(Paint::dithered(RED, 0.3))];
+for (i, shadow) in shadows.into_iter().enumerate() {
+    let card = layers.push();
+    card.fill_round_rect(2.0 + i as f32 * 16.0, 2.0, 11.0, 10.0, 2.0, YELLOW);
+    card.effect(shadow);
+}
+*c = layers.flatten().clone();
+```
+
+**`paint`**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/effect-paint.svg">
+  <img src="img/effect-paint-light.svg" alt="Effect::paint" width="384">
+</picture>
+
+```rust
+// The same shadow in the default grey, in a colour, and dithered thin.
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let shadows = [Effect::shadow(2, 2), Effect::shadow(2, 2).paint(PURPLE), Effect::shadow(2, 2).paint(Paint::dithered(RED, 0.3))];
+for (i, shadow) in shadows.into_iter().enumerate() {
+    let card = layers.push();
+    card.fill_round_rect(2.0 + i as f32 * 16.0, 2.0, 11.0, 10.0, 2.0, YELLOW);
+    card.effect(shadow);
+}
+*c = layers.flatten().clone();
+```
+
 ## `Layer`
 
 ```rust
@@ -120,6 +243,25 @@ around it when the stack is flattened, and whether it is shown at all.
 - `pub matte: bool` — A matte hides instead of shows: wherever it has a dot or a character, the layers beneath are erased and nothing is painted, so the flattened canvas is transparent there. Effects still run around its silhouette. A ring around a hole in the picture, or a hollow shape whose inside must stay clear, is a shape on a matte. Default `false`.
 - `pub offset: (i32, i32)` — Where the layer sits over the stack, in dots: everything on it is moved right by `.0` and down by `.1` when the stack is flattened, effects included, and what moves off the stack is lost unless the layer [wraps](layer.md#layer). Printed characters move by whole cells, the offset rounded to the nearest. Layers moving by different amounts per frame are a parallax; see [`scroll`](layer.md#layerscroll). Default `(0, 0)`.
 - `pub wrap: bool` — Whether the layer repeats: what its offset moves off one edge of the stack comes back on the opposite edge, so a background drawn once scrolls forever. Effects see the wrapped silhouette, and so does [`Sample::covered`](layer.md#samplecovered). Default `false`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer.svg">
+  <img src="img/layer-light.svg" alt="Layer, Layer::effect, Layer::canvas, Layer::canvas_mut" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let card = layers.push();
+card.canvas_mut().fill_round_rect(4.0, 3.0, 26.0, 10.0, 3.0, GREEN); // the same as drawing on `card`
+card.effect(Effect::gap(1.0)).effect(Effect::outline(1.0).paint(t.ink));
+let hidden = layers.push();
+hidden.disc(40.0, 8.0, 6.0, RED);
+hidden.visible = false; // skipped when flattening
+c.blit(layers.flatten(), 0, 0);
+let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
+c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+```
 
 **`matte`**
 
@@ -236,7 +378,7 @@ for frame in 0..3 {
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/field.svg">
-  <img src="img/field-light.svg" alt="Field" width="384">
+  <img src="img/field-light.svg" alt="Field, Field::new, Field::effects" width="384">
 </picture>
 
 ```rust
@@ -261,6 +403,30 @@ pub fn inside(&self) -> bool
 
 Whether the dot is part of the silhouette.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/sample.svg">
+  <img src="img/sample-light.svg" alt="Sample, Sample::inside, Sample::lit, Sample::covered, Sample::layer" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let ball = layers.push();
+ball.disc(14.0, 8.0, 6.5, ORANGE);
+ball.disc(32.0, 8.0, 6.5, CYAN);
+// Inside: shaded by how much the edge faces the light. Outside: a shadow
+// wherever the layer's own dots are three right and two up, in their colour.
+ball.effect(Effect::shader(3.0, 3.0, |s| {
+    if s.inside() {
+        return s.color.map(|c| Paint::new(c.resolve(&Palette::default()).dim(0.6 + 0.4 * s.lit((-1.0, -1.0)))));
+    }
+    let (x, y) = (s.x - 3, s.y - 2);
+    let shade = s.layer()?.get(x, y)?.resolve(&Palette::default()).dim(0.5);
+    s.covered(x, y).then(|| Paint::dithered(shade, 0.6))
+}));
+*c = layers.flatten().clone();
+```
+
 ## `Sample::layer`
 
 ```rust
@@ -272,6 +438,30 @@ not a canvas. Its dots are in its own coordinates; the sample's `x` and `y`
 are in the flattened canvas's, which differ by the layer's
 [offset](layer.md#layer).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/sample.svg">
+  <img src="img/sample-light.svg" alt="Sample, Sample::inside, Sample::lit, Sample::covered, Sample::layer" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let ball = layers.push();
+ball.disc(14.0, 8.0, 6.5, ORANGE);
+ball.disc(32.0, 8.0, 6.5, CYAN);
+// Inside: shaded by how much the edge faces the light. Outside: a shadow
+// wherever the layer's own dots are three right and two up, in their colour.
+ball.effect(Effect::shader(3.0, 3.0, |s| {
+    if s.inside() {
+        return s.color.map(|c| Paint::new(c.resolve(&Palette::default()).dim(0.6 + 0.4 * s.lit((-1.0, -1.0)))));
+    }
+    let (x, y) = (s.x - 3, s.y - 2);
+    let shade = s.layer()?.get(x, y)?.resolve(&Palette::default()).dim(0.5);
+    s.covered(x, y).then(|| Paint::dithered(shade, 0.6))
+}));
+*c = layers.flatten().clone();
+```
+
 ## `Sample::lit`
 
 ```rust
@@ -280,6 +470,30 @@ pub fn lit(&self, light: (f32, f32)) -> f32
 
 How much the edge faces `light`, a direction towards the light: `normal ·
 light`, `1` facing it and `-1` away. See [`Probe::lit`](draw.md#probelit).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/sample.svg">
+  <img src="img/sample-light.svg" alt="Sample, Sample::inside, Sample::lit, Sample::covered, Sample::layer" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let ball = layers.push();
+ball.disc(14.0, 8.0, 6.5, ORANGE);
+ball.disc(32.0, 8.0, 6.5, CYAN);
+// Inside: shaded by how much the edge faces the light. Outside: a shadow
+// wherever the layer's own dots are three right and two up, in their colour.
+ball.effect(Effect::shader(3.0, 3.0, |s| {
+    if s.inside() {
+        return s.color.map(|c| Paint::new(c.resolve(&Palette::default()).dim(0.6 + 0.4 * s.lit((-1.0, -1.0)))));
+    }
+    let (x, y) = (s.x - 3, s.y - 2);
+    let shade = s.layer()?.get(x, y)?.resolve(&Palette::default()).dim(0.5);
+    s.covered(x, y).then(|| Paint::dithered(shade, 0.6))
+}));
+*c = layers.flatten().clone();
+```
 
 ## `Sample::covered`
 
@@ -290,6 +504,30 @@ pub fn covered(&self, x: i32, y: i32) -> bool
 Whether dot `(x, y)` of the flattened canvas is in the layer's silhouette:
 set, or in a cell that holds a character, once the layer's offset is
 applied. This is how a shadow finds itself.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/sample.svg">
+  <img src="img/sample-light.svg" alt="Sample, Sample::inside, Sample::lit, Sample::covered, Sample::layer" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let ball = layers.push();
+ball.disc(14.0, 8.0, 6.5, ORANGE);
+ball.disc(32.0, 8.0, 6.5, CYAN);
+// Inside: shaded by how much the edge faces the light. Outside: a shadow
+// wherever the layer's own dots are three right and two up, in their colour.
+ball.effect(Effect::shader(3.0, 3.0, |s| {
+    if s.inside() {
+        return s.color.map(|c| Paint::new(c.resolve(&Palette::default()).dim(0.6 + 0.4 * s.lit((-1.0, -1.0)))));
+    }
+    let (x, y) = (s.x - 3, s.y - 2);
+    let shade = s.layer()?.get(x, y)?.resolve(&Palette::default()).dim(0.5);
+    s.covered(x, y).then(|| Paint::dithered(shade, 0.6))
+}));
+*c = layers.flatten().clone();
+```
 
 ## `Effect` methods
 
@@ -423,6 +661,24 @@ pub fn paint(mut self, paint: impl Into<Paint>) -> Self
 
 Replaces the effect's paint. Has no effect on a gap or a shader.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/effect-paint.svg">
+  <img src="img/effect-paint-light.svg" alt="Effect::paint" width="384">
+</picture>
+
+```rust
+// The same shadow in the default grey, in a colour, and dithered thin.
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let shadows = [Effect::shadow(2, 2), Effect::shadow(2, 2).paint(PURPLE), Effect::shadow(2, 2).paint(Paint::dithered(RED, 0.3))];
+for (i, shadow) in shadows.into_iter().enumerate() {
+    let card = layers.push();
+    card.fill_round_rect(2.0 + i as f32 * 16.0, 2.0, 11.0, 10.0, 2.0, YELLOW);
+    card.effect(shadow);
+}
+*c = layers.flatten().clone();
+```
+
 ## `Effect::shader`
 
 ```rust
@@ -468,6 +724,25 @@ pub fn effect(&mut self, effect: Effect) -> &mut Self
 ```
 
 Adds an effect after the ones already there.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer.svg">
+  <img src="img/layer-light.svg" alt="Layer, Layer::effect, Layer::canvas, Layer::canvas_mut" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let card = layers.push();
+card.canvas_mut().fill_round_rect(4.0, 3.0, 26.0, 10.0, 3.0, GREEN); // the same as drawing on `card`
+card.effect(Effect::gap(1.0)).effect(Effect::outline(1.0).paint(t.ink));
+let hidden = layers.push();
+hidden.disc(40.0, 8.0, 6.0, RED);
+hidden.visible = false; // skipped when flattening
+c.blit(layers.flatten(), 0, 0);
+let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
+c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+```
 
 ## `Layer::scroll`
 
@@ -523,6 +798,25 @@ pub fn canvas(&self) -> &Canvas
 
 The layer's canvas.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer.svg">
+  <img src="img/layer-light.svg" alt="Layer, Layer::effect, Layer::canvas, Layer::canvas_mut" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let card = layers.push();
+card.canvas_mut().fill_round_rect(4.0, 3.0, 26.0, 10.0, 3.0, GREEN); // the same as drawing on `card`
+card.effect(Effect::gap(1.0)).effect(Effect::outline(1.0).paint(t.ink));
+let hidden = layers.push();
+hidden.disc(40.0, 8.0, 6.0, RED);
+hidden.visible = false; // skipped when flattening
+c.blit(layers.flatten(), 0, 0);
+let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
+c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+```
+
 ## `Layer::canvas_mut`
 
 ```rust
@@ -530,6 +824,25 @@ pub fn canvas_mut(&mut self) -> &mut Canvas
 ```
 
 The layer's canvas, to draw on.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layer.svg">
+  <img src="img/layer-light.svg" alt="Layer, Layer::effect, Layer::canvas, Layer::canvas_mut" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+let card = layers.push();
+card.canvas_mut().fill_round_rect(4.0, 3.0, 26.0, 10.0, 3.0, GREEN); // the same as drawing on `card`
+card.effect(Effect::gap(1.0)).effect(Effect::outline(1.0).paint(t.ink));
+let hidden = layers.push();
+hidden.disc(40.0, 8.0, 6.0, RED);
+hidden.visible = false; // skipped when flattening
+c.blit(layers.flatten(), 0, 0);
+let lit = layers[2].canvas().cells().filter(|cell| cell.bits != 0).count(); // read, not drawn
+c.text(34, 5, &format!("{lit}"), Font::tiny(), t.ink);
+```
 
 ## `Layers` methods
 
@@ -541,6 +854,21 @@ pub fn new(cols: u16, rows: u16) -> Self
 
 Creates a stack of `cols × rows` cells with one empty layer.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-new.svg">
+  <img src="img/layers-new-light.svg" alt="Layers::new, Layers::push, Layers::insert, Layers::len" width="384">
+</picture>
+
+```rust
+// Push goes on top; insert at 0 goes underneath everything.
+let mut layers = Layers::new(24, 4); // one empty layer, index 0
+layers[0].disc(18.0, 8.0, 7.0, BLUE);
+layers.push().disc(26.0, 8.0, 7.0, RED); // on top
+layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+```
+
 ## `Layers::cols`
 
 ```rust
@@ -548,6 +876,23 @@ pub fn cols(&self) -> u16
 ```
 
 Width in cells.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
 
 ## `Layers::rows`
 
@@ -557,6 +902,23 @@ pub fn rows(&self) -> u16
 
 Height in cells.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
+
 ## `Layers::width`
 
 ```rust
@@ -564,6 +926,23 @@ pub fn width(&self) -> i32
 ```
 
 Width in dots.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
 
 ## `Layers::height`
 
@@ -573,6 +952,23 @@ pub fn height(&self) -> i32
 
 Height in dots.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
+
 ## `Layers::len`
 
 ```rust
@@ -580,6 +976,21 @@ pub fn len(&self) -> usize
 ```
 
 Number of layers.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-new.svg">
+  <img src="img/layers-new-light.svg" alt="Layers::new, Layers::push, Layers::insert, Layers::len" width="384">
+</picture>
+
+```rust
+// Push goes on top; insert at 0 goes underneath everything.
+let mut layers = Layers::new(24, 4); // one empty layer, index 0
+layers[0].disc(18.0, 8.0, 7.0, BLUE);
+layers.push().disc(26.0, 8.0, 7.0, RED); // on top
+layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+```
 
 ## `Layers::is_empty`
 
@@ -589,6 +1000,27 @@ pub fn is_empty(&self) -> bool
 
 Whether there are no layers at all (only after [`remove`](layer.md#layersremove)).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-get.svg">
+  <img src="img/layers-get-light.svg" alt="Layers::get, Layers::get_mut, Layers::iter, Layers::iter_mut, Layers::is_empty" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN].into_iter().enumerate() {
+    layers.push().disc(8.0 + i as f32 * 10.0, 10.0, 4.5, color);
+}
+for layer in layers.iter_mut() {
+    layer.effect(Effect::outline(1.0).paint(t.ink));
+}
+if let Some(third) = layers.get_mut(3) {
+    third.visible = false;
+}
+let shown = layers.iter().filter(|l| l.visible).count();
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+```
+
 ## `Layers::push`
 
 ```rust
@@ -596,6 +1028,21 @@ pub fn push(&mut self) -> &mut Layer
 ```
 
 Adds an empty layer on top and returns it, to draw on and give effects.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-new.svg">
+  <img src="img/layers-new-light.svg" alt="Layers::new, Layers::push, Layers::insert, Layers::len" width="384">
+</picture>
+
+```rust
+// Push goes on top; insert at 0 goes underneath everything.
+let mut layers = Layers::new(24, 4); // one empty layer, index 0
+layers[0].disc(18.0, 8.0, 7.0, BLUE);
+layers.push().disc(26.0, 8.0, 7.0, RED); // on top
+layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+```
 
 ## `Layers::insert`
 
@@ -606,6 +1053,21 @@ pub fn insert(&mut self, index: usize) -> &mut Layer
 Adds an empty layer at `index` (`0` is the bottom; the length puts it on top)
 and returns it.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-new.svg">
+  <img src="img/layers-new-light.svg" alt="Layers::new, Layers::push, Layers::insert, Layers::len" width="384">
+</picture>
+
+```rust
+// Push goes on top; insert at 0 goes underneath everything.
+let mut layers = Layers::new(24, 4); // one empty layer, index 0
+layers[0].disc(18.0, 8.0, 7.0, BLUE);
+layers.push().disc(26.0, 8.0, 7.0, RED); // on top
+layers.insert(0).disc(34.0, 8.0, 7.0, YELLOW); // at the bottom
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 1, &format!("{}", layers.len()), Font::tiny(), t.ink);
+```
+
 ## `Layers::remove`
 
 ```rust
@@ -613,6 +1075,22 @@ pub fn remove(&mut self, index: usize) -> Option<Layer>
 ```
 
 Removes and returns the layer at `index`, `None` if there is none.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-remove.svg">
+  <img src="img/layers-remove-light.svg" alt="Layers::remove, Layers::swap" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].disc(8.0, 8.0, 5.0, BLUE);
+layers.push().disc(12.0, 8.0, 5.0, RED);
+layers.push().disc(16.0, 8.0, 5.0, YELLOW);
+layers.swap(0, 2); // blue in front of yellow
+c.blit(layers.flatten(), 0, 0);
+layers.remove(1); // no more red
+c.blit(layers.flatten(), 24, 0);
+```
 
 ## `Layers::swap`
 
@@ -622,6 +1100,22 @@ pub fn swap(&mut self, a: usize, b: usize)
 
 Swaps two layers' places in the stack.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-remove.svg">
+  <img src="img/layers-remove-light.svg" alt="Layers::remove, Layers::swap" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+layers[0].disc(8.0, 8.0, 5.0, BLUE);
+layers.push().disc(12.0, 8.0, 5.0, RED);
+layers.push().disc(16.0, 8.0, 5.0, YELLOW);
+layers.swap(0, 2); // blue in front of yellow
+c.blit(layers.flatten(), 0, 0);
+layers.remove(1); // no more red
+c.blit(layers.flatten(), 24, 0);
+```
+
 ## `Layers::get`
 
 ```rust
@@ -629,6 +1123,27 @@ pub fn get(&self, index: usize) -> Option<&Layer>
 ```
 
 The layer at `index`, if any.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-get.svg">
+  <img src="img/layers-get-light.svg" alt="Layers::get, Layers::get_mut, Layers::iter, Layers::iter_mut, Layers::is_empty" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN].into_iter().enumerate() {
+    layers.push().disc(8.0 + i as f32 * 10.0, 10.0, 4.5, color);
+}
+for layer in layers.iter_mut() {
+    layer.effect(Effect::outline(1.0).paint(t.ink));
+}
+if let Some(third) = layers.get_mut(3) {
+    third.visible = false;
+}
+let shown = layers.iter().filter(|l| l.visible).count();
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+```
 
 ## `Layers::get_mut`
 
@@ -638,6 +1153,27 @@ pub fn get_mut(&mut self, index: usize) -> Option<&mut Layer>
 
 The layer at `index` to change, if any.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-get.svg">
+  <img src="img/layers-get-light.svg" alt="Layers::get, Layers::get_mut, Layers::iter, Layers::iter_mut, Layers::is_empty" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN].into_iter().enumerate() {
+    layers.push().disc(8.0 + i as f32 * 10.0, 10.0, 4.5, color);
+}
+for layer in layers.iter_mut() {
+    layer.effect(Effect::outline(1.0).paint(t.ink));
+}
+if let Some(third) = layers.get_mut(3) {
+    third.visible = false;
+}
+let shown = layers.iter().filter(|l| l.visible).count();
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+```
+
 ## `Layers::iter`
 
 ```rust
@@ -645,6 +1181,27 @@ pub fn iter(&self) -> std::slice::Iter<'_, Layer>
 ```
 
 The layers, bottom to top.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-get.svg">
+  <img src="img/layers-get-light.svg" alt="Layers::get, Layers::get_mut, Layers::iter, Layers::iter_mut, Layers::is_empty" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN].into_iter().enumerate() {
+    layers.push().disc(8.0 + i as f32 * 10.0, 10.0, 4.5, color);
+}
+for layer in layers.iter_mut() {
+    layer.effect(Effect::outline(1.0).paint(t.ink));
+}
+if let Some(third) = layers.get_mut(3) {
+    third.visible = false;
+}
+let shown = layers.iter().filter(|l| l.visible).count();
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+```
 
 ## `Layers::iter_mut`
 
@@ -654,6 +1211,27 @@ pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Layer>
 
 The layers to change, bottom to top.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-get.svg">
+  <img src="img/layers-get-light.svg" alt="Layers::get, Layers::get_mut, Layers::iter, Layers::iter_mut, Layers::is_empty" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN].into_iter().enumerate() {
+    layers.push().disc(8.0 + i as f32 * 10.0, 10.0, 4.5, color);
+}
+for layer in layers.iter_mut() {
+    layer.effect(Effect::outline(1.0).paint(t.ink));
+}
+if let Some(third) = layers.get_mut(3) {
+    third.visible = false;
+}
+let shown = layers.iter().filter(|l| l.visible).count();
+c.blit(layers.flatten(), 0, 0);
+c.text(1, 0, &format!("{shown} of {} shown", layers.len()), Font::tiny(), t.ink);
+```
+
 ## `Layers::clear`
 
 ```rust
@@ -662,6 +1240,23 @@ pub fn clear(&mut self)
 
 Clears every layer's dots and text. Keeps the layers, their effects and every
 allocation.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
 
 ## `Layers::flat`
 
@@ -673,6 +1268,23 @@ The flattened canvas as of the last [`flatten`](layer.md#layersflatten); empty b
 the first, stale after a change. For code that only has `&self`, such as a
 ratatui draw closure, after flattening outside it.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
+
 ## `Layers::flatten`
 
 ```rust
@@ -681,6 +1293,23 @@ pub fn flatten(&mut self) -> &Canvas
 
 Composites the layers, bottom to top, into one canvas and returns it. Does
 nothing when nothing changed since the last call.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-flatten.svg">
+  <img src="img/layers-flatten-light.svg" alt="Layers::flatten, Layers::flat, Layers::clear, Layers::cols, Layers::rows, Layers::width, Layers::height" width="384">
+</picture>
+
+```rust
+let mut layers = Layers::new(24, 4);
+let (w, h) = (layers.width() as f32, layers.height() as f32); // 48 × 16 dots
+layers[0].fill_rect(0.0, 0.0, w / 2.0, h, Paint::dithered(t.panel, 0.5));
+layers.push().disc(12.0, 8.0, 6.0, GREEN);
+layers.flatten(); // composited once; `flat` is that result until something changes
+c.blit(layers.flat(), 0, 0);
+layers.clear(); // every layer emptied, the stack and its effects kept
+layers[1].disc(12.0, 8.0, 6.0, RED);
+c.blit(layers.flatten(), 24, 0);
+```
 
 ## `Field` methods
 
@@ -692,6 +1321,23 @@ pub fn new() -> Self
 
 An empty scratch; the first call grows it to fit and later ones reuse it.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/field.svg">
+  <img src="img/field-light.svg" alt="Field, Field::new, Field::effects" width="384">
+</picture>
+
+```rust
+c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+// One scratch for every ring: nothing is allocated after the first.
+let mut field = Field::new();
+let mut mask = Canvas::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN, PURPLE].into_iter().enumerate() {
+    mask.clear();
+    mask.disc(6.0 + 9.0 * i as f32, 8.0, 3.0, color);
+    field.effects(c, &mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(color)]);
+}
+```
+
 ## `Field::effects`
 
 ```rust
@@ -701,6 +1347,23 @@ pub fn effects(&mut self, target: &mut Canvas, mask: &impl Silhouette, effects: 
 Runs `effects` around the silhouette of `mask` on `target`, exactly as
 [`Canvas::effects`](layer.md#canvaseffects) does, with this scratch instead of a fresh one.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/field.svg">
+  <img src="img/field-light.svg" alt="Field, Field::new, Field::effects" width="384">
+</picture>
+
+```rust
+c.fill_rect(0.0, 0.0, 48.0, 16.0, Paint::dithered(t.panel, 0.7));
+// One scratch for every ring: nothing is allocated after the first.
+let mut field = Field::new();
+let mut mask = Canvas::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN, CYAN, PURPLE].into_iter().enumerate() {
+    mask.clear();
+    mask.disc(6.0 + 9.0 * i as f32, 8.0, 3.0, color);
+    field.effects(c, &mask, &[Effect::gap(1.0), Effect::outline(1.0).paint(color)]);
+}
+```
+
 ## `Field::effects_in`
 
 ```rust
@@ -709,6 +1372,30 @@ pub fn effects_in(&mut self, target: &mut Canvas, within: &impl Silhouette, mask
 
 [`effects`](layer.md#fieldeffects) painting only inside `within`; see
 [`Canvas::effects_in`](layer.md#canvaseffects_in).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/field-effects_in.svg">
+  <img src="img/field-effects_in-light.svg" alt="Field::effects_in" width="384">
+</picture>
+
+```rust
+// A kept scratch, running a contact shadow for several figures against one
+// ground: no allocation after the first.
+let mut ground = Mask::new(24, 4);
+ground.draw(|c| c.fill_rect(0.0, 13.0, 48.0, 3.0, t.ink));
+c.stencil(&ground, t.panel);
+let mut field = Field::new();
+let mut figure = Mask::new(24, 4);
+for (i, color) in [RED, YELLOW, GREEN].into_iter().enumerate() {
+    figure.clear();
+    figure.draw(|c| c.fill_ellipse(8.0 + 16.0 * i as f32, 7.0, 6.0, 6.5, t.ink));
+    c.stencil(&figure, color);
+    field.effects_in(c, &figure, &ground, &[Effect::shader(4.0, 0.0, |s| match s.color {
+        Some(Color::Rgb(c)) => Some(Paint::new(c.dim(0.45 + 0.5 * s.dist / 4.0))),
+        _ => None,
+    })]);
+}
+```
 
 ## `Canvas` methods
 

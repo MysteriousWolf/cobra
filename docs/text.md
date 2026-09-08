@@ -57,6 +57,27 @@ let a = Attrs::BOLD | Attrs::UNDERLINE;
 assert!(a.has(Attrs::BOLD) && !a.has(Attrs::ITALIC));
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
+
 ## `TextStyle`
 
 ```rust
@@ -75,14 +96,15 @@ Anything that is a [`Color`](color.md#color) converts into a `TextStyle` foregro
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
-  <img src="img/textstyle-light.svg" alt="TextStyle" width="416">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
 </picture>
 
 ```rust
 c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
-c.print(6, 1, "italic", TextStyle::new(BLUE).italic());
-c.print(13, 1, "under", TextStyle::new(GREEN).underline());
-c.print(19, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
 ```
 
 ## `TextCell`
@@ -95,6 +117,26 @@ One cell of the text layer.
 
 - `pub ch: char` — The character; `'\0'` for an empty cell and [`CONTINUATION`](text.md#textcellcontinuation) for the right half of a double-width one.
 - `pub style: TextStyle` — How to draw it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textcell.svg">
+  <img src="img/textcell-light.svg" alt="TextCell, TextCell::CONTINUATION, TextCell::is_empty, TextCell::is_continuation, Canvas::text_cell" width="192">
+</picture>
+
+```rust
+// A wide character takes two cells: its own and a continuation. Under each
+// cell, what `text_cell` reports about it: empty, a character, or the
+// right half of one.
+c.print(1, 0, "a日b", t.ink);
+for col in 0..6 {
+    let color = match c.text_cell(col, 0) {
+        None => t.panel,
+        Some(cell) if cell.is_continuation() => ORANGE,
+        Some(_) => GREEN,
+    };
+    c.fill_rect(col as f32 * 2.0, 5.0, 2.0, 3.0, color);
+}
+```
 
 ## `Align`
 
@@ -128,6 +170,23 @@ pub struct Wrap<'a>
 
 Iterator of wrapped lines; see [`wrap`](text.md#wrap).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/wrap.svg">
+  <img src="img/wrap-light.svg" alt="wrap, Wrap, width, measure, char_width" width="384">
+</picture>
+
+```rust
+// Lines wrapped at spaces to a width in cells, each with a bar as wide as
+// `width` says it is: the 日本 counts double.
+let paragraph = "Lines wrap at spaces; 日本 is wide.";
+for (i, line) in text::wrap(paragraph, 14).enumerate() {
+    c.print(1, i as i32, line, t.ink);
+    c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
+}
+let (w, lines) = text::measure(paragraph); // unwrapped
+c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+```
+
 ## `char_width`
 
 ```rust
@@ -140,6 +199,23 @@ East Asian scripts and emoji, `1` otherwise.
 This is the common part of Unicode's East Asian Width, coarse enough to be a
 handful of range checks and right for everything a terminal usually shows.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/wrap.svg">
+  <img src="img/wrap-light.svg" alt="wrap, Wrap, width, measure, char_width" width="384">
+</picture>
+
+```rust
+// Lines wrapped at spaces to a width in cells, each with a bar as wide as
+// `width` says it is: the 日本 counts double.
+let paragraph = "Lines wrap at spaces; 日本 is wide.";
+for (i, line) in text::wrap(paragraph, 14).enumerate() {
+    c.print(1, i as i32, line, t.ink);
+    c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
+}
+let (w, lines) = text::measure(paragraph); // unwrapped
+c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+```
+
 ## `width`
 
 ```rust
@@ -148,6 +224,23 @@ pub fn width(text: &str) -> i32
 
 Width of `text` in cells: the widest of its newline-separated lines.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/wrap.svg">
+  <img src="img/wrap-light.svg" alt="wrap, Wrap, width, measure, char_width" width="384">
+</picture>
+
+```rust
+// Lines wrapped at spaces to a width in cells, each with a bar as wide as
+// `width` says it is: the 日本 counts double.
+let paragraph = "Lines wrap at spaces; 日本 is wide.";
+for (i, line) in text::wrap(paragraph, 14).enumerate() {
+    c.print(1, i as i32, line, t.ink);
+    c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
+}
+let (w, lines) = text::measure(paragraph); // unwrapped
+c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+```
+
 ## `measure`
 
 ```rust
@@ -155,6 +248,23 @@ pub fn measure(text: &str) -> (i32, i32)
 ```
 
 Size of `text` in cells, `(width, lines)`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/wrap.svg">
+  <img src="img/wrap-light.svg" alt="wrap, Wrap, width, measure, char_width" width="384">
+</picture>
+
+```rust
+// Lines wrapped at spaces to a width in cells, each with a bar as wide as
+// `width` says it is: the 日本 counts double.
+let paragraph = "Lines wrap at spaces; 日本 is wide.";
+for (i, line) in text::wrap(paragraph, 14).enumerate() {
+    c.print(1, i as i32, line, t.ink);
+    c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
+}
+let (w, lines) = text::measure(paragraph); // unwrapped
+c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+```
 
 ## `wrap`
 
@@ -173,6 +283,23 @@ let lines: Vec<&str> = wrap("the quick brown fox", 9).collect();
 assert_eq!(lines, ["the quick", "brown fox"]);
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/wrap.svg">
+  <img src="img/wrap-light.svg" alt="wrap, Wrap, width, measure, char_width" width="384">
+</picture>
+
+```rust
+// Lines wrapped at spaces to a width in cells, each with a bar as wide as
+// `width` says it is: the 日本 counts double.
+let paragraph = "Lines wrap at spaces; 日本 is wide.";
+for (i, line) in text::wrap(paragraph, 14).enumerate() {
+    c.print(1, i as i32, line, t.ink);
+    c.fill_rect(32.0, i as f32 * 4.0 + 1.0, text::width(line) as f32, 2.0, BLUE);
+}
+let (w, lines) = text::measure(paragraph); // unwrapped
+c.text(32, 13, &format!("{w}x{lines}"), Font::tiny(), t.panel);
+```
+
 ## `Attrs` methods
 
 ## `Attrs::NONE`
@@ -183,6 +310,27 @@ pub const NONE: Attrs = Attrs(0)
 
 No attributes.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
+
 ## `Attrs::BOLD`
 
 ```rust
@@ -190,6 +338,27 @@ pub const BOLD: Attrs = Attrs(1)
 ```
 
 `SGR 1`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
 
 ## `Attrs::DIM`
 
@@ -199,6 +368,27 @@ pub const DIM: Attrs = Attrs(2)
 
 `SGR 2`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
+
 ## `Attrs::ITALIC`
 
 ```rust
@@ -206,6 +396,27 @@ pub const ITALIC: Attrs = Attrs(4)
 ```
 
 `SGR 3`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
 
 ## `Attrs::UNDERLINE`
 
@@ -215,6 +426,27 @@ pub const UNDERLINE: Attrs = Attrs(8)
 
 `SGR 4`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
+
 ## `Attrs::REVERSE`
 
 ```rust
@@ -223,6 +455,27 @@ pub const REVERSE: Attrs = Attrs(16)
 
 `SGR 7`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
+
 ## `Attrs::has`
 
 ```rust
@@ -230,6 +483,27 @@ pub const fn has(self, other: Attrs) -> bool
 ```
 
 Whether every bit of `other` is set.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
 
 ## `TextStyle` methods
 
@@ -241,6 +515,19 @@ pub fn new(fg: impl Into<Color>) -> Self
 
 Style with `fg` as its ink.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
+</picture>
+
+```rust
+c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+```
+
 ## `TextStyle::on`
 
 ```rust
@@ -248,6 +535,19 @@ pub fn on(mut self, bg: impl Into<Color>) -> Self
 ```
 
 Sets the background.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
+</picture>
+
+```rust
+c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+```
 
 ## `TextStyle::with`
 
@@ -257,6 +557,27 @@ pub fn with(mut self, attrs: Attrs) -> Self
 
 Adds attributes.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/attrs.svg">
+  <img src="img/attrs-light.svg" alt="Attrs, Attrs::NONE, Attrs::BOLD, Attrs::DIM, Attrs::ITALIC, Attrs::UNDERLINE, Attrs::REVERSE, Attrs::has, TextStyle::with" width="512">
+</picture>
+
+```rust
+let all = [
+    ("none", Attrs::NONE),
+    ("bold", Attrs::BOLD),
+    ("dim", Attrs::DIM),
+    ("italic", Attrs::ITALIC),
+    ("under", Attrs::UNDERLINE),
+    ("rev", Attrs::REVERSE),
+];
+let mut col = 1;
+for (name, attrs) in all {
+    let ink = if attrs.has(Attrs::REVERSE) { RED } else { t.ink };
+    col += c.print(col, 1, name, TextStyle::new(ink).with(attrs)) + 1;
+}
+```
+
 ## `TextStyle::bold`
 
 ```rust
@@ -264,6 +585,19 @@ pub fn bold(self) -> Self
 ```
 
 Adds [`Attrs::BOLD`](text.md#attrsbold).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
+</picture>
+
+```rust
+c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+```
 
 ## `TextStyle::dim`
 
@@ -273,6 +607,19 @@ pub fn dim(self) -> Self
 
 Adds [`Attrs::DIM`](text.md#attrsdim).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
+</picture>
+
+```rust
+c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+```
+
 ## `TextStyle::italic`
 
 ```rust
@@ -281,6 +628,19 @@ pub fn italic(self) -> Self
 
 Adds [`Attrs::ITALIC`](text.md#attrsitalic).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
+</picture>
+
+```rust
+c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+```
+
 ## `TextStyle::underline`
 
 ```rust
@@ -288,6 +648,19 @@ pub fn underline(self) -> Self
 ```
 
 Adds [`Attrs::UNDERLINE`](text.md#attrsunderline).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textstyle.svg">
+  <img src="img/textstyle-light.svg" alt="TextStyle, TextStyle::new, TextStyle::on, TextStyle::bold, TextStyle::dim, TextStyle::italic, TextStyle::underline" width="480">
+</picture>
+
+```rust
+c.print(1, 1, "bold", TextStyle::new(t.ink).bold());
+c.print(6, 1, "dim", TextStyle::new(t.ink).dim());
+c.print(10, 1, "italic", TextStyle::new(BLUE).italic());
+c.print(17, 1, "under", TextStyle::new(GREEN).underline());
+c.print(23, 1, "on bg", TextStyle::new(t.bg).on(RED).with(Attrs::BOLD));
+```
 
 ## `TextCell` methods
 
@@ -299,6 +672,26 @@ pub const CONTINUATION: char = '\u{1}'
 
 Placeholder in the cell that a double-width character spills into.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textcell.svg">
+  <img src="img/textcell-light.svg" alt="TextCell, TextCell::CONTINUATION, TextCell::is_empty, TextCell::is_continuation, Canvas::text_cell" width="192">
+</picture>
+
+```rust
+// A wide character takes two cells: its own and a continuation. Under each
+// cell, what `text_cell` reports about it: empty, a character, or the
+// right half of one.
+c.print(1, 0, "a日b", t.ink);
+for col in 0..6 {
+    let color = match c.text_cell(col, 0) {
+        None => t.panel,
+        Some(cell) if cell.is_continuation() => ORANGE,
+        Some(_) => GREEN,
+    };
+    c.fill_rect(col as f32 * 2.0, 5.0, 2.0, 3.0, color);
+}
+```
+
 ## `TextCell::is_empty`
 
 ```rust
@@ -307,6 +700,26 @@ pub const fn is_empty(&self) -> bool
 
 Whether no character was printed here.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textcell.svg">
+  <img src="img/textcell-light.svg" alt="TextCell, TextCell::CONTINUATION, TextCell::is_empty, TextCell::is_continuation, Canvas::text_cell" width="192">
+</picture>
+
+```rust
+// A wide character takes two cells: its own and a continuation. Under each
+// cell, what `text_cell` reports about it: empty, a character, or the
+// right half of one.
+c.print(1, 0, "a日b", t.ink);
+for col in 0..6 {
+    let color = match c.text_cell(col, 0) {
+        None => t.panel,
+        Some(cell) if cell.is_continuation() => ORANGE,
+        Some(_) => GREEN,
+    };
+    c.fill_rect(col as f32 * 2.0, 5.0, 2.0, 3.0, color);
+}
+```
+
 ## `TextCell::is_continuation`
 
 ```rust
@@ -314,6 +727,26 @@ pub const fn is_continuation(&self) -> bool
 ```
 
 Whether this is the right half of a double-width character.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textcell.svg">
+  <img src="img/textcell-light.svg" alt="TextCell, TextCell::CONTINUATION, TextCell::is_empty, TextCell::is_continuation, Canvas::text_cell" width="192">
+</picture>
+
+```rust
+// A wide character takes two cells: its own and a continuation. Under each
+// cell, what `text_cell` reports about it: empty, a character, or the
+// right half of one.
+c.print(1, 0, "a日b", t.ink);
+for col in 0..6 {
+    let color = match c.text_cell(col, 0) {
+        None => t.panel,
+        Some(cell) if cell.is_continuation() => ORANGE,
+        Some(_) => GREEN,
+    };
+    c.fill_rect(col as f32 * 2.0, 5.0, 2.0, 3.0, color);
+}
+```
 
 ## `Canvas` methods
 
@@ -369,6 +802,26 @@ pub fn text_cell(&self, col: i32, row: i32) -> Option<TextCell>
 The text-layer cell at `(col, row)`, `None` when nothing was printed there or
 the cell is off-canvas. Continuation cells (see [`TextCell`](text.md#textcell)) come back too.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/textcell.svg">
+  <img src="img/textcell-light.svg" alt="TextCell, TextCell::CONTINUATION, TextCell::is_empty, TextCell::is_continuation, Canvas::text_cell" width="192">
+</picture>
+
+```rust
+// A wide character takes two cells: its own and a continuation. Under each
+// cell, what `text_cell` reports about it: empty, a character, or the
+// right half of one.
+c.print(1, 0, "a日b", t.ink);
+for col in 0..6 {
+    let color = match c.text_cell(col, 0) {
+        None => t.panel,
+        Some(cell) if cell.is_continuation() => ORANGE,
+        Some(_) => GREEN,
+    };
+    c.fill_rect(col as f32 * 2.0, 5.0, 2.0, 3.0, color);
+}
+```
+
 ## `Canvas::erase_text`
 
 ```rust
@@ -378,6 +831,20 @@ pub fn erase_text(&mut self, col: i32, row: i32, cells: i32)
 Removes `cells` characters of the text layer from `(col, row)` rightwards, so
 the dots underneath show again.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-erase_text.svg">
+  <img src="img/canvas-erase_text-light.svg" alt="Canvas::erase_text, Canvas::clear_text, Canvas::has_text" width="384">
+</picture>
+
+```rust
+c.fill_rect(0.0, 0.0, 48.0, 12.0, Paint::pattern(t.panel, Pattern::Checker(2)));
+c.print(1, 1, "everything here goes", t.ink);
+c.clear_text();
+c.print(1, 0, "erase the middle", t.ink);
+c.erase_text(7, 0, 4); // the dots show again there
+c.print(1, 2, if c.has_text() { "has text" } else { "no text" }, t.ink);
+```
+
 ## `Canvas::clear_text`
 
 ```rust
@@ -386,6 +853,20 @@ pub fn clear_text(&mut self)
 
 Empties the text layer, keeping the dots and the allocation.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-erase_text.svg">
+  <img src="img/canvas-erase_text-light.svg" alt="Canvas::erase_text, Canvas::clear_text, Canvas::has_text" width="384">
+</picture>
+
+```rust
+c.fill_rect(0.0, 0.0, 48.0, 12.0, Paint::pattern(t.panel, Pattern::Checker(2)));
+c.print(1, 1, "everything here goes", t.ink);
+c.clear_text();
+c.print(1, 0, "erase the middle", t.ink);
+c.erase_text(7, 0, 4); // the dots show again there
+c.print(1, 2, if c.has_text() { "has text" } else { "no text" }, t.ink);
+```
+
 ## `Canvas::has_text`
 
 ```rust
@@ -393,6 +874,20 @@ pub fn has_text(&self) -> bool
 ```
 
 Whether anything has been printed on the text layer.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/canvas-erase_text.svg">
+  <img src="img/canvas-erase_text-light.svg" alt="Canvas::erase_text, Canvas::clear_text, Canvas::has_text" width="384">
+</picture>
+
+```rust
+c.fill_rect(0.0, 0.0, 48.0, 12.0, Paint::pattern(t.panel, Pattern::Checker(2)));
+c.print(1, 1, "everything here goes", t.ink);
+c.clear_text();
+c.print(1, 0, "erase the middle", t.ink);
+c.erase_text(7, 0, 4); // the dots show again there
+c.print(1, 2, if c.has_text() { "has text" } else { "no text" }, t.ink);
+```
 
 [Index](README.md) · [canvas](canvas.md) · [draw](draw.md) · [path](path.md) · [mask](mask.md) · [transform](transform.md) · [layer](layer.md) · [bubble](bubble.md) · [font](font.md) · **text** · [color](color.md) · [render](render.md) · [term](term.md) · [export](export.md) · [ratatui](ratatui.md)
 

@@ -1,7 +1,8 @@
 //! The dot grid.
 
+use crate::render::Quantizer;
 use crate::text::TextCell;
-use crate::{Color, Paint, Transform};
+use crate::{Color, Depth, Paint, Palette, Transform};
 
 /// Braille bit for dot `(dx, dy)` inside a cell, indexed `[dy][dx]`.
 ///
@@ -31,6 +32,12 @@ impl Cell {
     #[inline]
     pub fn glyph(&self) -> char {
         braille(self.bits)
+    }
+
+    /// Whether dot `(dx, dy)` of the cell (`dx` in `0..2`, `dy` in `0..4`) is set.
+    #[inline]
+    pub fn dot(&self, dx: u16, dy: u16) -> bool {
+        dx < DOTS_X && dy < DOTS_Y && self.bits & BITS[dy as usize][dx as usize] != 0
     }
 }
 
@@ -105,8 +112,9 @@ impl Canvas {
     /// Draws everything in `f` through `t`: the coordinates every primitive takes
     /// are local, and `t` says where they land. Nested calls compose, inner first,
     /// so a hand drawn inside an arm drawn inside a body moves with all three.
-    /// Whole-cell operations ([`print`](Self::print), [`span`](Self::span),
-    /// [`set`](Self::set) and the mask operations) are not transformed.
+    /// [`set`](Self::set) and [`unset`](Self::unset) map their dot through it too;
+    /// whole-cell operations ([`print`](Self::print), [`span`](Self::span), the
+    /// mask operations) and reads ([`get`](Self::get)) are in canvas coordinates.
     ///
     /// A translation or a flip is exact; under a rotation or a scale, boxes,
     /// ellipses and rings are drawn as paths, and stroke widths scale with the
@@ -134,9 +142,17 @@ impl Canvas {
         self.transform
     }
 
-    /// Notes that dots in `x0..x1 × y0..y1` may have been written.
+    /// Notes that dots in `x0..x1 × y0..y1` may have been written. The box is
+    /// clipped to the canvas here, once, so a caller can hand in the box its
+    /// geometry makes (a line to a point off the canvas, say) and the bound never
+    /// reaches past the dots that exist.
     #[inline]
     pub(crate) fn mark(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
+        let (x0, y0) = (x0.max(0), y0.max(0));
+        let (x1, y1) = (x1.min(self.width()), y1.min(self.height()));
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
         self.dirty = Some(match self.dirty {
             Some((a, b, c, d)) => (a.min(x0), b.min(y0), c.max(x1), d.max(y1)),
             None => (x0, y0, x1, y1),
@@ -224,15 +240,17 @@ impl Canvas {
         }
     }
 
-    /// Unsets dot `(x, y)`.
+    /// Unsets dot `(x, y)`; like [`set`](Self::set), under the current transform.
     #[inline]
     pub fn unset(&mut self, x: i32, y: i32) {
+        let (x, y) = self.map_dot(x, y);
         if let Some(i) = self.index(x, y) {
             self.dots[i] = 0;
         }
     }
 
-    /// The colour of dot `(x, y)`, `None` if unset or out of range.
+    /// The colour of dot `(x, y)`, `None` if unset or out of range. Reads are in
+    /// canvas coordinates: the transform of [`with`](Self::with) is not applied.
     #[inline]
     pub fn get(&self, x: i32, y: i32) -> Option<Color> {
         let v = self.index(x, y).map(|i| self.dots[i])?;
@@ -374,6 +392,85 @@ impl Canvas {
         (0..self.rows).flat_map(move |r| (0..self.cols).map(move |c| self.cell(c, r)))
     }
 
+    /// The canvas as the text protocol shows it on a terminal of `depth`: every dot
+    /// first quantised to the colours the terminal has, then every set dot of a cell
+    /// in the cell's one dominant colour, since a glyph can only have one. Printed
+    /// characters are kept, their styles quantised the same way. Render this on a
+    /// graphical terminal to see what users of plain ones will get, or compare it
+    /// with the original to judge a colour scheme.
+    ///
+    /// ```
+    /// use cobra::{Canvas, Color, Depth, Palette, Rgb};
+    ///
+    /// let mut canvas = Canvas::new(2, 1);
+    /// canvas.set(0, 0, Rgb::hex(0xff0000));
+    /// canvas.set(1, 0, Rgb::hex(0x0000ff));
+    /// canvas.set(0, 1, Rgb::hex(0x0000ff));
+    /// let text = canvas.fallback(Depth::Ansi16, &Palette::default());
+    /// assert_eq!(text.get(0, 0), Some(Color::Indexed(4)), "blue outvoted red, and became ANSI blue");
+    /// ```
+    pub fn fallback(&self, depth: Depth, palette: &Palette) -> Canvas {
+        let mut out = Canvas::new(self.cols, self.rows);
+        let mut q = Quantizer::new(depth, palette);
+        for row in 0..self.rows {
+            for col in 0..self.cols {
+                let cell = q.cell(self, col, row);
+                let Some(color) = cell.color else { continue };
+                for dy in 0..DOTS_Y {
+                    for dx in 0..DOTS_X {
+                        if cell.dot(dx, dy) {
+                            out.set((col * DOTS_X + dx) as i32, (row * DOTS_Y + dy) as i32, color);
+                        }
+                    }
+                }
+            }
+        }
+        if self.has_text() {
+            out.text = self.text.iter().map(|cell| TextCell { style: q.style(cell.style), ..*cell }).collect();
+        }
+        out
+    }
+
+    /// Copies `src` onto this canvas with its top-left dot at `(x, y)`: every set dot
+    /// of `src`, and every printed character, which lands in the cell containing
+    /// its top-left dot. Unset dots of `src` leave what is here alone, so a sprite
+    /// drawn once is placed anywhere at the cost of copying it. Not transformed by
+    /// [`with`](Self::with); dots that land off the canvas are dropped.
+    pub fn blit(&mut self, src: &Canvas, x: i32, y: i32) {
+        if let Some((x0, y0, x1, y1)) = src.dot_bounds() {
+            let (dx0, dy0) = ((x0 + x).max(0), (y0 + y).max(0));
+            let (dx1, dy1) = ((x1 + x).min(self.width()), (y1 + y).min(self.height()));
+            if dx0 < dx1 && dy0 < dy1 {
+                self.mark(dx0, dy0, dx1, dy1);
+                let (sw, w) = (src.width() as usize, self.width() as usize);
+                for dy in dy0..dy1 {
+                    let from = &src.dots[(dy - y) as usize * sw + (dx0 - x) as usize..][..(dx1 - dx0) as usize];
+                    let to = &mut self.dots[dy as usize * w + dx0 as usize..][..(dx1 - dx0) as usize];
+                    for (t, &f) in to.iter_mut().zip(from) {
+                        if f != 0 {
+                            *t = f;
+                        }
+                    }
+                }
+            }
+        }
+        if src.has_text() {
+            let (dcol, drow) = (x.div_euclid(DOTS_X as i32), y.div_euclid(DOTS_Y as i32));
+            for row in 0..src.rows as i32 {
+                for col in 0..src.cols as i32 {
+                    if let Some(cell) = src.text_cell(col, row)
+                        && !cell.is_continuation()
+                    {
+                        self.put(col + dcol, row + drow, cell);
+                        if crate::text::char_width(cell.ch) == 2 {
+                            self.put(col + dcol + 1, row + drow, TextCell { ch: TextCell::CONTINUATION, ..cell });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Plain text, one line per row, no colour: braille glyphs for the dots, and the
     /// real character wherever one was [printed](Self::print). This is what a user gets
     /// when they copy the canvas out of a terminal running the text fallback.
@@ -441,10 +538,85 @@ mod tests {
     }
 
     #[test]
+    fn a_line_off_the_canvas_keeps_the_written_box_on_it() {
+        // `line` marks the box its endpoints make; off-canvas endpoints must not
+        // leave that box outside the dots, or `clear` and the bounds scan index past
+        // them (a panic in debug, the wrong slice in release).
+        let mut c = Canvas::new(10, 5);
+        c.line(-5, 2, 3, 2, Rgb::hex(0xffffff));
+        c.line(15, 30, 25, -9, Rgb::hex(0xffffff));
+        assert_eq!(c.dirty, Some((0, 0, 20, 20)), "clamped to the canvas");
+        assert!(c.dot_bounds().is_some_and(|(x0, y0, x1, y1)| x0 >= 0 && y0 >= 0 && x1 <= 20 && y1 <= 20));
+        c.clear();
+        assert!(c.cells().all(|cell| cell.bits == 0));
+        assert_eq!(c.dirty, None);
+        // A line entirely off the canvas writes nothing and marks nothing.
+        c.line(-9, -9, -2, -3, Rgb::hex(0xffffff));
+        assert_eq!(c.dirty, None);
+        c.clear();
+    }
+
+    #[test]
     fn line_and_text() {
         let mut c = Canvas::new(2, 1);
         c.line(0, 0, 3, 0, Rgb::hex(0xffffff));
         assert_eq!(c.to_text(), "⠉⠉\n");
+    }
+}
+
+#[cfg(test)]
+mod copy_tests {
+    use super::*;
+    use crate::Rgb;
+
+    #[test]
+    fn the_fallback_gives_a_cell_one_colour() {
+        let (red, blue) = (Rgb::hex(0xff0000), Rgb::hex(0x0000ff));
+        let mut c = Canvas::new(2, 1);
+        c.set(0, 0, red);
+        c.set(1, 0, blue);
+        c.set(0, 1, blue);
+        c.set(2, 0, red);
+        c.print(1, 0, "x", crate::TextStyle::new(red).on(blue));
+        let f = c.fallback(Depth::TrueColor, &Palette::default());
+        assert_eq!(f.get(0, 0), Some(Color::Rgb(blue)), "the dominant colour");
+        assert_eq!(f.get(1, 0), Some(Color::Rgb(blue)));
+        assert_eq!(f.get(1, 1), None, "unset dots stay unset");
+        assert_eq!(f.get(2, 0), Some(Color::Rgb(red)));
+        assert_eq!(f.cell(0, 0).bits, c.cell(0, 0).bits, "the glyphs are the same");
+        assert_eq!(f.text_cell(1, 0).unwrap().ch, 'x');
+        let q = c.fallback(Depth::Ansi16, &Palette::default());
+        assert_eq!(q.get(0, 0), Some(Color::Indexed(4)), "and it became ANSI blue");
+        assert_eq!(q.text_cell(1, 0).unwrap().style.fg, Some(Color::Indexed(9)), "text is quantised too");
+        assert_eq!(c.fallback(Depth::Mono, &Palette::default()).get(0, 0), Some(Color::Foreground));
+        assert!(Canvas::new(3, 3).fallback(Depth::Ansi256, &Palette::default()).cells().all(|c| c.bits == 0));
+    }
+
+    #[test]
+    fn blit_copies_set_dots_and_text() {
+        let mut sprite = Canvas::new(2, 1);
+        sprite.fill_rect(0.0, 0.0, 4.0, 4.0, Rgb::hex(1));
+        sprite.unset(1, 1);
+        sprite.print(0, 0, "ab", Rgb::hex(2));
+        let mut c = Canvas::new(4, 2);
+        c.fill_rect(0.0, 0.0, 8.0, 8.0, Rgb::hex(3));
+        c.blit(&sprite, 3, 2);
+        assert_eq!(c.get(3, 2), Some(Color::Rgb(Rgb::hex(1))));
+        assert_eq!(c.get(6, 5), Some(Color::Rgb(Rgb::hex(1))));
+        assert_eq!(c.get(4, 3), Some(Color::Rgb(Rgb::hex(3))), "an unset dot of the sprite shows what was there");
+        assert_eq!(c.get(7, 2), Some(Color::Rgb(Rgb::hex(3))));
+        assert_eq!(c.text_cell(1, 0).map(|t| t.ch), Some('a'), "text lands in the cell of its top-left dot");
+        assert_eq!(c.text_cell(2, 0).map(|t| t.ch), Some('b'));
+        // Off the canvas is clipped, and a blit marks what it wrote so `clear` finds it.
+        let mut edge = Canvas::new(2, 1);
+        edge.blit(&sprite, -2, -1);
+        assert_eq!(edge.get(1, 2), Some(Color::Rgb(Rgb::hex(1))));
+        assert_eq!(edge.get(2, 0), None);
+        edge.clear();
+        assert!(edge.cells().all(|c| c.bits == 0) && !edge.has_text());
+        let mut far = Canvas::new(2, 1);
+        far.blit(&sprite, 50, 50);
+        assert_eq!(far.dirty, None);
     }
 }
 

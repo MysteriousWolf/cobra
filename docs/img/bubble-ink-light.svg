@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" width="300" height="100">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<g fill="#58a6ff"><circle cx="172.5" cy="22.5" r="2.125"/><circle cx="177.5" cy="22.5" r="2.125"/><circle cx="182.5" cy="22.5" r="2.125"/><circle cx="187.5" cy="22.5" r="2.125"/><circle cx="192.5" cy="22.5" r="2.125"/><circle cx="197.5" cy="22.5" r="2.125"/><circle cx="202.5" cy="22.5" r="2.125"/><circle cx="207.5" cy="22.5" r="2.125"/><circle cx="212.5" cy="22.5" r="2.125"/><circle cx="217.5" cy="22.5" r="2.125"/><circle cx="222.5" cy="22.5" r="2.125"/><circle cx="227.5" cy="22.5" r="2.125"/><circle cx="232.5" cy="22.5" r="2.125"/><circle cx="237.5" cy="22.5" r="2.125"/><circle cx="172.5" cy="27.5" r="2.125"/><circle cx="237.5" cy="27.5" r="2.125"/><circle cx="172.5" cy="32.5" r="2.125"/><circle cx="237.5" cy="32.5" r="2.125"/><circle cx="172.5" cy="37.5" r="2.125"/><circle cx="237.5" cy="37.5" r="2.125"/><circle cx="172.5" cy="42.5" r="2.125"/><circle cx="237.5" cy="42.5" r="2.125"/><circle cx="172.5" cy="47.5" r="2.125"/><circle cx="237.5" cy="47.5" r="2.125"/><circle cx="172.5" cy="52.5" r="2.125"/><circle cx="237.5" cy="52.5" r="2.125"/><circle cx="172.5" cy="57.5" r="2.125"/><circle cx="237.5" cy="57.5" r="2.125"/><circle cx="172.5" cy="62.5" r="2.125"/><circle cx="237.5" cy="62.5" r="2.125"/><circle cx="172.5" cy="67.5" r="2.125"/><circle cx="237.5" cy="67.5" r="2.125"/><circle cx="172.5" cy="72.5" r="2.125"/><circle cx="237.5" cy="72.5" r="2.125"/><circle cx="172.5" cy="77.5" r="2.125"/><circle cx="177.5" cy="77.5" r="2.125"/><circle cx="182.5" cy="77.5" r="2.125"/><circle cx="187.5" cy="77.5" r="2.125"/><circle cx="192.5" cy="77.5" r="2.125"/><circle cx="197.5" cy="77.5" r="2.125"/><circle cx="202.5" cy="77.5" r="2.125"/><circle cx="207.5" cy="77.5" r="2.125"/><circle cx="212.5" cy="77.5" r="2.125"/><circle cx="217.5" cy="77.5" r="2.125"/><circle cx="222.5" cy="77.5" r="2.125"/><circle cx="227.5" cy="77.5" r="2.125"/><circle cx="232.5" cy="77.5" r="2.125"/><circle cx="237.5" cy="77.5" r="2.125"/></g>
+<rect x="20" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="25" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">b</text>
+<rect x="30" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="35" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">o</text>
+<rect x="40" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="45" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">l</text>
+<rect x="50" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="55" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">d</text>
+<rect x="60" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="65" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold"> </text>
+<rect x="70" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="75" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">o</text>
+<rect x="80" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="85" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">n</text>
+<rect x="90" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="95" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold"> </text>
+<rect x="100" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="105" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">r</text>
+<rect x="110" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="115" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">e</text>
+<rect x="120" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="125" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">d</text>
+<text x="185" text-anchor="middle" y="55" font-family="monospace" font-size="16" fill="#58a6ff">p</text>
+<text x="195" text-anchor="middle" y="55" font-family="monospace" font-size="16" fill="#58a6ff">l</text>
+<text x="205" text-anchor="middle" y="55" font-family="monospace" font-size="16" fill="#58a6ff">a</text>
+<text x="215" text-anchor="middle" y="55" font-family="monospace" font-size="16" fill="#58a6ff">i</text>
+<text x="225" text-anchor="middle" y="55" font-family="monospace" font-size="16" fill="#58a6ff">n</text>
+</svg>

@@ -8,7 +8,7 @@ Generated from the source by `cargo run --example docs`: every public item with 
 
 | Page | What is in it | Items |
 |---|---|---|
-| [`canvas`](canvas.md) | The dot grid: cells, dots, colours per dot. | 26 |
+| [`canvas`](canvas.md) | The dot grid: cells, dots, colours per dot. | 29 |
 | [`draw`](draw.md) | Shapes, strokes, paints, patterns, gradients, shaders and masks. | 66 |
 | [`path`](path.md) | Outlines from lines, curves and arcs, filled or stroked. | 22 |
 | [`mask`](mask.md) | Shapes as things: bit masks to build, combine, move, and paint through. | 26 |
@@ -137,7 +137,7 @@ cell-aligned geometry and a transparent background.
 
 ## Every item
 
-- [`canvas`](canvas.md): [`DOTS_X`](canvas.md#dots_x), [`DOTS_Y`](canvas.md#dots_y), [`Cell`](canvas.md#cell), [`Cell::glyph`](canvas.md#cellglyph), [`braille`](canvas.md#braille), [`bayer`](canvas.md#bayer), [`Canvas`](canvas.md#canvas), [`Canvas::new`](canvas.md#canvasnew), [`Canvas::with`](canvas.md#canvaswith), [`Canvas::transform`](canvas.md#canvastransform), [`Canvas::cols`](canvas.md#canvascols), [`Canvas::rows`](canvas.md#canvasrows), [`Canvas::width`](canvas.md#canvaswidth), [`Canvas::height`](canvas.md#canvasheight), [`Canvas::clear`](canvas.md#canvasclear), [`Canvas::set`](canvas.md#canvasset), [`Canvas::set_dithered`](canvas.md#canvasset_dithered), [`Canvas::unset`](canvas.md#canvasunset), [`Canvas::get`](canvas.md#canvasget), [`Canvas::line`](canvas.md#canvasline), [`Canvas::disc`](canvas.md#canvasdisc), [`Canvas::disc_dithered`](canvas.md#canvasdisc_dithered), [`Canvas::clear_disc`](canvas.md#canvasclear_disc), [`Canvas::cell`](canvas.md#canvascell), [`Canvas::cells`](canvas.md#canvascells), [`Canvas::to_text`](canvas.md#canvasto_text)
+- [`canvas`](canvas.md): [`DOTS_X`](canvas.md#dots_x), [`DOTS_Y`](canvas.md#dots_y), [`Cell`](canvas.md#cell), [`Cell::glyph`](canvas.md#cellglyph), [`Cell::dot`](canvas.md#celldot), [`braille`](canvas.md#braille), [`bayer`](canvas.md#bayer), [`Canvas`](canvas.md#canvas), [`Canvas::new`](canvas.md#canvasnew), [`Canvas::with`](canvas.md#canvaswith), [`Canvas::transform`](canvas.md#canvastransform), [`Canvas::cols`](canvas.md#canvascols), [`Canvas::rows`](canvas.md#canvasrows), [`Canvas::width`](canvas.md#canvaswidth), [`Canvas::height`](canvas.md#canvasheight), [`Canvas::clear`](canvas.md#canvasclear), [`Canvas::set`](canvas.md#canvasset), [`Canvas::set_dithered`](canvas.md#canvasset_dithered), [`Canvas::unset`](canvas.md#canvasunset), [`Canvas::get`](canvas.md#canvasget), [`Canvas::line`](canvas.md#canvasline), [`Canvas::disc`](canvas.md#canvasdisc), [`Canvas::disc_dithered`](canvas.md#canvasdisc_dithered), [`Canvas::clear_disc`](canvas.md#canvasclear_disc), [`Canvas::cell`](canvas.md#canvascell), [`Canvas::cells`](canvas.md#canvascells), [`Canvas::fallback`](canvas.md#canvasfallback), [`Canvas::blit`](canvas.md#canvasblit), [`Canvas::to_text`](canvas.md#canvasto_text)
 
 - [`draw`](draw.md): [`Pattern`](draw.md#pattern), [`Pattern::on`](draw.md#patternon), [`Shader`](draw.md#shader), [`Probe`](draw.md#probe), [`Probe::mix`](draw.md#probemix), [`Probe::lit`](draw.md#probelit), [`Paint`](draw.md#paint), [`Paint::new`](draw.md#paintnew), [`Paint::dithered`](draw.md#paintdithered), [`Paint::erase`](draw.md#painterase), [`Paint::pattern`](draw.md#paintpattern), [`Paint::linear`](draw.md#paintlinear), [`Paint::radial`](draw.md#paintradial), [`Paint::edge`](draw.md#paintedge), [`Paint::cel`](draw.md#paintcel), [`Paint::shader`](draw.md#paintshader), [`Paint::dither`](draw.md#paintdither), [`Paint::hashed`](draw.md#painthashed), [`Paint::per_cell`](draw.md#paintper_cell), [`Paint::soften`](draw.md#paintsoften), [`Paint::anchor`](draw.md#paintanchor), [`Paint::color`](draw.md#paintcolor), [`Paint::coverage`](draw.md#paintcoverage), [`Pen`](draw.md#pen), [`Pen::new`](draw.md#pennew), [`Pen::dash`](draw.md#pendash), [`Pen::dotted`](draw.md#pendotted), [`Pen::phase`](draw.md#penphase), [`Point`](draw.md#point), [`Rect`](draw.md#rect), [`Rect::new`](draw.md#rectnew), [`Rect::around`](draw.md#rectaround), [`Rect::right`](draw.md#rectright), [`Rect::bottom`](draw.md#rectbottom), [`Rect::center`](draw.md#rectcenter), [`Rect::contains`](draw.md#rectcontains), [`Rect::inset`](draw.md#rectinset), [`Rect::offset`](draw.md#rectoffset), [`Rect::overlap`](draw.md#rectoverlap), [`Canvas::span`](draw.md#canvasspan), [`Canvas::stencil`](draw.md#canvasstencil), [`Canvas::stencil_in`](draw.md#canvasstencil_in), [`Canvas::clip`](draw.md#canvasclip), [`Canvas::cut`](draw.md#canvascut), [`Canvas::clipped`](draw.md#canvasclipped), [`Canvas::fill_rect`](draw.md#canvasfill_rect), [`Canvas::rect`](draw.md#canvasrect), [`Canvas::fill_ellipse`](draw.md#canvasfill_ellipse), [`Canvas::ellipse`](draw.md#canvasellipse), [`Canvas::arc`](draw.md#canvasarc), [`Canvas::polyline`](draw.md#canvaspolyline), [`Canvas::polygon`](draw.md#canvaspolygon), [`Canvas::fill_polygon`](draw.md#canvasfill_polygon), [`Canvas::fill_path`](draw.md#canvasfill_path), [`Canvas::stroke_path`](draw.md#canvasstroke_path), [`Canvas::bezier`](draw.md#canvasbezier), [`Canvas::spline`](draw.md#canvasspline), [`Canvas::fill_round_rect`](draw.md#canvasfill_round_rect), [`Canvas::round_rect`](draw.md#canvasround_rect), [`Canvas::ring`](draw.md#canvasring), [`Canvas::fill_pie`](draw.md#canvasfill_pie), [`Canvas::fill_ngon`](draw.md#canvasfill_ngon), [`Canvas::ngon`](draw.md#canvasngon), [`Canvas::fill_star`](draw.md#canvasfill_star), [`Canvas::star`](draw.md#canvasstar), [`Canvas::arrow`](draw.md#canvasarrow)
 
@@ -165,3 +165,37 @@ cell-aligned geometry and a transparent background.
 
 - [`ratatui`](ratatui.md): [`Braille`](ratatui.md#braille), [`Braille::new`](ratatui.md#braillenew), [`overlay`](ratatui.md#overlay)
 
+## Without a picture
+
+Every other item is illustrated. These are the plumbing between a canvas and a terminal, where a drawing would show a canvas and say nothing about the item:
+
+- [`Options`](render.md#options): how a frame is sent, not what is in it
+- [`Options::from_env`](render.md#optionsfrom_env): reads `COBRA_DOT`
+- [`Placement`](render.md#placement): where the cursor is, which a file does not have
+- [`Renderer::new`](render.md#renderernew): constructs a renderer; see `Renderer` for what one draws
+- [`Renderer::with_options`](render.md#rendererwith_options): constructs a renderer
+- [`Renderer::terminal`](render.md#rendererterminal): a getter
+- [`Renderer::options`](render.md#rendereroptions): a getter
+- [`Renderer::set_options`](render.md#rendererset_options): a setter
+- [`Renderer::image_id`](render.md#rendererimage_id): a kitty protocol detail
+- [`Renderer::invalidate`](render.md#rendererinvalidate): forgets the last frame sent
+- [`Renderer::render`](render.md#rendererrender): writes a frame to a terminal; `Renderer` shows what it looks like
+- [`Renderer::render_at`](render.md#rendererrender_at): writes a frame at a cursor position
+- [`Renderer::encode`](render.md#rendererencode): the bytes of a frame
+- [`Renderer::encode_view`](render.md#rendererencode_view): the bytes of part of a frame
+- [`Protocol`](term.md#protocol): which escape sequences a terminal speaks
+- [`Protocol::parse`](term.md#protocolparse): parses a name
+- [`Protocol::from_env`](term.md#protocolfrom_env): reads environment variables
+- [`CellSize`](term.md#cellsize): pixels per cell, a property of the terminal
+- [`CellSize::is_known`](term.md#cellsizeis_known): a predicate
+- [`CellSize::parse`](term.md#cellsizeparse): parses `WxH`
+- [`Terminal`](term.md#terminal): what detection learned about the terminal
+- [`Terminal::text`](term.md#terminaltext): a constructor
+- [`Terminal::new`](term.md#terminalnew): a constructor
+- [`Terminal::with_depth`](term.md#terminalwith_depth): a builder; `Depth` shows what each depth looks like
+- [`Terminal::with_palette`](term.md#terminalwith_palette): a builder
+- [`Terminal::is_graphical`](term.md#terminalis_graphical): a predicate
+- [`Terminal::detect`](term.md#terminaldetect): talks to the terminal
+- [`Braille`](ratatui.md#braille): draws into a ratatui buffer, which needs a terminal
+- [`Braille::new`](ratatui.md#braillenew): constructs the widget
+- [`overlay`](ratatui.md#overlay): sends the image after a ratatui frame

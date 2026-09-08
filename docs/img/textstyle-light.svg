@@ -1,28 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 60" width="260" height="60">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 60" width="300" height="60">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <text x="15" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" font-weight="bold">b</text>
 <text x="25" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" font-weight="bold">o</text>
 <text x="35" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" font-weight="bold">l</text>
 <text x="45" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" font-weight="bold">d</text>
-<text x="65" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">i</text>
-<text x="75" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">t</text>
-<text x="85" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">a</text>
-<text x="95" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">l</text>
+<text x="65" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" opacity="0.6">d</text>
+<text x="75" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" opacity="0.6">i</text>
+<text x="85" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#1f2328" opacity="0.6">m</text>
 <text x="105" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">i</text>
-<text x="115" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">c</text>
-<text x="135" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364">u</text>
-<text x="145" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364">n</text>
-<text x="155" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364">d</text>
-<text x="165" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364">e</text>
-<text x="175" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364">r</text>
-<rect x="190" y="20" width="10" height="20" fill="#ff5c7a"/>
-<text x="195" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">o</text>
-<rect x="200" y="20" width="10" height="20" fill="#ff5c7a"/>
-<text x="205" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">n</text>
-<rect x="210" y="20" width="10" height="20" fill="#ff5c7a"/>
-<text x="215" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold"> </text>
-<rect x="220" y="20" width="10" height="20" fill="#ff5c7a"/>
-<text x="225" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">b</text>
+<text x="115" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">t</text>
+<text x="125" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">a</text>
+<text x="135" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">l</text>
+<text x="145" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">i</text>
+<text x="155" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#58a6ff" font-style="italic">c</text>
+<text x="175" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364" text-decoration="underline">u</text>
+<text x="185" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364" text-decoration="underline">n</text>
+<text x="195" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364" text-decoration="underline">d</text>
+<text x="205" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364" text-decoration="underline">e</text>
+<text x="215" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#56d364" text-decoration="underline">r</text>
 <rect x="230" y="20" width="10" height="20" fill="#ff5c7a"/>
-<text x="235" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">g</text>
+<text x="235" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">o</text>
+<rect x="240" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="245" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">n</text>
+<rect x="250" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="255" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold"> </text>
+<rect x="260" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="265" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">b</text>
+<rect x="270" y="20" width="10" height="20" fill="#ff5c7a"/>
+<text x="275" text-anchor="middle" y="35" font-family="monospace" font-size="16" fill="#ffffff" font-weight="bold">g</text>
 </svg>

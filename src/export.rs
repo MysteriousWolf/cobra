@@ -120,7 +120,18 @@ fn svg_text(canvas: &Canvas, style: &Style, s: &mut String) {
     for row in 0..canvas.rows() {
         for col in 0..canvas.cols() {
             let Some(cell) = canvas.text_cell(col as i32, row as i32) else { continue };
-            if let Some(bg) = cell.style.bg {
+            let attrs = cell.style.attrs;
+            // Reverse video swaps the two colours, the terminal's defaults standing in
+            // for the ones that were not set.
+            let (fg, bg) = if attrs.has(crate::Attrs::REVERSE) {
+                (
+                    Some(cell.style.bg.unwrap_or(Color::Rgb(style.palette.background))),
+                    Some(cell.style.fg.unwrap_or(Color::Foreground)),
+                )
+            } else {
+                (cell.style.fg, cell.style.bg)
+            };
+            if let Some(bg) = bg {
                 let _ = writeln!(
                     s,
                     r#"<rect x="{}" y="{}" width="{cw}" height="{ch}" fill="{}"/>"#,
@@ -138,14 +149,16 @@ fn svg_text(canvas: &Canvas, style: &Style, s: &mut String) {
                 '>' => "&gt;".to_string(),
                 ch => ch.to_string(),
             };
-            let weight = if cell.style.attrs.has(crate::Attrs::BOLD) { r#" font-weight="bold""# } else { "" };
-            let italic = if cell.style.attrs.has(crate::Attrs::ITALIC) { r#" font-style="italic""# } else { "" };
+            let weight = if attrs.has(crate::Attrs::BOLD) { r#" font-weight="bold""# } else { "" };
+            let italic = if attrs.has(crate::Attrs::ITALIC) { r#" font-style="italic""# } else { "" };
+            let under = if attrs.has(crate::Attrs::UNDERLINE) { r#" text-decoration="underline""# } else { "" };
+            let dim = if attrs.has(crate::Attrs::DIM) { r#" opacity="0.6""# } else { "" };
             let _ = writeln!(
                 s,
-                r#"<text x="{}" text-anchor="middle" y="{}" font-family="monospace" font-size="{size}" fill="{}"{weight}{italic}>{escaped}</text>"#,
+                r#"<text x="{}" text-anchor="middle" y="{}" font-family="monospace" font-size="{size}" fill="{}"{weight}{italic}{under}{dim}>{escaped}</text>"#,
                 col as f32 * cw + cw / 2.0,
                 (row + 1) as f32 * ch - ch * 0.25,
-                hex(cell.style.fg.unwrap_or(Color::Foreground)),
+                hex(fg.unwrap_or(Color::Foreground)),
             );
         }
     }
@@ -202,6 +215,19 @@ mod tests {
         assert_eq!(s.matches("<g fill=").count(), 2);
         assert!(s.contains(r##"<g fill="#0000ee">"##));
         assert!(s.contains(r#"<circle cx="2.5" cy="2.5" r="1.75"/><circle cx="7.5" cy="2.5" r="1.75"/>"#));
+    }
+
+    #[test]
+    fn svg_text_carries_every_attribute() {
+        let mut c = Canvas::new(4, 1);
+        let style = crate::TextStyle::new(Rgb::hex(0x102030)).underline().dim();
+        c.print(0, 0, "a", style);
+        c.print(1, 0, "b", crate::TextStyle::new(Rgb::hex(0x102030)).with(crate::Attrs::REVERSE));
+        let s = svg(&c, &Style::default());
+        assert!(s.contains(r#"text-decoration="underline""#) && s.contains(r#"opacity="0.6""#), "{s}");
+        // Reverse video: the ink becomes the cell's background and the default background the ink.
+        assert!(s.contains(r##"<rect x="10" y="0" width="10" height="20" fill="#102030"/>"##), "{s}");
+        assert!(s.contains(r##"fill="#000000">b</text>"##), "{s}");
     }
 
     #[test]
