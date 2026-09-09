@@ -424,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "detect")]
     fn flags_from_env() {
         assert_eq!(parse_flag(" ON "), Some(true));
         assert_eq!(parse_flag("1"), Some(true));
