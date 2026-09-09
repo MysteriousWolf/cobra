@@ -33,9 +33,10 @@ pixel size on), and every image is wrapped in tmux's passthrough sequence
 it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
 started from inside tmux inherits `TMUX` without being a pane, and would take the
 wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
-believed: `TERM` settles it when it is one tmux sets (`tmux-*`, `screen-*`), and
-otherwise tmux is asked over its socket whether the pane owns the tty. GNU screen
-passes nothing through and gets text.
+believed: tmux is asked over its socket whether the pane it names owns this
+process's tty, and only when tmux itself cannot be run does `TERM` decide, as a
+pane's is one tmux set (`tmux-*`, `screen-*`). GNU screen passes nothing through
+and gets text.
 
 ## Contents
 
