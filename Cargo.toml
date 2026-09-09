@@ -44,6 +44,10 @@ name = "calibrate"
 required-features = ["detect"]
 
 [[example]]
+name = "detect"
+required-features = ["detect"]
+
+[[example]]
 name = "shapes"
 required-features = ["detect"]
 

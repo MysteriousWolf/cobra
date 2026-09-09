@@ -28,11 +28,14 @@
 //! `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
 //! it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
 //! started from inside tmux inherits `TMUX` without being a pane, and would take the
-//! wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
-//! believed: tmux is asked over its socket whether the pane it names owns this
-//! process's tty, and only when tmux itself cannot be run does `TERM` decide, as a
-//! pane's is one tmux set (`tmux-*`, `screen-*`). GNU screen passes nothing through
-//! and gets text.
+//! wrapped image as an unknown `DCS` (Ghostty crashed on one), so nothing about the
+//! environment is believed on its own: tmux is asked over its socket whether the pane
+//! it names draws on this process's tty, and only that answer makes a pane. `TERM`
+//! never does, since a shell's start-up files may set it long after the terminal did.
+//! Being wrong the other way only costs the images, so a tmux that cannot be run, or
+//! answers about another tty, is not a pane; `COBRA_PASSTHROUGH=1` wraps them anyway
+//! and `COBRA_PASSTHROUGH=0` never does. GNU screen passes nothing through and gets
+//! text.
 
 #[cfg(all(feature = "detect", unix))]
 mod query;
@@ -110,35 +113,43 @@ impl Protocol {
 /// Nor does `TERM`: tmux sets a pane's to `tmux-*` or `screen-*` and a terminal
 /// sets its own, but a shell's start-up files may set it again, and one that
 /// exports `tmux-256color` whenever `TMUX` is set makes the new terminal look like
-/// a pane. So tmux is asked, over the socket named in `TMUX`, whether the pane it
-/// thinks this is has this process's tty, and its answer is final: a socket that
-/// cannot be reached, or a tty that differs, is not a pane. Only when tmux itself
-/// cannot be run (not on `PATH`) does `TERM` decide.
+/// a pane. So tmux itself is asked, over the socket named in `TMUX`, whether the
+/// pane it thinks this is draws on this process's tty, and only that answer makes
+/// a pane: a socket that cannot be reached, a tty that differs, a tmux that cannot
+/// be run at all are all "no". The two mistakes do not cost the same -- guessing
+/// pane wrongly writes a `DCS` at a terminal that never asked for one, guessing
+/// terminal wrongly only drops the images inside tmux, which `COBRA_PASSTHROUGH=1`
+/// brings back -- so the doubtful cases go the cheap way.
+/// A cell edge the window can hold: `size` unless the window's `pixels` divided over
+/// its `cells` is smaller. Zero for either means the window did not say, and `size`
+/// stands.
+#[cfg(all(feature = "detect", unix))]
+fn fit(size: u16, pixels: u16, cells: u16) -> u16 {
+    if pixels == 0 || cells == 0 { size } else { size.min((pixels / cells).max(1)) }
+}
+
 fn in_tmux() -> bool {
     static IN_TMUX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *IN_TMUX.get_or_init(|| {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        in_tmux_given(var("TMUX").as_deref(), &var("TERM").unwrap_or_default(), |tmux| {
+        in_tmux_given(var("TMUX").as_deref(), |tmux| {
             let socket = tmux.split(',').next().unwrap_or(tmux);
-            pane_tty(socket, var("TMUX_PANE").as_deref()).map(|pane| pane.is_some_and(|p| Some(p) == own_tty()))
+            pane_tty(socket, var("TMUX_PANE").as_deref()).is_some_and(|pane| is_own_tty(&pane))
         })
     })
 }
 
 /// The decision behind [`in_tmux`], with the tmux round trip supplied: `ask` answers
-/// whether the pane owns the tty, or `None` when tmux could not be run at all.
-fn in_tmux_given(tmux: Option<&str>, term: &str, ask: impl FnOnce(&str) -> Option<bool>) -> bool {
-    match tmux {
-        None => false,
-        Some(tmux) => ask(tmux).unwrap_or_else(|| term.starts_with("tmux") || term.starts_with("screen")),
-    }
+/// whether the pane tmux names draws on this process's tty. Both halves are needed,
+/// and nothing stands in for the answer.
+fn in_tmux_given(tmux: Option<&str>, ask: impl FnOnce(&str) -> bool) -> bool {
+    tmux.is_some_and(ask)
 }
 
-/// The tty of the tmux pane `pane` (`TMUX_PANE`, or tmux's current pane) on `socket`:
-/// `Some(None)` when tmux ran but had no such pane or socket, `None` when it could
-/// not be run.
+/// The tty of the tmux pane `pane` (`TMUX_PANE`, or tmux's current pane) on `socket`,
+/// `None` when tmux could not be run or knows no such pane or socket.
 #[cfg(all(feature = "detect", unix))]
-fn pane_tty(socket: &str, pane: Option<&str>) -> Option<Option<String>> {
+fn pane_tty(socket: &str, pane: Option<&str>) -> Option<String> {
     let mut cmd = std::process::Command::new("tmux");
     cmd.args(["-S", socket, "display-message", "-p"]);
     if let Some(pane) = pane {
@@ -147,25 +158,41 @@ fn pane_tty(socket: &str, pane: Option<&str>) -> Option<Option<String>> {
     let out =
         cmd.arg("#{pane_tty}").stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
     if !out.status.success() {
-        return Some(None);
+        return None;
     }
-    Some(String::from_utf8(out.stdout).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()))
+    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
 }
 
 #[cfg(not(all(feature = "detect", unix)))]
-fn pane_tty(_socket: &str, _pane: Option<&str>) -> Option<Option<String>> {
+fn pane_tty(_socket: &str, _pane: Option<&str>) -> Option<String> {
     None
 }
 
-/// The tty this process draws on.
+/// Whether `path` names the terminal this process draws on. Compared as devices,
+/// since tmux and `ttyname` need not spell the same terminal the same way, and by
+/// path when either device cannot be read.
 #[cfg(all(feature = "detect", unix))]
-fn own_tty() -> Option<String> {
-    query::tty_name()
+fn is_own_tty(path: &str) -> bool {
+    match (query::tty_device(), query::device_at(path)) {
+        (Some(own), Some(named)) => own == named,
+        _ => query::tty_name().is_some_and(|own| own == path),
+    }
 }
 
 #[cfg(not(all(feature = "detect", unix)))]
-fn own_tty() -> Option<String> {
-    None
+fn is_own_tty(_path: &str) -> bool {
+    false
+}
+
+/// `1|true|yes|on` and `0|false|no|off`, for the environment overrides that switch
+/// something on or off rather than set a value.
+#[cfg(feature = "detect")]
+fn parse_flag(s: &str) -> Option<bool> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 /// Size of one character cell in pixels.
@@ -198,9 +225,9 @@ pub struct Terminal {
     pub protocol: Protocol,
     /// Pixel size of one cell (zero when unknown; then `protocol` is `Text`).
     pub cell: CellSize,
-    /// Terminal width in cells, `0` when unknown.
+    /// Terminal width in cells, `0` when unknown. Images are clipped to it.
     pub cols: u16,
-    /// Terminal height in cells, `0` when unknown.
+    /// Terminal height in cells, `0` when unknown. Images are clipped to it.
     pub rows: u16,
     /// The terminal's colour scheme, used to draw [`Color::Indexed`](crate::Color::Indexed)
     /// and [`Color::Foreground`](crate::Color::Foreground) dots in the image protocols.
@@ -219,10 +246,9 @@ pub struct Terminal {
     ///
     /// tmux hands the wrapped bytes on at wherever its own terminal's cursor is, so
     /// before each image the renderer erases the image's origin cell (`ECH`), which
-    /// is the one thing that makes tmux put that cursor where the pane's is, and it
-    /// clips the image to [`cols`](Self::cols) × [`rows`](Self::rows), the pane: an
-    /// image hanging off the outer screen is drawn by a terminal that never saw the
-    /// pane, and has crashed Ghostty.
+    /// is the one thing that makes tmux put that cursor where the pane's is. The
+    /// image itself is kept inside [`cols`](Self::cols) × [`rows`](Self::rows) here
+    /// as everywhere else, since a picture drawn partly has crashed Ghostty.
     pub passthrough: bool,
 }
 
@@ -287,7 +313,7 @@ impl Terminal {
     /// `COBRA_PALETTE=0` to skip the colour queries.
     ///
     /// Inside tmux (a real pane, not a terminal started from one, which inherits
-    /// `TMUX`; `TERM` or tmux itself tells them apart) there is no round trip to
+    /// `TMUX`; tmux itself is asked which it is) there is no round trip to
     /// the tty: the outer terminal is read from the
     /// environment, the cell size from `TIOCGWINSZ`, and images are marked for
     /// [passthrough](Self::passthrough): under tmux the queries would be answered by tmux
@@ -306,6 +332,12 @@ impl Terminal {
             None if t.is_graphical() => Depth::TrueColor,
             None => Depth::from_env(),
         };
+        // The last word on passthrough. Detection asks tmux and believes nothing else,
+        // which is right for the terminal started inside tmux that must not be sent a
+        // `DCS`, and wrong for the pane whose tmux is not on `PATH`.
+        if let Some(on) = std::env::var("COBRA_PASSTHROUGH").ok().and_then(|s| parse_flag(&s)) {
+            t.passthrough = on && t.is_graphical();
+        }
         t
     }
 
@@ -328,7 +360,12 @@ impl Terminal {
             if !t.cell.is_known()
                 && let Some(c) = probe.cell
             {
-                t.cell = c;
+                // A cell the terminal reports in physical pixels, for a window it
+                // sizes in logical ones, is larger than the window can hold. Believe
+                // the window: an image raised to the larger cell would reach past the
+                // last row, and a picture drawn partly has crashed Ghostty.
+                t.cell =
+                    CellSize { width: fit(c.width, ws.pixels.0, ws.cols), height: fit(c.height, ws.pixels.1, ws.rows) };
             }
             if protocol.is_none() {
                 protocol = Some(if probe.kitty {
@@ -365,6 +402,16 @@ impl Terminal {
 mod tests {
     use super::*;
 
+    #[cfg(all(feature = "detect", unix))]
+    #[test]
+    fn a_cell_larger_than_the_window_is_cut_down_to_it() {
+        assert_eq!(fit(20, 800, 80), 10, "the window holds 10 px per cell, not 20");
+        assert_eq!(fit(8, 800, 80), 8, "a cell that fits is left alone");
+        assert_eq!(fit(20, 0, 80), 20, "a window without pixels says nothing");
+        assert_eq!(fit(20, 800, 0), 20);
+        assert_eq!(fit(20, 40, 80), 1, "never zero, which would mean no protocol at all");
+    }
+
     #[test]
     fn parsing() {
         assert_eq!(Protocol::parse(" Kitty "), Some(Protocol::Kitty));
@@ -384,21 +431,27 @@ mod tests {
 
     #[test]
     fn tmux_is_not_taken_on_its_word() {
-        assert!(!in_tmux_given(None, "tmux-256color", |_| panic!("asked tmux")));
-        // tmux's answer is final, whatever `TERM` says: a terminal started from inside
-        // tmux inherits `TMUX`, and a shell may export `tmux-256color` on top of that.
+        assert!(!in_tmux_given(None, |_| panic!("asked tmux")));
+        // Only tmux's own answer, about the socket `TMUX` names, makes a pane.
         let mut asked = None;
-        assert!(in_tmux_given(Some("/tmp/s,1,0"), "xterm-256color", |t| {
+        assert!(in_tmux_given(Some("/tmp/s,1,0"), |t| {
             asked = Some(t.to_owned());
-            Some(true)
+            true
         }));
         assert_eq!(asked.as_deref(), Some("/tmp/s,1,0"));
-        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "tmux-256color", |_| Some(false)));
-        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "screen-256color", |_| Some(false)));
-        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "xterm-ghostty", |_| Some(false)));
-        // Only when tmux cannot be run at all does `TERM` decide.
-        assert!(in_tmux_given(Some("/tmp/s,1,0"), "tmux-256color", |_| None));
-        assert!(in_tmux_given(Some("/tmp/s,1,0"), "screen-256color", |_| None));
-        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "xterm-ghostty", |_| None));
+        // A pane that draws on another tty is a terminal started from inside tmux,
+        // and a tmux that cannot answer at all says nothing: neither is a pane, so
+        // neither is sent a `DCS` it may not understand.
+        assert!(!in_tmux_given(Some("/tmp/s,1,0"), |_| false));
+    }
+
+    #[test]
+    #[cfg(feature = "detect")]
+    fn flags_from_env() {
+        assert_eq!(parse_flag(" ON "), Some(true));
+        assert_eq!(parse_flag("1"), Some(true));
+        assert_eq!(parse_flag("false"), Some(false));
+        assert_eq!(parse_flag("0"), Some(false));
+        assert_eq!(parse_flag("maybe"), None);
     }
 }

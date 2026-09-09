@@ -11,6 +11,8 @@ pub(super) struct WinSize {
     pub cols: u16,
     pub rows: u16,
     pub cell: CellSize,
+    /// The window in pixels as the ioctl reports it, `(0, 0)` when it does not.
+    pub pixels: (u16, u16),
 }
 
 pub(super) fn is_tty() -> bool {
@@ -30,6 +32,26 @@ pub(super) fn tty_name() -> Option<String> {
     String::from_utf8(buf[..end].to_vec()).ok()
 }
 
+/// The character device this process draws on, as the pair that names a terminal
+/// uniquely, `None` when stdout is not one.
+pub(super) fn tty_device() -> Option<libc::dev_t> {
+    // SAFETY: `stat` is plain-old-data; `fstat` fills it in only when it returns 0.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let ok = unsafe { libc::fstat(libc::STDOUT_FILENO, &mut st) } == 0;
+    (ok && st.st_mode & libc::S_IFMT == libc::S_IFCHR).then_some(st.st_rdev)
+}
+
+/// The character device the file at `path` is, `None` when it is not one or cannot
+/// be read.
+pub(super) fn device_at(path: &str) -> Option<libc::dev_t> {
+    let path = std::ffi::CString::new(path).ok()?;
+    // SAFETY: the path is NUL-terminated and `stat` is plain-old-data, filled in
+    // only when the call returns 0.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let ok = unsafe { libc::stat(path.as_ptr(), &mut st) } == 0;
+    (ok && st.st_mode & libc::S_IFMT == libc::S_IFCHR).then_some(st.st_rdev)
+}
+
 pub(super) fn winsize() -> WinSize {
     // SAFETY: `winsize` is plain-old-data; the ioctl writes into it only on success.
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
@@ -40,7 +62,8 @@ pub(super) fn winsize() -> WinSize {
     } else {
         CellSize::default()
     };
-    WinSize { cols, rows, cell }
+    let pixels = if ok { (ws.ws_xpixel, ws.ws_ypixel) } else { (0, 0) };
+    WinSize { cols, rows, cell, pixels }
 }
 
 #[derive(Default)]

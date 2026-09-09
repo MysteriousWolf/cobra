@@ -145,11 +145,12 @@ impl Renderer {
     pub fn encode_view(&mut self, canvas: &Canvas, placement: Placement, cols: u16, rows: u16) -> &[u8] {
         let (mut cols, mut rows) = (cols.min(canvas.cols()), rows.min(canvas.rows()));
         self.out.clear();
-        if self.term.passthrough && self.term.protocol != Protocol::Text {
-            // Through tmux the image is drawn by a terminal that knows nothing of the
-            // pane, so whatever leaves the pane hangs off the outer screen, where
+        if self.term.protocol != Protocol::Text {
+            // An image that reaches past the last row or column is drawn partly, and
             // partly visible images have crashed Ghostty (ghostty-org/ghostty#4266).
-            // Keep the picture inside the pane.
+            // Through tmux there is a second reason: the image is drawn by a terminal
+            // that knows nothing of the pane, so whatever leaves the pane lands on the
+            // outer screen. Keep the picture inside what is known to be visible.
             let (col, row) = match placement {
                 Placement::At(col, row) => (col, row),
                 Placement::Flow | Placement::Virtual => (0, 0),
@@ -232,15 +233,15 @@ impl Renderer {
             Protocol::Kitty => {
                 let bytes = dists.map(|d| d * 4);
                 crate::encode::deflate::zlib(rgba, &bytes, &mut self.payload);
-                let virt = (placement == Placement::Virtual).then_some((cols, rows));
+                let virt = placement == Placement::Virtual;
                 // Text cells are printed after the image, so on kitty the image has to
                 // sit below the text layer for them to show.
                 let z = if canvas.has_text() { -1 } else { 0 };
-                kitty::frame(&self.payload, w, h, self.id, virt, z, &mut self.scratch, &mut self.out);
+                kitty::frame(&self.payload, w, h, self.id, (cols, rows), virt, z, &mut self.scratch, &mut self.out);
             }
             Protocol::Iterm2 => {
                 crate::encode::png::encode(rgba, w, h, &dists, &mut self.scratch, &mut self.payload);
-                iterm2::frame(&self.payload, w, h, &mut self.out);
+                iterm2::frame(&self.payload, cols, rows, &mut self.out);
             }
             Protocol::Sixel => {
                 crate::encode::sixel::encode(rgba, w as usize, h as usize, &mut self.scratch, &mut self.out);
@@ -331,19 +332,22 @@ mod tests {
     }
 
     #[test]
-    fn passthrough_keeps_the_image_inside_the_pane() {
+    fn images_never_reach_past_the_screen() {
         let cell = CellSize { width: 8, height: 16 };
-        let pane = Terminal { cols: 2, rows: 1, ..Terminal::new(Protocol::Kitty, cell).with_passthrough(true) };
-        let mut r = Renderer::new(pane);
-        let s = String::from_utf8(r.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
-        assert!(s.starts_with("\r\n\x1b[1A"), "room for one row only: {s:?}");
-        assert!(s.contains("s=16,v=16"), "2×1 cells of 8×16 px: {s:?}");
-        let s = String::from_utf8(r.encode(&canvas(), Placement::At(1, 0)).to_vec()).unwrap();
-        assert!(s.contains("s=8,v=16"), "one column left of the pane: {s:?}");
-        assert!(r.encode(&canvas(), Placement::At(2, 0)).is_empty(), "nothing fits, nothing sent");
-        // Without tmux the pane size does not clip: the terminal scrolls for itself.
-        let mut plain = Renderer::new(Terminal { cols: 2, rows: 1, ..Terminal::new(Protocol::Kitty, cell) });
-        let s = String::from_utf8(plain.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
+        for passthrough in [true, false] {
+            let small =
+                Terminal { cols: 2, rows: 1, ..Terminal::new(Protocol::Kitty, cell).with_passthrough(passthrough) };
+            let mut r = Renderer::new(small);
+            let s = String::from_utf8(r.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
+            assert!(s.starts_with("\r\n\x1b[1A"), "room for one row only: {s:?}");
+            assert!(s.contains("s=16,v=16"), "2×1 cells of 8×16 px: {s:?}");
+            let s = String::from_utf8(r.encode(&canvas(), Placement::At(1, 0)).to_vec()).unwrap();
+            assert!(s.contains("s=8,v=16"), "one column left: {s:?}");
+            assert!(r.encode(&canvas(), Placement::At(2, 0)).is_empty(), "nothing fits, nothing sent");
+        }
+        // An unknown screen clips nothing: the whole canvas goes out.
+        let mut unknown = Renderer::new(Terminal::new(Protocol::Kitty, cell));
+        let s = String::from_utf8(unknown.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
         assert!(s.contains("s=24,v=32"), "{s:?}");
     }
 
@@ -422,8 +426,9 @@ mod tests {
         let s = String::from_utf8(k.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
         assert!(s.starts_with("\r\n\r\n\x1b[2A\x1b7\x1b_G"));
         assert!(s.contains("s=24,v=32") && s.contains("o=z") && s.ends_with("\x1b\\\x1b8\r\x1b[2B"));
+        assert!(s.contains("c=3,r=2") && !s.contains("U=1"), "the picture covers its 3×2 cells: {s:?}");
         let v = String::from_utf8(k.encode(&canvas(), Placement::Virtual).to_vec()).unwrap();
-        assert!(v.starts_with("\x1b_G") && v.contains("U=1,c=3,r=2") && v.ends_with("\x1b\\"));
+        assert!(v.starts_with("\x1b_G") && v.contains("c=3,r=2,U=1") && v.ends_with("\x1b\\"));
 
         let mut i = Renderer::new(Terminal::new(Protocol::Iterm2, cell));
         let s = i.encode(&canvas(), Placement::At(0, 0));

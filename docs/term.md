@@ -32,11 +32,14 @@ pixel size on), and every image is wrapped in tmux's passthrough sequence
 `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
 it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
 started from inside tmux inherits `TMUX` without being a pane, and would take the
-wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
-believed: tmux is asked over its socket whether the pane it names owns this
-process's tty, and only when tmux itself cannot be run does `TERM` decide, as a
-pane's is one tmux set (`tmux-*`, `screen-*`). GNU screen passes nothing through
-and gets text.
+wrapped image as an unknown `DCS` (Ghostty crashed on one), so nothing about the
+environment is believed on its own: tmux is asked over its socket whether the pane
+it names draws on this process's tty, and only that answer makes a pane. `TERM`
+never does, since a shell's start-up files may set it long after the terminal did.
+Being wrong the other way only costs the images, so a tmux that cannot be run, or
+answers about another tty, is not a pane; `COBRA_PASSTHROUGH=1` wraps them anyway
+and `COBRA_PASSTHROUGH=0` never does. GNU screen passes nothing through and gets
+text.
 
 ## Contents
 
@@ -81,12 +84,12 @@ What was learned about the terminal.
 
 - `pub protocol: Protocol` — Best protocol available.
 - `pub cell: CellSize` — Pixel size of one cell (zero when unknown; then `protocol` is `Text`).
-- `pub cols: u16` — Terminal width in cells, `0` when unknown.
-- `pub rows: u16` — Terminal height in cells, `0` when unknown.
+- `pub cols: u16` — Terminal width in cells, `0` when unknown. Images are clipped to it.
+- `pub rows: u16` — Terminal height in cells, `0` when unknown. Images are clipped to it.
 - `pub palette: Palette` — The terminal's colour scheme, used to draw [`Color::Indexed`](color.md#color) and [`Color::Foreground`](color.md#color) dots in the image protocols. The xterm defaults until [`detect`](term.md#terminaldetect) learns better.
 - `pub palette_queried: bool` — Whether `palette` was reported by the terminal rather than assumed.
 - `pub depth: Depth` — Colour depth of the text fallback: what [`Color::Rgb`](color.md#color) dots are quantised to when the frame is braille glyphs. Ignored by image protocols.
-- `pub passthrough: bool` — Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the escapes inside doubled), so it reaches the terminal tmux runs in. Set by [`detect`](term.md#terminaldetect) inside tmux; needs `allow-passthrough on` there. Text, cursor movement and printed characters are never wrapped, since tmux has to see those.  tmux hands the wrapped bytes on at wherever its own terminal's cursor is, so before each image the renderer erases the image's origin cell (`ECH`), which is the one thing that makes tmux put that cursor where the pane's is, and it clips the image to [`cols`](term.md#terminal) × [`rows`](term.md#terminal), the pane: an image hanging off the outer screen is drawn by a terminal that never saw the pane, and has crashed Ghostty.
+- `pub passthrough: bool` — Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the escapes inside doubled), so it reaches the terminal tmux runs in. Set by [`detect`](term.md#terminaldetect) inside tmux; needs `allow-passthrough on` there. Text, cursor movement and printed characters are never wrapped, since tmux has to see those.  tmux hands the wrapped bytes on at wherever its own terminal's cursor is, so before each image the renderer erases the image's origin cell (`ECH`), which is the one thing that makes tmux put that cursor where the pane's is. The image itself is kept inside [`cols`](term.md#terminal) × [`rows`](term.md#terminal) here as everywhere else, since a picture drawn partly has crashed Ghostty.
 
 ## `Protocol` methods
 
@@ -200,7 +203,7 @@ milliseconds). Call it once at start-up and keep the result. Set
 `COBRA_PALETTE=0` to skip the colour queries.
 
 Inside tmux (a real pane, not a terminal started from one, which inherits
-`TMUX`; `TERM` or tmux itself tells them apart) there is no round trip to
+`TMUX`; tmux itself is asked which it is) there is no round trip to
 the tty: the outer terminal is read from the
 environment, the cell size from `TIOCGWINSZ`, and images are marked for
 [passthrough](term.md#terminal): under tmux the queries would be answered by tmux
