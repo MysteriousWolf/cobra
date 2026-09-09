@@ -32,11 +32,14 @@ pixel size on), and every image is wrapped in tmux's passthrough sequence
 `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
 it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
 started from inside tmux inherits `TMUX` without being a pane, and would take the
-wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
-believed: tmux is asked over its socket whether the pane it names owns this
-process's tty, and only when tmux itself cannot be run does `TERM` decide, as a
-pane's is one tmux set (`tmux-*`, `screen-*`). GNU screen passes nothing through
-and gets text.
+wrapped image as an unknown `DCS` (Ghostty crashed on one), so nothing about the
+environment is believed on its own: tmux is asked over its socket whether the pane
+it names draws on this process's tty, and only that answer makes a pane. `TERM`
+never does, since a shell's start-up files may set it long after the terminal did.
+Being wrong the other way only costs the images, so a tmux that cannot be run, or
+answers about another tty, is not a pane; `COBRA_PASSTHROUGH=1` wraps them anyway
+and `COBRA_PASSTHROUGH=0` never does. GNU screen passes nothing through and gets
+text.
 
 ## Contents
 
@@ -200,7 +203,7 @@ milliseconds). Call it once at start-up and keep the result. Set
 `COBRA_PALETTE=0` to skip the colour queries.
 
 Inside tmux (a real pane, not a terminal started from one, which inherits
-`TMUX`; `TERM` or tmux itself tells them apart) there is no round trip to
+`TMUX`; tmux itself is asked which it is) there is no round trip to
 the tty: the outer terminal is read from the
 environment, the cell size from `TIOCGWINSZ`, and images are marked for
 [passthrough](term.md#terminal): under tmux the queries would be answered by tmux

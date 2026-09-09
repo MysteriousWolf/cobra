@@ -135,6 +135,7 @@ style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DO
 | `COBRA_DOT` | dot diameter as a fraction of its slot, e.g. `0.8` |
 | `COBRA_PALETTE` | `0` skips the colour-scheme queries |
 | `COBRA_COLORS` | text colour depth: `mono`, `16`, `256` or `true` |
+| `COBRA_PASSTHROUGH` | `1` wraps images for tmux, `0` never does; detection decides otherwise |
 
 Inside tmux the outer terminal is recognised from its environment (Ghostty, kitty,
 WezTerm, iTerm2), the cell size comes from tmux ≥ 3.2, and images are wrapped in tmux's
@@ -143,9 +144,14 @@ they are dropped silently, and `COBRA_PROTOCOL=text` opts out. Each image is pin
 the pane's cursor and clipped to the pane, since tmux would otherwise hand it to the
 outer terminal wherever that terminal's cursor last was, hanging off the screen (which
 crashes Ghostty). A terminal started from inside tmux inherits `TMUX` without being a
-pane, so `TMUX` alone is not believed: tmux is asked over its socket whether the pane
-owns the tty, and `TERM` (`tmux-*`, `screen-*`) decides only when tmux cannot be run.
-GNU screen gets text.
+pane, and a wrapped image would reach it as a `DCS` it never asked for, so nothing about
+the environment is believed on its own: tmux is asked over its socket whether the pane it
+names draws on this process's tty, and only that answer makes a pane. `TERM` never does,
+since a shell's start-up files may set it long after the terminal did. Being wrong the
+other way only costs the images, so anything else — a tmux that cannot be run, an answer
+about another tty — is not a pane, and `COBRA_PASSTHROUGH` overrides the verdict either
+way. `cargo run --example detect` prints it, with what it was decided from. GNU screen
+gets text.
 Off unix there are no tty queries. A printed character takes its whole cell. Layers are
 flattened to dots before anything is sent, so a soft shadow is a dithered one.
 `Canvas::fallback` gives you the canvas as a plain terminal will show it, one colour per
@@ -168,6 +174,7 @@ cargo run --example layers                  # layers and their effects
 cargo run --example shapes                  # a scene built from them
 cargo run --example logo                    # the banner (add `theme`, `text`, `svg`, `png`)
 cargo run --example calibrate               # match dot size to your font
+cargo run --example detect                  # what detection decided, and from what
 cargo run --release --example snake         # animation, with timing
 cargo run --release --features ratatui --example tui
 cargo run --example docs                    # regenerate docs/
