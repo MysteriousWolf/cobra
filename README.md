@@ -143,9 +143,9 @@ they are dropped silently, and `COBRA_PROTOCOL=text` opts out. Each image is pin
 the pane's cursor and clipped to the pane, since tmux would otherwise hand it to the
 outer terminal wherever that terminal's cursor last was, hanging off the screen (which
 crashes Ghostty). A terminal started from inside tmux inherits `TMUX` without being a
-pane, so `TMUX` alone is not believed: `TERM` settles it when it is one tmux sets
-(`tmux-*`, `screen-*`), and otherwise tmux is asked over its socket whether the pane
-owns the tty. GNU screen gets text.
+pane, so `TMUX` alone is not believed: tmux is asked over its socket whether the pane
+owns the tty, and `TERM` (`tmux-*`, `screen-*`) decides only when tmux cannot be run.
+GNU screen gets text.
 Off unix there are no tty queries. A printed character takes its whole cell. Layers are
 flattened to dots before anything is sent, so a soft shadow is a dithered one.
 `Canvas::fallback` gives you the canvas as a plain terminal will show it, one colour per

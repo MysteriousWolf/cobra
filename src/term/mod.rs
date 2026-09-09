@@ -29,9 +29,10 @@
 //! it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
 //! started from inside tmux inherits `TMUX` without being a pane, and would take the
 //! wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
-//! believed: `TERM` settles it when it is one tmux sets (`tmux-*`, `screen-*`), and
-//! otherwise tmux is asked over its socket whether the pane owns the tty. GNU screen
-//! passes nothing through and gets text.
+//! believed: tmux is asked over its socket whether the pane it names owns this
+//! process's tty, and only when tmux itself cannot be run does `TERM` decide, as a
+//! pane's is one tmux set (`tmux-*`, `screen-*`). GNU screen passes nothing through
+//! and gets text.
 
 #[cfg(all(feature = "detect", unix))]
 mod query;
@@ -106,51 +107,53 @@ impl Protocol {
 /// `TMUX` alone does not say: a terminal started from inside tmux hands the
 /// variable on to everything it runs, and an image wrapped for tmux that reaches
 /// such a terminal directly is an unknown `DCS` to it (Ghostty crashed on one).
-/// tmux sets `TERM` for its panes to its `default-terminal`, `tmux-*` or `screen-*`
-/// unless configured otherwise, while a terminal sets its own, so those settle it.
-/// When `TERM` says nothing either way (`xterm-256color` is both) tmux is asked,
-/// over the socket named in `TMUX`, whether the pane it thinks this is has this
-/// process's tty; if it cannot be asked, this is not a pane.
+/// Nor does `TERM`: tmux sets a pane's to `tmux-*` or `screen-*` and a terminal
+/// sets its own, but a shell's start-up files may set it again, and one that
+/// exports `tmux-256color` whenever `TMUX` is set makes the new terminal look like
+/// a pane. So tmux is asked, over the socket named in `TMUX`, whether the pane it
+/// thinks this is has this process's tty, and its answer is final: a socket that
+/// cannot be reached, or a tty that differs, is not a pane. Only when tmux itself
+/// cannot be run (not on `PATH`) does `TERM` decide.
 fn in_tmux() -> bool {
     static IN_TMUX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *IN_TMUX.get_or_init(|| {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         in_tmux_given(var("TMUX").as_deref(), &var("TERM").unwrap_or_default(), |tmux| {
             let socket = tmux.split(',').next().unwrap_or(tmux);
-            pane_tty(socket, var("TMUX_PANE").as_deref()).is_some_and(|pane| Some(pane) == own_tty())
+            pane_tty(socket, var("TMUX_PANE").as_deref()).map(|pane| pane.is_some_and(|p| Some(p) == own_tty()))
         })
     })
 }
 
-/// The decision behind [`in_tmux`], with the tmux round trip supplied.
-fn in_tmux_given(tmux: Option<&str>, term: &str, ask: impl FnOnce(&str) -> bool) -> bool {
+/// The decision behind [`in_tmux`], with the tmux round trip supplied: `ask` answers
+/// whether the pane owns the tty, or `None` when tmux could not be run at all.
+fn in_tmux_given(tmux: Option<&str>, term: &str, ask: impl FnOnce(&str) -> Option<bool>) -> bool {
     match tmux {
         None => false,
-        Some(_) if term.starts_with("tmux") || term.starts_with("screen") => true,
-        Some(tmux) => ask(tmux),
+        Some(tmux) => ask(tmux).unwrap_or_else(|| term.starts_with("tmux") || term.starts_with("screen")),
     }
 }
 
-/// The tty of the tmux pane `pane` (`TMUX_PANE`, or tmux's current pane) on `socket`.
+/// The tty of the tmux pane `pane` (`TMUX_PANE`, or tmux's current pane) on `socket`:
+/// `Some(None)` when tmux ran but had no such pane or socket, `None` when it could
+/// not be run.
 #[cfg(all(feature = "detect", unix))]
-fn pane_tty(socket: &str, pane: Option<&str>) -> Option<String> {
+fn pane_tty(socket: &str, pane: Option<&str>) -> Option<Option<String>> {
     let mut cmd = std::process::Command::new("tmux");
     cmd.args(["-S", socket, "display-message", "-p"]);
     if let Some(pane) = pane {
         cmd.args(["-t", pane]);
     }
-    let out = cmd
-        .arg("#{pane_tty}")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+    let out =
+        cmd.arg("#{pane_tty}").stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+    if !out.status.success() {
+        return Some(None);
+    }
+    Some(String::from_utf8(out.stdout).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()))
 }
 
 #[cfg(not(all(feature = "detect", unix)))]
-fn pane_tty(_socket: &str, _pane: Option<&str>) -> Option<String> {
+fn pane_tty(_socket: &str, _pane: Option<&str>) -> Option<Option<String>> {
     None
 }
 
@@ -381,18 +384,21 @@ mod tests {
 
     #[test]
     fn tmux_is_not_taken_on_its_word() {
-        let never = |_: &str| panic!("asked tmux");
-        assert!(!in_tmux_given(None, "tmux-256color", never));
-        assert!(in_tmux_given(Some("/tmp/tmux-1000/default,123,0"), "tmux-256color", never));
-        assert!(in_tmux_given(Some("/tmp/tmux-1000/default,123,0"), "screen-256color", never));
-        // A terminal started from inside tmux inherits `TMUX` but sets its own `TERM`;
-        // `xterm-256color` could be either, so tmux is asked, and its answer is final.
+        assert!(!in_tmux_given(None, "tmux-256color", |_| panic!("asked tmux")));
+        // tmux's answer is final, whatever `TERM` says: a terminal started from inside
+        // tmux inherits `TMUX`, and a shell may export `tmux-256color` on top of that.
         let mut asked = None;
         assert!(in_tmux_given(Some("/tmp/s,1,0"), "xterm-256color", |t| {
             asked = Some(t.to_owned());
-            true
+            Some(true)
         }));
         assert_eq!(asked.as_deref(), Some("/tmp/s,1,0"));
-        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "xterm-ghostty", |_| false));
+        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "tmux-256color", |_| Some(false)));
+        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "screen-256color", |_| Some(false)));
+        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "xterm-ghostty", |_| Some(false)));
+        // Only when tmux cannot be run at all does `TERM` decide.
+        assert!(in_tmux_given(Some("/tmp/s,1,0"), "tmux-256color", |_| None));
+        assert!(in_tmux_given(Some("/tmp/s,1,0"), "screen-256color", |_| None));
+        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "xterm-ghostty", |_| None));
     }
 }
