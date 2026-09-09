@@ -20,7 +20,7 @@ Generated from the source by `cargo run --example docs`: every public item with 
 | [`text`](text.md) | Real characters on a text layer over the dots. | 32 |
 | [`color`](color.md) | RGB, palette and default-foreground colours, depths, palettes. | 16 |
 | [`render`](render.md) | Frames for kitty, iTerm2, sixel and plain text. | 15 |
-| [`term`](term.md) | What the terminal can do, detected once. | 14 |
+| [`term`](term.md) | What the terminal can do, detected once. | 15 |
 | [`export`](export.md) | PNG and SVG files with the terminal's geometry. | 5 |
 | [`ratatui`](ratatui.md) | The ratatui widget and overlay. | 3 |
 
@@ -164,7 +164,7 @@ cell-aligned geometry and a transparent background.
 
 - [`render`](render.md): [`Options`](render.md#options), [`Options::from_env`](render.md#optionsfrom_env), [`Placement`](render.md#placement), [`Renderer`](render.md#renderer), [`Renderer::new`](render.md#renderernew), [`Renderer::with_options`](render.md#rendererwith_options), [`Renderer::terminal`](render.md#rendererterminal), [`Renderer::options`](render.md#rendereroptions), [`Renderer::set_options`](render.md#rendererset_options), [`Renderer::image_id`](render.md#rendererimage_id), [`Renderer::invalidate`](render.md#rendererinvalidate), [`Renderer::render`](render.md#rendererrender), [`Renderer::render_at`](render.md#rendererrender_at), [`Renderer::encode`](render.md#rendererencode), [`Renderer::encode_view`](render.md#rendererencode_view)
 
-- [`term`](term.md): [`Protocol`](term.md#protocol), [`Protocol::parse`](term.md#protocolparse), [`Protocol::from_env`](term.md#protocolfrom_env), [`CellSize`](term.md#cellsize), [`CellSize::is_known`](term.md#cellsizeis_known), [`CellSize::parse`](term.md#cellsizeparse), [`Terminal`](term.md#terminal), [`Terminal::text`](term.md#terminaltext), [`Terminal::new`](term.md#terminalnew), [`Terminal::with_passthrough`](term.md#terminalwith_passthrough), [`Terminal::with_depth`](term.md#terminalwith_depth), [`Terminal::with_palette`](term.md#terminalwith_palette), [`Terminal::is_graphical`](term.md#terminalis_graphical), [`Terminal::detect`](term.md#terminaldetect)
+- [`term`](term.md): [`Protocol`](term.md#protocol), [`Protocol::parse`](term.md#protocolparse), [`Protocol::from_env`](term.md#protocolfrom_env), [`CellSize`](term.md#cellsize), [`CellSize::is_known`](term.md#cellsizeis_known), [`CellSize::parse`](term.md#cellsizeparse), [`Terminal`](term.md#terminal), [`Terminal::text`](term.md#terminaltext), [`Terminal::new`](term.md#terminalnew), [`Terminal::with_passthrough`](term.md#terminalwith_passthrough), [`Terminal::with_depth`](term.md#terminalwith_depth), [`Terminal::with_palette`](term.md#terminalwith_palette), [`Terminal::is_graphical`](term.md#terminalis_graphical), [`Terminal::detect`](term.md#terminaldetect), [`Terminal::name`](term.md#terminalname)
 
 - [`export`](export.md): [`Style`](export.md#style), [`Style::scale`](export.md#stylescale), [`png`](export.md#png), [`svg`](export.md#svg), [`resolve`](export.md#resolve)
 
@@ -195,6 +195,7 @@ Every other item is illustrated. These are the plumbing between a canvas and a t
 - [`CellSize::is_known`](term.md#cellsizeis_known): a predicate
 - [`CellSize::parse`](term.md#cellsizeparse): parses `WxH`
 - [`Terminal`](term.md#terminal): what detection learned about the terminal
+- [`Terminal::name`](term.md#terminalname): asks the terminal what it is called
 - [`Terminal::text`](term.md#terminaltext): a constructor
 - [`Terminal::new`](term.md#terminalnew): a constructor
 - [`Terminal::with_depth`](term.md#terminalwith_depth): a builder; `Depth` shows what each depth looks like

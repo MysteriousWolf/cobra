@@ -74,6 +74,33 @@ pub(super) struct Probe {
     pub palette: Palette,
     /// How many palette / foreground / background replies were parsed.
     pub palette_entries: u8,
+    /// What the terminal called itself in its `XTVERSION` reply (`tmux 3.4`,
+    /// `ghostty 1.3.1`, `alacritty 0.15.1`, …), `None` when it did not answer.
+    pub name: Option<String>,
+    /// Whether the `DA1` that ends every probe came back. `false` means nothing
+    /// was listening: an unwrapped probe timed out, or a wrapped one was dropped
+    /// by a tmux without `allow-passthrough on`.
+    pub answered: bool,
+}
+
+/// Which questions one probe asks. `DA1` is always sent, since its reply ends the
+/// round trip and says whether anything answered at all.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Ask {
+    /// The kitty graphics query. Never send it unwrapped where tmux may read it:
+    /// tmux holds the reply as an unknown key for half a second.
+    pub kitty: bool,
+    /// `CSI 16 t`, for the cell size in pixels.
+    pub cell: bool,
+    /// `OSC 4` / `OSC 10` / `OSC 11`, for the colour scheme.
+    pub palette: bool,
+    /// `XTVERSION`, which asks the terminal what it is.
+    pub name: bool,
+    /// Wrap every query in tmux's passthrough, so the terminal tmux draws on
+    /// answers them instead of tmux itself. A reply then proves three things at
+    /// once: this really is tmux, `allow-passthrough` is on, and the outer
+    /// terminal is whatever the reply says.
+    pub wrap: bool,
 }
 
 /// Sends the requested probes followed by DA1 and parses whatever comes back.
@@ -81,18 +108,21 @@ pub(super) struct Probe {
 /// `DA1` is answered by every terminal, so its reply marks the end of the response
 /// and avoids waiting for the full timeout on terminals that ignore the other
 /// queries. Total wait is bounded by `TIMEOUT_MS`.
-pub(super) fn probe(want_protocol: bool, want_cell: bool, want_palette: bool) -> Probe {
+pub(super) fn probe(ask: Ask) -> Probe {
     const TIMEOUT_MS: i32 = 300;
     let mut seq = Vec::with_capacity(256);
-    if want_protocol {
+    if ask.kitty {
         // Kitty graphics query: a 1×1 RGB image, query action, id 31. Kitty-protocol
         // terminals reply `ESC _ G i=31;OK ESC \`; others ignore or (rarely) echo it.
         seq.extend_from_slice(b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
     }
-    if want_cell {
+    if ask.name {
+        seq.extend_from_slice(b"\x1b[>q"); // XTVERSION, reply: ESC P > | name ESC \
+    }
+    if ask.cell {
         seq.extend_from_slice(b"\x1b[16t"); // reply: ESC [ 6 ; height ; width t
     }
-    if want_palette {
+    if ask.palette {
         // ANSI colours 0..=15 (the themed ones), then default fg and bg.
         // Replies: ESC ] 4 ; n ; rgb:RRRR/GGGG/BBBB ST, ESC ] 10 ; rgb:... ST, ESC ] 11 ; rgb:... ST.
         for i in 0..16 {
@@ -101,6 +131,9 @@ pub(super) fn probe(want_protocol: bool, want_cell: bool, want_palette: bool) ->
         seq.extend_from_slice(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
     }
     seq.extend_from_slice(b"\x1b[c"); // DA1, reply: ESC [ ? ... c
+    if ask.wrap {
+        crate::render::passthrough(&mut seq, 0, &mut Vec::new());
+    }
 
     let reply = roundtrip(&seq, TIMEOUT_MS).unwrap_or_default();
     parse(&reply)
@@ -138,8 +171,18 @@ fn osc_replies(reply: &[u8]) -> impl Iterator<Item = &[u8]> {
     })
 }
 
+/// The name in an `XTVERSION` reply (`ESC P > | name ESC \\` or `… BEL`), lowercased
+/// and trimmed of the brackets terminals wrap their version in (`kitty(0.32.2)`).
+fn parse_name(reply: &[u8]) -> Option<String> {
+    let start = find(reply, b"\x1bP>|")? + 4;
+    let body = &reply[start..];
+    let end = body.iter().position(|&b| b == 0x1b || b == 0x07).unwrap_or(body.len());
+    let name = std::str::from_utf8(&body[..end]).ok()?.trim().to_ascii_lowercase();
+    (!name.is_empty()).then_some(name)
+}
+
 fn parse(reply: &[u8]) -> Probe {
-    let mut p = Probe { kitty: find(reply, b"_Gi=31;OK").is_some(), ..Default::default() };
+    let mut p = Probe { kitty: find(reply, b"_Gi=31;OK").is_some(), name: parse_name(reply), ..Default::default() };
     for body in osc_replies(reply) {
         let Some(semi) = body.iter().position(|&b| b == b';') else { continue };
         let (kind, rest) = (&body[..semi], &body[semi + 1..]);
@@ -184,6 +227,7 @@ fn parse(reply: &[u8]) -> Probe {
     if let Some(i) = find(reply, b"\x1b[?") {
         let body = &reply[i + 3..];
         if let Some(end) = body.iter().position(|&b| b == b'c') {
+            p.answered = true;
             // First parameter is the device class; `4` among the rest means sixel.
             p.sixel = std::str::from_utf8(&body[..end]).unwrap_or("").split(';').skip(1).any(|s| s == "4");
         }
@@ -273,6 +317,22 @@ mod tests {
         assert_eq!(p.palette.background, Rgb::hex(0x1a1b26));
         assert!(p.sixel && !p.kitty);
         assert_eq!(parse(b"\x1b[?1;2c").palette_entries, 0);
+    }
+
+    #[test]
+    fn reads_the_name_a_terminal_gives_itself() {
+        assert_eq!(parse_name(b"\x1bP>|tmux 3.4\x1b\\").as_deref(), Some("tmux 3.4"));
+        assert_eq!(parse_name(b"\x1bP>|Ghostty 1.3.1\x1b\\\x1b[?62;22c").as_deref(), Some("ghostty 1.3.1"));
+        assert_eq!(parse_name(b"\x1bP>|kitty(0.32.2)\x07").as_deref(), Some("kitty(0.32.2)"));
+        assert_eq!(parse_name(b"\x1b[?62;22c"), None, "a terminal that does not answer names nothing");
+        assert_eq!(parse_name(b"\x1bP>|\x1b\\"), None, "nor does an empty name");
+    }
+
+    #[test]
+    fn da1_says_whether_anything_was_listening() {
+        assert!(parse(b"\x1b[?62;22c").answered);
+        assert!(!parse(b"").answered, "a wrapped probe tmux dropped comes back empty");
+        assert!(!parse(b"\x1bP>|tmux 3.4\x1b\\").answered);
     }
 
     #[test]

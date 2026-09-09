@@ -64,6 +64,7 @@ const NO_PICTURE: &[(&str, &str)] = &[
     ("CellSize::is_known", "a predicate"),
     ("CellSize::parse", "parses `WxH`"),
     ("Terminal", "what detection learned about the terminal"),
+    ("Terminal::name", "asks the terminal what it is called"),
     ("Terminal::text", "a constructor"),
     ("Terminal::new", "a constructor"),
     ("Terminal::with_depth", "a builder; `Depth` shows what each depth looks like"),

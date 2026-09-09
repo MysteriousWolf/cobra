@@ -123,10 +123,16 @@ the diff never touches.
 | Sixel  | foot, xterm, mlterm, Windows Terminal ≥ 1.22 | palettised DCS, transparent background |
 | Text   | everything, screen, pipes | braille glyphs, one colour per cell |
 
-`Terminal::detect()` runs once: the `COBRA_*` overrides, the usual environment
-variables, then one escape-sequence round trip on `/dev/tty` for the rest. Frames are
-transparent apart from the dots. Dot *positions* are exact; the dot *diameter* is a
-style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DOT` sets it).
+`Terminal::detect()` runs once: the `COBRA_*` overrides, then one escape-sequence round
+trip on `/dev/tty` that asks the terminal what it is called (`XTVERSION`) and what it can
+draw (a kitty probe, `DA1`), along with the cell size and colour scheme. What the terminal
+answers is what is believed. Environment variables are a fallback for terminals that
+answer nothing, because a terminal hands them to everything it starts, terminals included:
+`GHOSTTY_RESOURCES_DIR` in an Alacritty window started from Ghostty is Ghostty's, and
+taking it at face value sent Alacritty kitty images it cannot draw instead of braille.
+Frames are transparent apart from the dots. Dot *positions* are exact; the dot *diameter*
+is a style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DOT`
+sets it).
 
 | Variable | Effect |
 |---|---|
@@ -137,21 +143,26 @@ style choice (`cargo run --example calibrate` matches it to your font, `COBRA_DO
 | `COBRA_COLORS` | text colour depth: `mono`, `16`, `256` or `true` |
 | `COBRA_PASSTHROUGH` | `1` wraps images for tmux, `0` never does; detection decides otherwise |
 
-Inside tmux the outer terminal is recognised from its environment (Ghostty, kitty,
-WezTerm, iTerm2), the cell size comes from tmux ≥ 3.2, and images are wrapped in tmux's
-passthrough, which needs `set -g allow-passthrough on` in your `tmux.conf`; without it
-they are dropped silently, and `COBRA_PROTOCOL=text` opts out. Each image is pinned to
-the pane's cursor and clipped to the pane, since tmux would otherwise hand it to the
-outer terminal wherever that terminal's cursor last was, hanging off the screen (which
-crashes Ghostty). A terminal started from inside tmux inherits `TMUX` without being a
-pane, and a wrapped image would reach it as a `DCS` it never asked for, so nothing about
-the environment is believed on its own: tmux is asked over its socket whether the pane it
-names draws on this process's tty, and only that answer makes a pane. `TERM` never does,
-since a shell's start-up files may set it long after the terminal did. Being wrong the
-other way only costs the images, so anything else — a tmux that cannot be run, an answer
-about another tty — is not a pane, and `COBRA_PASSTHROUGH` overrides the verdict either
-way. `cargo run --example detect` prints it, with what it was decided from. GNU screen
-gets text.
+Inside tmux, images have to be wrapped in tmux's passthrough sequence to reach the outer
+terminal, which needs `set -g allow-passthrough on` in your `tmux.conf`. So detection asks
+the outer terminal through that same wrapper, and its answer proves everything at once:
+that passthrough is allowed, and what that terminal can draw. Silence means an image would
+be dropped too, so the frames go out as braille, which tmux draws itself. Each image is
+pinned to the pane's cursor and clipped to the pane, since tmux would otherwise hand it to
+the outer terminal wherever that terminal's cursor last was, hanging off the screen (which
+crashes Ghostty).
+
+Whether tmux is there at all is settled by the name on the tty: tmux answers `tmux 3.4`, a
+terminal answers with its own. Nothing in the environment is believed, because a terminal
+started from a pane inherits `TMUX`, `TMUX_PANE` and often a `tmux-256color` `TERM` from a
+shell's start-up file, and a wrapped image reaches it as a `DCS` it never asked for (which
+crashes Ghostty). A terminal too old to give its name is asked about over tmux's own
+socket instead: only tmux's word that the pane it names draws on this process's tty makes
+a pane, and anything else — a tmux that cannot be run, an answer about another tty — is
+not. `COBRA_PASSTHROUGH` overrides the verdict, though never at a terminal that gave its
+own name; `cargo run --example detect` prints the verdict and what it was decided from.
+GNU screen gets text.
+
 Off unix there are no tty queries. A printed character takes its whole cell. Layers are
 flattened to dots before anything is sent, so a soft shadow is a dithered one.
 `Canvas::fallback` gives you the canvas as a plain terminal will show it, one colour per

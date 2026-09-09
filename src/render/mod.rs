@@ -272,7 +272,10 @@ impl Renderer {
 /// protocols emit) in tmux's passthrough: `ESC P tmux ;` then the sequence with each
 /// `ESC` doubled, then `ESC \`. tmux unwraps it and hands it to its own terminal
 /// untouched. One wrapper per sequence, so a kitty frame's chunks stay separate.
-fn passthrough(out: &mut Vec<u8>, from: usize, scratch: &mut Vec<u8>) {
+///
+/// Detection wraps its queries with it too, so that the terminal tmux draws on
+/// answers them, which is the one way to learn what that terminal can draw.
+pub(crate) fn passthrough(out: &mut Vec<u8>, from: usize, scratch: &mut Vec<u8>) {
     scratch.clear();
     scratch.extend_from_slice(&out[from..]);
     out.truncate(from);
