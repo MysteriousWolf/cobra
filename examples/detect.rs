@@ -1,4 +1,4 @@
-//! Prints what `Terminal::detect` decided, and the environment it decided from.
+//! Prints what `Terminal::detect` decided, and what it decided it from.
 //!
 //! Detection is one function call and normally invisible; when a terminal draws
 //! nothing, draws in braille where it could draw dots, or is sent a sequence it does
@@ -8,10 +8,11 @@
 //! cargo run --example detect
 //! ```
 //!
-//! The line that matters most is `passthrough`: it wraps every image in a `DCS` that
-//! only tmux may unwrap, so it must be on in a tmux pane and off everywhere else. The
-//! pane is settled by asking tmux which tty its pane draws on, printed here beside
-//! this process's own; `COBRA_PASSTHROUGH` overrides the verdict either way.
+//! The two lines that matter are `terminal` and `passthrough`. `terminal` is the name
+//! the thing on this tty gives itself, and it is what detection believes over any
+//! environment variable: `tmux …` is a pane, anything else is a terminal, and only a
+//! pane may be sent the `DCS` that wraps images for tmux. `passthrough` is the verdict
+//! that follows; `COBRA_PASSTHROUGH` overrides it either way.
 
 use std::env::var;
 use std::process::{Command, Stdio};
@@ -19,7 +20,9 @@ use std::process::{Command, Stdio};
 use cobra::Terminal;
 
 fn main() {
+    let name = Terminal::name();
     let term = Terminal::detect();
+    println!("terminal      {}", name.clone().unwrap_or_else(|| "(gave no name)".into()));
     println!("protocol      {:?}", term.protocol);
     println!("cell          {}×{} px", term.cell.width, term.cell.height);
     println!("screen        {}×{} cells", term.cols, term.rows);
@@ -28,17 +31,20 @@ fn main() {
     let wrapped = if term.passthrough { "images wrapped for tmux" } else { "images sent straight out" };
     println!("passthrough   {} ({wrapped})", term.passthrough);
 
-    println!("\nenvironment");
+    println!("\nenvironment (a guess, and only used where the terminal says nothing)");
     for key in ["TERM", "TERM_PROGRAM", "TMUX", "TMUX_PANE", "COBRA_PROTOCOL", "COBRA_CELL", "COBRA_PASSTHROUGH"] {
         println!("  {key:<18}{}", var(key).unwrap_or_else(|_| "(unset)".into()));
     }
 
-    // The question behind `passthrough`, asked the way detection asks it: a terminal
-    // started from inside tmux inherits `TMUX` and `TMUX_PANE`, and differs from a
-    // pane only in the tty it draws on.
-    if let Some(tmux) = var("TMUX").ok().filter(|v| !v.is_empty()) {
+    // The fallback for a terminal too old to give its name: a terminal started from
+    // inside tmux inherits `TMUX` and `TMUX_PANE`, and differs from a pane only in
+    // the tty it draws on.
+    if name.is_none()
+        && let Ok(tmux) = var("TMUX").map(|v| v.trim().to_owned())
+        && !tmux.is_empty()
+    {
         let socket = tmux.split(',').next().unwrap_or(&tmux).to_owned();
-        println!("\ntmux");
+        println!("\ntmux (asked over its socket, since the terminal gave no name)");
         println!("  pane tty          {}", ask(&["-S", &socket, "display-message", "-p", "#{pane_tty}"]));
         println!("  this process      {}", ask(&["-c", "ps -o tty= -p $$ | tr -d ' '"]).trim().to_owned());
     }

@@ -10,32 +10,49 @@
 //! 1. `COBRA_PROTOCOL` / `COBRA_CELL` environment overrides.
 //! 2. Not a tty → [`Protocol::Text`].
 //! 3. Cell size from `TIOCGWINSZ` (pixel fields), which costs one `ioctl`.
-//! 4. Protocol from well-known environment variables ([`Protocol::from_env`]).
-//! 5. One round trip on `/dev/tty`: a kitty graphics probe and `CSI 16 t` for the
-//!    cell size when still unknown, `OSC 4` / `OSC 10` / `OSC 11` for the palette,
-//!    and `DA1` for sixel (which also terminates the response).
+//! 4. One round trip on `/dev/tty`: `XTVERSION` for the terminal's own name, a kitty
+//!    graphics probe, `CSI 16 t` for the cell size when still unknown, `OSC 4` /
+//!    `OSC 10` / `OSC 11` for the palette, and `DA1` for sixel (which also terminates
+//!    the response).
+//! 5. Only what the terminal itself answered decides the protocol. The environment
+//!    ([`Protocol::from_env`]) is consulted for a terminal that answers nothing at
+//!    all, and for iTerm2, whose inline images no query detects.
 //! 6. Anything without a usable cell size falls back to [`Protocol::Text`].
+//!
+//! Environment variables are a guess of last resort because every terminal hands
+//! them to everything it starts, terminals included: `GHOSTTY_RESOURCES_DIR` in an
+//! Alacritty window started from Ghostty is Ghostty's, and taking it for the
+//! terminal in front of the user sent Alacritty kitty images it cannot draw, with no
+//! way back to braille. A terminal that answers `DA1` but no graphics query speaks
+//! no protocol, whatever the environment says.
 //!
 //! # Multiplexers
 //!
-//! Inside tmux the terminal that draws is not the one the program talks to, and
-//! tmux answers queries itself, so nothing is asked over the tty. The outer
-//! terminal is instead recognised from the variables it leaves in tmux's
-//! environment (`GHOSTTY_RESOURCES_DIR`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`,
-//! `ITERM_SESSION_ID`), the cell size comes from `TIOCGWINSZ` (tmux ≥ 3.2 passes the
-//! pixel size on), and every image is wrapped in tmux's passthrough sequence
-//! ([`Terminal::passthrough`]), which reaches the outer terminal only when tmux has
-//! `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
-//! it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
-//! started from inside tmux inherits `TMUX` without being a pane, and would take the
-//! wrapped image as an unknown `DCS` (Ghostty crashed on one), so nothing about the
-//! environment is believed on its own: tmux is asked over its socket whether the pane
-//! it names draws on this process's tty, and only that answer makes a pane. `TERM`
-//! never does, since a shell's start-up files may set it long after the terminal did.
-//! Being wrong the other way only costs the images, so a tmux that cannot be run, or
-//! answers about another tty, is not a pane; `COBRA_PASSTHROUGH=1` wraps them anyway
-//! and `COBRA_PASSTHROUGH=0` never does. GNU screen passes nothing through and gets
-//! text.
+//! Inside tmux the terminal that draws is not the one the program talks to: tmux
+//! answers queries itself, and every image has to be wrapped in tmux's passthrough
+//! sequence ([`Terminal::passthrough`]) to reach the outer terminal, which needs
+//! `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`).
+//!
+//! So detection asks the outer terminal through that same wrapper: the kitty query,
+//! `XTVERSION` and `DA1` go out wrapped, and what comes back is proof of everything
+//! at once -- that this really is tmux, that passthrough is allowed, and what the
+//! terminal on the other side can draw. Silence means an image would be dropped just
+//! as the query was, so the frames go out as braille, which tmux draws itself.
+//!
+//! Whether tmux is there at all is settled before any of that, by asking the tty
+//! what it is (`XTVERSION`): tmux answers `tmux 3.4`, a terminal answers with its
+//! own name. Nothing in the environment is believed, because a terminal started from
+//! a pane inherits `TMUX`, `TMUX_PANE` and often a `tmux-256color` `TERM` from a
+//! shell's start-up files, and would take the wrapped image as an unknown `DCS`
+//! (Ghostty crashed on one). A terminal too old to answer `XTVERSION` is asked about
+//! over tmux's own socket instead: only tmux's word that the pane it names draws on
+//! this process's tty makes a pane, and a socket that cannot be reached, a tty that
+//! differs and a tmux that cannot be run are all "no".
+//!
+//! Being wrong the other way only costs the images, so the doubtful cases go the
+//! cheap way; `COBRA_PASSTHROUGH=1` wraps them anyway (though never at a terminal
+//! that gave its own name) and `COBRA_PASSTHROUGH=0` never does. GNU screen passes
+//! nothing through and gets text.
 
 #[cfg(all(feature = "detect", unix))]
 mod query;
@@ -70,9 +87,12 @@ impl Protocol {
     /// Guesses the protocol from environment variables alone, without touching the tty.
     ///
     /// Returns `None` when nothing conclusive is set, and `Some(Text)` under GNU
-    /// screen, which passes no graphics through. Under tmux the outer terminal is
-    /// recognised by the variables it leaves in tmux's environment, since `TERM` and
-    /// `TERM_PROGRAM` there are tmux's own; see [`Terminal::passthrough`].
+    /// screen, which passes no graphics through.
+    ///
+    /// A guess is all it is, and [`Terminal::detect`] uses it only where the terminal
+    /// itself says nothing: every one of these variables is inherited by whatever the
+    /// terminal starts, another terminal included, so `KITTY_WINDOW_ID` may well be
+    /// set in an Alacritty window. What the tty answers outranks it.
     pub fn from_env() -> Option<Self> {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let term = var("TERM").unwrap_or_default();
@@ -105,21 +125,23 @@ impl Protocol {
     }
 }
 
-/// Whether the process runs in a tmux pane. Decided once per process.
+/// Whether the process runs in a tmux pane, decided over tmux's own socket and once
+/// per process. Used only for a terminal that does not answer `XTVERSION`, whose
+/// name settles the question outright.
 ///
-/// `TMUX` alone does not say: a terminal started from inside tmux hands the
-/// variable on to everything it runs, and an image wrapped for tmux that reaches
-/// such a terminal directly is an unknown `DCS` to it (Ghostty crashed on one).
-/// Nor does `TERM`: tmux sets a pane's to `tmux-*` or `screen-*` and a terminal
-/// sets its own, but a shell's start-up files may set it again, and one that
-/// exports `tmux-256color` whenever `TMUX` is set makes the new terminal look like
-/// a pane. So tmux itself is asked, over the socket named in `TMUX`, whether the
-/// pane it thinks this is draws on this process's tty, and only that answer makes
-/// a pane: a socket that cannot be reached, a tty that differs, a tmux that cannot
-/// be run at all are all "no". The two mistakes do not cost the same -- guessing
-/// pane wrongly writes a `DCS` at a terminal that never asked for one, guessing
-/// terminal wrongly only drops the images inside tmux, which `COBRA_PASSTHROUGH=1`
-/// brings back -- so the doubtful cases go the cheap way.
+/// `TMUX` alone does not say: a terminal started from inside tmux hands the variable
+/// on to everything it runs, and an image wrapped for tmux that reaches such a
+/// terminal directly is an unknown `DCS` to it (Ghostty crashed on one). Nor does
+/// `TERM`: tmux sets a pane's to `tmux-*` or `screen-*` and a terminal sets its own,
+/// but a shell's start-up files may set it again, and one that exports
+/// `tmux-256color` whenever `TMUX` is set makes the new terminal look like a pane.
+/// So tmux itself is asked, over the socket named in `TMUX`, whether the pane it
+/// thinks this is draws on this process's tty, and only that answer makes a pane: a
+/// socket that cannot be reached, a tty that differs, a tmux that cannot be run at
+/// all are all "no". The two mistakes do not cost the same -- guessing pane wrongly
+/// writes a `DCS` at a terminal that never asked for one, guessing terminal wrongly
+/// only drops the images inside tmux, which `COBRA_PASSTHROUGH=1` brings back -- so
+/// the doubtful cases go the cheap way.
 /// A cell edge the window can hold: `size` unless the window's `pixels` divided over
 /// its `cells` is smaller. Zero for either means the window did not say, and `size`
 /// stands.
@@ -144,6 +166,40 @@ fn in_tmux() -> bool {
 /// and nothing stands in for the answer.
 fn in_tmux_given(tmux: Option<&str>, ask: impl FnOnce(&str) -> bool) -> bool {
     tmux.is_some_and(ask)
+}
+
+/// What answered `XTVERSION` (`CSI > q`) on this tty, as far as drawing cares.
+///
+/// Only detection asks, so without it nothing reads this.
+///
+/// The one question is whether images may be wrapped for tmux, and a name answers
+/// it where the environment cannot: `TMUX` is inherited by every process a pane
+/// starts, a terminal emulator included, but the emulator answers with its own name
+/// and never unwraps a `DCS` meant for tmux.
+#[cfg_attr(not(feature = "detect"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Speaker {
+    /// tmux, the one thing images may be wrapped for.
+    Tmux,
+    /// A terminal, with the protocol its name alone settles -- only iTerm2's, since
+    /// no query detects it and every other protocol answers for itself.
+    Terminal(Option<Protocol>),
+}
+
+#[cfg_attr(not(feature = "detect"), allow(dead_code))]
+impl Speaker {
+    /// Reads the name out of an `XTVERSION` payload, already lowercased:
+    /// `tmux 3.4`, `ghostty 1.3.1`, `kitty(0.32.2)`, `xterm(390)`.
+    fn of(name: &str) -> Self {
+        let word = name.trim().split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap_or("");
+        match word {
+            "tmux" => Self::Tmux,
+            // Its inline images have no query to ask; the rest are read off the wire,
+            // so a terminal that gains a protocol is not held to this list.
+            "iterm2" => Self::Terminal(Some(Protocol::Iterm2)),
+            _ => Self::Terminal(None),
+        }
+    }
 }
 
 /// The tty of the tmux pane `pane` (`TMUX_PANE`, or tmux's current pane) on `socket`,
@@ -240,7 +296,9 @@ pub struct Terminal {
     pub depth: Depth,
     /// Wrap every image in tmux's passthrough sequence (`DCS tmux ; … ST`, with the
     /// escapes inside doubled), so it reaches the terminal tmux runs in. Set by
-    /// [`detect`](Self::detect) inside tmux; needs `allow-passthrough on` there.
+    /// [`detect`](Self::detect) when the tty answers that it is tmux and a wrapped
+    /// query comes back from the terminal behind it, which is what `allow-passthrough
+    /// on` there buys.
     /// Text, cursor movement and printed characters are never wrapped, since tmux
     /// has to see those.
     ///
@@ -302,22 +360,23 @@ impl Terminal {
     /// Detects the terminal on stdout / `/dev/tty`.
     ///
     /// Order: `COBRA_PROTOCOL` / `COBRA_CELL` overrides, tty check, cell size from
-    /// `TIOCGWINSZ`, protocol from the environment ([`Protocol::from_env`]), then one
-    /// escape-sequence round trip that asks for whatever is still unknown (kitty probe,
-    /// `CSI 16 t`, `DA1`) plus the colour scheme (`OSC 4`, `OSC 10`, `OSC 11`). Image
-    /// protocols without a known cell size fall back to [`Protocol::Text`].
+    /// `TIOCGWINSZ`, then one escape-sequence round trip that asks the terminal what
+    /// it is (`XTVERSION`) and what it can draw (kitty probe, `DA1`), plus whatever
+    /// else is still unknown (`CSI 16 t` for the cell, `OSC 4`, `OSC 10`, `OSC 11`
+    /// for the colour scheme). What the terminal answers decides; the environment
+    /// ([`Protocol::from_env`]) only fills in for a terminal that answers nothing.
+    /// Image protocols without a known cell size fall back to [`Protocol::Text`].
     ///
     /// Costs one `ioctl` plus one escape-sequence round trip, bounded by a short
     /// timeout and normally ending as soon as the terminal answers `DA1` (a few
     /// milliseconds). Call it once at start-up and keep the result. Set
     /// `COBRA_PALETTE=0` to skip the colour queries.
     ///
-    /// Inside tmux (a real pane, not a terminal started from one, which inherits
-    /// `TMUX`; tmux itself is asked which it is) there is no round trip to
-    /// the tty: the outer terminal is read from the
-    /// environment, the cell size from `TIOCGWINSZ`, and images are marked for
-    /// [passthrough](Self::passthrough): under tmux the queries would be answered by tmux
-    /// itself, and tmux needs `allow-passthrough on` for the images to reach its terminal.
+    /// A tty that answers `tmux` costs a second round trip, wrapped in tmux's
+    /// passthrough so that the terminal tmux draws on answers it: what comes back
+    /// says whether images can reach that terminal at all and what it can draw, and
+    /// silence means braille. A terminal that inherited `TMUX` from a pane without
+    /// being one answers with its own name and is never sent a wrapped byte.
     ///
     /// The text colour depth comes from `COBRA_COLORS` (`mono|16|256|true`) or
     /// [`Depth::from_env`]; a terminal with a graphics protocol is assumed to have
@@ -332,13 +391,27 @@ impl Terminal {
             None if t.is_graphical() => Depth::TrueColor,
             None => Depth::from_env(),
         };
-        // The last word on passthrough. Detection asks tmux and believes nothing else,
-        // which is right for the terminal started inside tmux that must not be sent a
-        // `DCS`, and wrong for the pane whose tmux is not on `PATH`.
-        if let Some(on) = std::env::var("COBRA_PASSTHROUGH").ok().and_then(|s| parse_flag(&s)) {
-            t.passthrough = on && t.is_graphical();
-        }
         t
+    }
+
+    /// What the terminal calls itself, lowercased: `tmux 3.4`, `ghostty 1.3.1`,
+    /// `kitty(0.32.2)`. `None` when it does not answer, as terminals older than
+    /// `XTVERSION` (`CSI > q`) do not.
+    ///
+    /// [`detect`](Self::detect) asks this first, since it is the one answer that says
+    /// whether tmux or a terminal is on the tty, and so whether an image may be
+    /// wrapped for tmux. This asks it again, for a diagnostic to print; it costs one
+    /// round trip and is bounded by the same short timeout.
+    #[cfg(feature = "detect")]
+    pub fn name() -> Option<String> {
+        #[cfg(unix)]
+        {
+            query::probe(query::Ask { name: true, ..Default::default() }).name
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
     }
 
     #[cfg(all(feature = "detect", unix))]
@@ -348,53 +421,123 @@ impl Terminal {
         }
         let ws = query::winsize();
         let mut t = Self { cell: cell.unwrap_or(ws.cell), cols: ws.cols, rows: ws.rows, ..Self::text() };
+        let guess = protocol.or_else(Protocol::from_env);
+        let want_protocol = protocol.is_none();
 
-        let mut protocol = protocol.or_else(Protocol::from_env);
-        let want_palette = std::env::var("COBRA_PALETTE").map_or(true, |v| v != "0");
-        // tmux answers queries itself (and would keep a kitty reply for half a
-        // second as an unknown key), so inside it nothing is asked: the environment
-        // and the ioctl are all there is, and images go through passthrough.
-        let tmux = in_tmux();
-        if (protocol.is_none() || !t.cell.is_known() || want_palette) && !tmux {
-            let probe = query::probe(protocol.is_none(), !t.cell.is_known(), want_palette);
-            if !t.cell.is_known()
-                && let Some(c) = probe.cell
-            {
-                // A cell the terminal reports in physical pixels, for a window it
-                // sizes in logical ones, is larger than the window can hold. Believe
-                // the window: an image raised to the larger cell would reach past the
-                // last row, and a picture drawn partly has crashed Ghostty.
-                t.cell =
-                    CellSize { width: fit(c.width, ws.pixels.0, ws.cols), height: fit(c.height, ws.pixels.1, ws.rows) };
+        // First round trip: whatever is still unknown, plus the question of who is
+        // listening. The kitty query is held back while tmux may be the one reading
+        // it, since tmux keeps its reply as an unknown key for half a second.
+        let suspect_tmux = std::env::var("TMUX").is_ok_and(|v| !v.is_empty());
+        let mut p = query::probe(query::Ask {
+            kitty: want_protocol && !suspect_tmux,
+            cell: !t.cell.is_known(),
+            palette: std::env::var("COBRA_PALETTE").map_or(true, |v| v != "0"),
+            name: true,
+            wrap: false,
+        });
+        if !t.cell.is_known()
+            && let Some(c) = p.cell
+        {
+            // A cell the terminal reports in physical pixels, for a window it sizes in
+            // logical ones, is larger than the window can hold. Believe the window: an
+            // image raised to the larger cell would reach past the last row, and a
+            // picture drawn partly has crashed Ghostty.
+            t.cell =
+                CellSize { width: fit(c.width, ws.pixels.0, ws.cols), height: fit(c.height, ws.pixels.1, ws.rows) };
+        }
+        if p.palette_entries > 0 {
+            t.palette = p.palette;
+            t.palette_queried = true;
+        }
+
+        // Who is on this tty, which is the only thing that may be sent a passthrough
+        // `DCS`. A name settles it: `TMUX` is inherited by everything a pane starts,
+        // terminals included, and one of those crashed on a `DCS` meant for tmux.
+        let named = p.name.as_deref().map(Speaker::of);
+        let tmux = match named {
+            Some(Speaker::Tmux) => true,
+            Some(Speaker::Terminal(_)) => false,
+            None => suspect_tmux && in_tmux(),
+        };
+
+        let mut seen = None;
+        if tmux {
+            // Second round trip, wrapped: tmux hands the queries to the terminal it
+            // draws on, whose answers come back in the order they were asked. A reply
+            // is proof of everything the images need -- that this is tmux, that
+            // `allow-passthrough` is on, and what the outer terminal can draw. Nothing
+            // coming back means an image would not arrive either, and only the
+            // environment is left to say what the outer terminal is.
+            let outer = query::probe(query::Ask { kitty: want_protocol, name: true, wrap: true, ..Default::default() });
+            t.passthrough = true;
+            // Silence means an image would be dropped just as the query was, so the
+            // frames go out as braille, which tmux draws itself and always shows.
+            seen = Some(if outer.answered {
+                Self::seen(&outer, outer.name.as_deref().map(Speaker::of), guess)
+            } else {
+                Protocol::Text
+            });
+        } else {
+            if want_protocol && suspect_tmux {
+                // The kitty query was held back for a tmux that turned out not to be
+                // one. Nothing unwraps a `DCS` here, so it is safe to ask now.
+                p = query::probe(query::Ask { kitty: true, ..Default::default() });
             }
-            if protocol.is_none() {
-                protocol = Some(if probe.kitty {
-                    Protocol::Kitty
-                } else if probe.sixel {
-                    Protocol::Sixel
-                } else {
-                    Protocol::Text
-                });
-            }
-            if probe.palette_entries > 0 {
-                t.palette = probe.palette;
-                t.palette_queried = true;
+            if p.answered {
+                // What the terminal answers outranks the environment, which is only a
+                // guess and is inherited by every terminal started from this one: a
+                // stale `GHOSTTY_RESOURCES_DIR` had Alacritty sent kitty images it
+                // cannot draw, with no way back to braille.
+                seen = Some(Self::seen(&p, named, guess));
             }
         }
+
         if t.cell.is_known() {
-            t.protocol = protocol.unwrap_or(Protocol::Text);
+            t.protocol = protocol.or(seen).or(guess).unwrap_or(Protocol::Text);
         }
-        t.passthrough = tmux && t.is_graphical();
+        t.passthrough &= t.is_graphical();
+        // The last word, for the pane whose tmux could not be reached. It cannot put a
+        // `DCS` at a terminal that named itself, which is the mistake that crashes one.
+        if let Some(on) = std::env::var("COBRA_PASSTHROUGH").ok().and_then(|s| parse_flag(&s)) {
+            t.passthrough = on && t.is_graphical() && !matches!(named, Some(Speaker::Terminal(_)));
+        }
         t
+    }
+
+    /// The protocol one probe's answers show: the name the terminal gave, then what
+    /// it replied to the graphics queries, then `guess` where nothing on the wire can
+    /// tell. [`Protocol::Text`] when none of the three says anything.
+    #[cfg(all(feature = "detect", unix))]
+    fn seen(p: &query::Probe, named: Option<Speaker>, guess: Option<Protocol>) -> Protocol {
+        if let Some(Speaker::Terminal(Some(known))) = named {
+            return known;
+        }
+        if p.kitty {
+            Protocol::Kitty
+        } else if p.sixel {
+            Protocol::Sixel
+        } else if guess == Some(Protocol::Iterm2) {
+            // iTerm2's inline images answer no query and its versions before 3.4 give
+            // no name either, so `ITERM_SESSION_ID` / `LC_TERMINAL` is all there is.
+            Protocol::Iterm2
+        } else {
+            Protocol::Text
+        }
     }
 
     #[cfg(all(feature = "detect", not(unix)))]
     fn detect_inner(protocol: Option<Protocol>, cell: Option<CellSize>) -> Self {
         // No tty queries on this platform: honour explicit overrides, otherwise text.
-        match (protocol.or_else(Protocol::from_env), cell) {
+        let mut t = match (protocol.or_else(Protocol::from_env), cell) {
             (Some(p), Some(c)) => Self::new(p, c),
             _ => Self::text(),
+        };
+        // Nothing here can tell a pane from a terminal started in one, so wrapping is
+        // asked for by hand or not at all.
+        if let Some(on) = std::env::var("COBRA_PASSTHROUGH").ok().and_then(|s| parse_flag(&s)) {
+            t.passthrough = on && t.is_graphical();
         }
+        t
     }
 }
 
@@ -427,6 +570,34 @@ mod tests {
         assert_eq!(Terminal::text().depth, Depth::TrueColor);
         assert_eq!(Terminal::text().with_depth(Depth::Ansi16).depth, Depth::Ansi16);
         assert!(!Terminal::text().passthrough && Terminal::text().with_passthrough(true).passthrough);
+    }
+
+    #[test]
+    fn a_terminal_that_gives_its_name_is_never_taken_for_tmux() {
+        assert_eq!(Speaker::of("tmux 3.4"), Speaker::Tmux);
+        // Every other name is a terminal, and a terminal is never sent a wrapped
+        // image however much of tmux's environment it inherited.
+        for name in ["ghostty 1.3.1", "kitty(0.32.2)", "alacritty 0.15.1", "xterm(390)", "wezterm 20240203"] {
+            assert_eq!(Speaker::of(name), Speaker::Terminal(None), "{name}");
+        }
+        // The one protocol no query detects, so the name is what there is.
+        assert_eq!(Speaker::of("iterm2 3.5.0"), Speaker::Terminal(Some(Protocol::Iterm2)));
+    }
+
+    #[cfg(all(feature = "detect", unix))]
+    #[test]
+    fn what_the_terminal_answers_outranks_the_environment() {
+        use query::Probe;
+        let answered = |kitty, sixel| Probe { kitty, sixel, answered: true, ..Default::default() };
+        // A terminal that answers the queries but not the graphics ones draws no
+        // images, whatever `KITTY_WINDOW_ID` a terminal above it left behind.
+        assert_eq!(Terminal::seen(&answered(false, false), None, Some(Protocol::Kitty)), Protocol::Text);
+        assert_eq!(Terminal::seen(&answered(true, false), None, None), Protocol::Kitty);
+        assert_eq!(Terminal::seen(&answered(false, true), None, None), Protocol::Sixel);
+        // Except iTerm2, which has no query to answer and no name before 3.4.
+        assert_eq!(Terminal::seen(&answered(false, false), None, Some(Protocol::Iterm2)), Protocol::Iterm2);
+        let named = Some(Speaker::Terminal(Some(Protocol::Iterm2)));
+        assert_eq!(Terminal::seen(&answered(false, false), named, None), Protocol::Iterm2);
     }
 
     #[test]
