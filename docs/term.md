@@ -30,7 +30,11 @@ environment (`GHOSTTY_RESOURCES_DIR`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`,
 pixel size on), and every image is wrapped in tmux's passthrough sequence
 ([`Terminal::passthrough`](term.md#terminal)), which reaches the outer terminal only when tmux has
 `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
-it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. GNU screen
+it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
+started from inside tmux inherits `TMUX` without being a pane, and would take the
+wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
+believed: `TERM` settles it when it is one tmux sets (`tmux-*`, `screen-*`), and
+otherwise tmux is asked over its socket whether the pane owns the tty. GNU screen
 passes nothing through and gets text.
 
 ## Contents
@@ -194,7 +198,9 @@ timeout and normally ending as soon as the terminal answers `DA1` (a few
 milliseconds). Call it once at start-up and keep the result. Set
 `COBRA_PALETTE=0` to skip the colour queries.
 
-Inside tmux there is no round trip: the outer terminal is read from the
+Inside tmux (a real pane, not a terminal started from one, which inherits
+`TMUX`; `TERM` or tmux itself tells them apart) there is no round trip to
+the tty: the outer terminal is read from the
 environment, the cell size from `TIOCGWINSZ`, and images are marked for
 [passthrough](term.md#terminal): under tmux the queries would be answered by tmux
 itself, and tmux needs `allow-passthrough on` for the images to reach its terminal.

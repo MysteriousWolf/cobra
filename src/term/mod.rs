@@ -26,7 +26,11 @@
 //! pixel size on), and every image is wrapped in tmux's passthrough sequence
 //! ([`Terminal::passthrough`]), which reaches the outer terminal only when tmux has
 //! `allow-passthrough on` (`set -g allow-passthrough on` in `tmux.conf`). Without
-//! it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. GNU screen
+//! it the images are silently dropped; `COBRA_PROTOCOL=text` opts out. A terminal
+//! started from inside tmux inherits `TMUX` without being a pane, and would take the
+//! wrapped image as an unknown `DCS` (Ghostty crashed on one), so `TMUX` alone is not
+//! believed: `TERM` settles it when it is one tmux sets (`tmux-*`, `screen-*`), and
+//! otherwise tmux is asked over its socket whether the pane owns the tty. GNU screen
 //! passes nothing through and gets text.
 
 #[cfg(all(feature = "detect", unix))]
@@ -97,9 +101,68 @@ impl Protocol {
     }
 }
 
-/// Whether the process runs inside tmux.
+/// Whether the process runs in a tmux pane. Decided once per process.
+///
+/// `TMUX` alone does not say: a terminal started from inside tmux hands the
+/// variable on to everything it runs, and an image wrapped for tmux that reaches
+/// such a terminal directly is an unknown `DCS` to it (Ghostty crashed on one).
+/// tmux sets `TERM` for its panes to its `default-terminal`, `tmux-*` or `screen-*`
+/// unless configured otherwise, while a terminal sets its own, so those settle it.
+/// When `TERM` says nothing either way (`xterm-256color` is both) tmux is asked,
+/// over the socket named in `TMUX`, whether the pane it thinks this is has this
+/// process's tty; if it cannot be asked, this is not a pane.
 fn in_tmux() -> bool {
-    std::env::var("TMUX").is_ok_and(|v| !v.is_empty())
+    static IN_TMUX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *IN_TMUX.get_or_init(|| {
+        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        in_tmux_given(var("TMUX").as_deref(), &var("TERM").unwrap_or_default(), |tmux| {
+            let socket = tmux.split(',').next().unwrap_or(tmux);
+            pane_tty(socket, var("TMUX_PANE").as_deref()).is_some_and(|pane| Some(pane) == own_tty())
+        })
+    })
+}
+
+/// The decision behind [`in_tmux`], with the tmux round trip supplied.
+fn in_tmux_given(tmux: Option<&str>, term: &str, ask: impl FnOnce(&str) -> bool) -> bool {
+    match tmux {
+        None => false,
+        Some(_) if term.starts_with("tmux") || term.starts_with("screen") => true,
+        Some(tmux) => ask(tmux),
+    }
+}
+
+/// The tty of the tmux pane `pane` (`TMUX_PANE`, or tmux's current pane) on `socket`.
+#[cfg(all(feature = "detect", unix))]
+fn pane_tty(socket: &str, pane: Option<&str>) -> Option<String> {
+    let mut cmd = std::process::Command::new("tmux");
+    cmd.args(["-S", socket, "display-message", "-p"]);
+    if let Some(pane) = pane {
+        cmd.args(["-t", pane]);
+    }
+    let out = cmd
+        .arg("#{pane_tty}")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+}
+
+#[cfg(not(all(feature = "detect", unix)))]
+fn pane_tty(_socket: &str, _pane: Option<&str>) -> Option<String> {
+    None
+}
+
+/// The tty this process draws on.
+#[cfg(all(feature = "detect", unix))]
+fn own_tty() -> Option<String> {
+    query::tty_name()
+}
+
+#[cfg(not(all(feature = "detect", unix)))]
+fn own_tty() -> Option<String> {
+    None
 }
 
 /// Size of one character cell in pixels.
@@ -220,7 +283,9 @@ impl Terminal {
     /// milliseconds). Call it once at start-up and keep the result. Set
     /// `COBRA_PALETTE=0` to skip the colour queries.
     ///
-    /// Inside tmux there is no round trip: the outer terminal is read from the
+    /// Inside tmux (a real pane, not a terminal started from one, which inherits
+    /// `TMUX`; `TERM` or tmux itself tells them apart) there is no round trip to
+    /// the tty: the outer terminal is read from the
     /// environment, the cell size from `TIOCGWINSZ`, and images are marked for
     /// [passthrough](Self::passthrough): under tmux the queries would be answered by tmux
     /// itself, and tmux needs `allow-passthrough on` for the images to reach its terminal.
@@ -312,5 +377,22 @@ mod tests {
         assert_eq!(Terminal::text().depth, Depth::TrueColor);
         assert_eq!(Terminal::text().with_depth(Depth::Ansi16).depth, Depth::Ansi16);
         assert!(!Terminal::text().passthrough && Terminal::text().with_passthrough(true).passthrough);
+    }
+
+    #[test]
+    fn tmux_is_not_taken_on_its_word() {
+        let never = |_: &str| panic!("asked tmux");
+        assert!(!in_tmux_given(None, "tmux-256color", never));
+        assert!(in_tmux_given(Some("/tmp/tmux-1000/default,123,0"), "tmux-256color", never));
+        assert!(in_tmux_given(Some("/tmp/tmux-1000/default,123,0"), "screen-256color", never));
+        // A terminal started from inside tmux inherits `TMUX` but sets its own `TERM`;
+        // `xterm-256color` could be either, so tmux is asked, and its answer is final.
+        let mut asked = None;
+        assert!(in_tmux_given(Some("/tmp/s,1,0"), "xterm-256color", |t| {
+            asked = Some(t.to_owned());
+            true
+        }));
+        assert_eq!(asked.as_deref(), Some("/tmp/s,1,0"));
+        assert!(!in_tmux_given(Some("/tmp/s,1,0"), "xterm-ghostty", |_| false));
     }
 }

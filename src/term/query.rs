@@ -18,6 +18,18 @@ pub(super) fn is_tty() -> bool {
     unsafe { libc::isatty(libc::STDOUT_FILENO) == 1 }
 }
 
+/// The path of the tty on stdout, `None` when stdout is not one.
+pub(super) fn tty_name() -> Option<String> {
+    let mut buf = [0u8; 256];
+    // SAFETY: the buffer and its length are passed together, and `ttyname_r` writes
+    // a NUL-terminated path into it only when it returns 0.
+    if unsafe { libc::ttyname_r(libc::STDOUT_FILENO, buf.as_mut_ptr().cast(), buf.len()) } != 0 {
+        return None;
+    }
+    let end = buf.iter().position(|&b| b == 0)?;
+    String::from_utf8(buf[..end].to_vec()).ok()
+}
+
 pub(super) fn winsize() -> WinSize {
     // SAFETY: `winsize` is plain-old-data; the ioctl writes into it only on success.
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
