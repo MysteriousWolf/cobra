@@ -13,7 +13,8 @@ pub(super) fn frame(
     width: u32,
     height: u32,
     id: u32,
-    virt: Option<(u16, u16)>,
+    cells: (u16, u16),
+    virt: bool,
     z: i32,
     scratch: &mut Vec<u8>,
     out: &mut Vec<u8>,
@@ -23,9 +24,14 @@ pub(super) fn frame(
     // a=T transmit+display, f=32 RGBA, o=z zlib, q=2 no replies, C=1 keep cursor.
     // Reusing `i` replaces the previous image and its placements: one id per canvas
     // gives flicker-free updates.
-    let mut control = format!("a=T,f=32,o=z,s={width},v={height},i={id},q=2,C=1");
-    if let Some((cols, rows)) = virt {
-        let _ = write!(control, ",U=1,c={cols},r={rows}");
+    let (cols, rows) = cells;
+    // `c`,`r` give the placement its size in cells, so the picture covers exactly the
+    // room the renderer made for it. Without them the terminal derives that from the
+    // image's pixels and its own cell, and a cell size we read too large would put
+    // part of the image past the last row: partly visible images have crashed Ghostty.
+    let mut control = format!("a=T,f=32,o=z,s={width},v={height},i={id},q=2,C=1,c={cols},r={rows}");
+    if virt {
+        control.push_str(",U=1");
     }
     if z != 0 {
         let _ = write!(control, ",z={z}");
@@ -33,11 +39,14 @@ pub(super) fn frame(
     let chunks = scratch.chunks(CHUNK);
     let n = chunks.len().max(1);
     for (k, chunk) in chunks.enumerate() {
+        // A continuation chunk carries `m` alone: a leading comma would make the
+        // control data start with an empty key, which a terminal is free to reject.
         out.extend_from_slice(b"\x1b_G");
         if k == 0 {
             out.extend_from_slice(control.as_bytes());
+            out.push(b',');
         }
-        out.extend_from_slice(if k + 1 < n { b",m=1;" } else { b",m=0;" });
+        out.extend_from_slice(if k + 1 < n { b"m=1;" } else { b"m=0;" });
         out.extend_from_slice(chunk);
         out.extend_from_slice(b"\x1b\\");
     }

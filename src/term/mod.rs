@@ -120,6 +120,14 @@ impl Protocol {
 /// pane wrongly writes a `DCS` at a terminal that never asked for one, guessing
 /// terminal wrongly only drops the images inside tmux, which `COBRA_PASSTHROUGH=1`
 /// brings back -- so the doubtful cases go the cheap way.
+/// A cell edge the window can hold: `size` unless the window's `pixels` divided over
+/// its `cells` is smaller. Zero for either means the window did not say, and `size`
+/// stands.
+#[cfg(all(feature = "detect", unix))]
+fn fit(size: u16, pixels: u16, cells: u16) -> u16 {
+    if pixels == 0 || cells == 0 { size } else { size.min((pixels / cells).max(1)) }
+}
+
 fn in_tmux() -> bool {
     static IN_TMUX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *IN_TMUX.get_or_init(|| {
@@ -217,9 +225,9 @@ pub struct Terminal {
     pub protocol: Protocol,
     /// Pixel size of one cell (zero when unknown; then `protocol` is `Text`).
     pub cell: CellSize,
-    /// Terminal width in cells, `0` when unknown.
+    /// Terminal width in cells, `0` when unknown. Images are clipped to it.
     pub cols: u16,
-    /// Terminal height in cells, `0` when unknown.
+    /// Terminal height in cells, `0` when unknown. Images are clipped to it.
     pub rows: u16,
     /// The terminal's colour scheme, used to draw [`Color::Indexed`](crate::Color::Indexed)
     /// and [`Color::Foreground`](crate::Color::Foreground) dots in the image protocols.
@@ -238,10 +246,9 @@ pub struct Terminal {
     ///
     /// tmux hands the wrapped bytes on at wherever its own terminal's cursor is, so
     /// before each image the renderer erases the image's origin cell (`ECH`), which
-    /// is the one thing that makes tmux put that cursor where the pane's is, and it
-    /// clips the image to [`cols`](Self::cols) × [`rows`](Self::rows), the pane: an
-    /// image hanging off the outer screen is drawn by a terminal that never saw the
-    /// pane, and has crashed Ghostty.
+    /// is the one thing that makes tmux put that cursor where the pane's is. The
+    /// image itself is kept inside [`cols`](Self::cols) × [`rows`](Self::rows) here
+    /// as everywhere else, since a picture drawn partly has crashed Ghostty.
     pub passthrough: bool,
 }
 
@@ -353,7 +360,12 @@ impl Terminal {
             if !t.cell.is_known()
                 && let Some(c) = probe.cell
             {
-                t.cell = c;
+                // A cell the terminal reports in physical pixels, for a window it
+                // sizes in logical ones, is larger than the window can hold. Believe
+                // the window: an image raised to the larger cell would reach past the
+                // last row, and a picture drawn partly has crashed Ghostty.
+                t.cell =
+                    CellSize { width: fit(c.width, ws.pixels.0, ws.cols), height: fit(c.height, ws.pixels.1, ws.rows) };
             }
             if protocol.is_none() {
                 protocol = Some(if probe.kitty {
@@ -389,6 +401,16 @@ impl Terminal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(feature = "detect", unix))]
+    #[test]
+    fn a_cell_larger_than_the_window_is_cut_down_to_it() {
+        assert_eq!(fit(20, 800, 80), 10, "the window holds 10 px per cell, not 20");
+        assert_eq!(fit(8, 800, 80), 8, "a cell that fits is left alone");
+        assert_eq!(fit(20, 0, 80), 20, "a window without pixels says nothing");
+        assert_eq!(fit(20, 800, 0), 20);
+        assert_eq!(fit(20, 40, 80), 1, "never zero, which would mean no protocol at all");
+    }
 
     #[test]
     fn parsing() {

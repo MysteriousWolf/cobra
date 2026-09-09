@@ -25,7 +25,8 @@ fn main() {
     println!("screen        {}×{} cells", term.cols, term.rows);
     println!("text depth    {:?}", term.depth);
     println!("palette       {}", if term.palette_queried { "asked the terminal" } else { "xterm defaults" });
-    println!("passthrough   {} (images wrapped for tmux)", term.passthrough);
+    let wrapped = if term.passthrough { "images wrapped for tmux" } else { "images sent straight out" };
+    println!("passthrough   {} ({wrapped})", term.passthrough);
 
     println!("\nenvironment");
     for key in ["TERM", "TERM_PROGRAM", "TMUX", "TMUX_PANE", "COBRA_PROTOCOL", "COBRA_CELL", "COBRA_PASSTHROUGH"] {

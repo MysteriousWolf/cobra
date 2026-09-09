@@ -305,8 +305,11 @@ pub fn parse_iterm2(frame: &[u8]) -> Image {
     };
     assert_eq!(field("size=").parse::<usize>().unwrap(), png.len(), "declared size does not match the payload");
     let image = decode_png(&png);
-    assert_eq!(field("width="), format!("{}px", image.width));
-    assert_eq!(field("height="), format!("{}px", image.height));
+    // The box is given in cells, so it only has to divide the image evenly.
+    for (name, px) in [("width=", image.width), ("height=", image.height)] {
+        let cells: usize = field(name).parse().unwrap_or_else(|_| panic!("{name} is not a cell count"));
+        assert!(cells > 0 && px % cells == 0, "{name}{cells} cells does not divide {px} px");
+    }
     image
 }
 

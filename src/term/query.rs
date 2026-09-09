@@ -11,6 +11,8 @@ pub(super) struct WinSize {
     pub cols: u16,
     pub rows: u16,
     pub cell: CellSize,
+    /// The window in pixels as the ioctl reports it, `(0, 0)` when it does not.
+    pub pixels: (u16, u16),
 }
 
 pub(super) fn is_tty() -> bool {
@@ -60,7 +62,8 @@ pub(super) fn winsize() -> WinSize {
     } else {
         CellSize::default()
     };
-    WinSize { cols, rows, cell }
+    let pixels = if ok { (ws.ws_xpixel, ws.ws_ypixel) } else { (0, 0) };
+    WinSize { cols, rows, cell, pixels }
 }
 
 #[derive(Default)]
