@@ -13,7 +13,7 @@
 # a parent you are not:
 #
 #   ghostty -e fish ci/kitty-probe.fish        # spend a window on it
-#   ci/kitty-probe.fish 4                      # start at step 4
+#   ci/kitty-probe.fish 4                      # start at step 4 (of 10)
 #   ci/kitty-probe.fish --no-wait              # do not stop for Enter
 #
 # The step number is printed *and flushed* before its bytes go out, so whatever the
@@ -67,7 +67,9 @@ function __step --argument-names n title
     echo "kitty-probe: step $n — $title" >&2
     if test $wait -eq 1
         echo "kitty-probe: Enter to send, Ctrl-C to stop" >&2
-        read --local _
+        # Not `_`: fish keeps that one for the running command's name and refuses to
+        # assign it, which turns every prompt into an error and waits for nothing.
+        read --local reply
     end
     return 0
 end
@@ -112,6 +114,50 @@ end
 if __step 7 "the same id transmitted again, thirty times, as an animation would"
     for i in (seq 30)
         __image 400 200 1 "a=T,f=32,o=z,s=400,v=200,i=9003,q=2,C=1,c=40,r=10"
+    end
+end
+
+if __step 8 "a screenful of braille, a different colour in every cell, no image"
+    # cobra's text layer gives each cell its own 24-bit colour, and a terminal stores
+    # one style per distinct combination. The crash log named `styles` among the page
+    # capacities it was growing when it died, and this is what grows it.
+    python3 -c '
+import sys
+rows, cols = 40, 120
+for y in range(rows):
+    line = []
+    for x in range(cols):
+        r, g, b = (x * 2) % 256, (y * 6) % 256, ((x ^ y) * 3) % 256
+        line.append(f"\x1b[38;2;{r};{g};{b}m" + chr(0x2800 + ((x + y) % 256)))
+    sys.stdout.write("".join(line) + "\x1b[0m\n")
+'
+end
+
+if __step 9 "an image with coloured text printed over it, the way a text layer goes"
+    __image 400 200 1 "a=T,f=32,o=z,s=400,v=200,i=9004,q=2,C=1,c=40,r=10,z=-1"
+    python3 -c '
+import sys
+for y in range(10):
+    line = []
+    for x in range(40):
+        r, g, b = (x * 5) % 256, (y * 20) % 256, ((x * y) * 7) % 256
+        line.append(f"\x1b[38;2;{r};{g};{b}m" + chr(0x2800 + ((x * y) % 256)))
+    sys.stdout.write("".join(line) + "\x1b[0m\n")
+'
+end
+
+if __step 10 "sixty frames that each scroll, filling the scrollback with images"
+    # The crash log`s last line before the segfault was the terminal growing a
+    # scrollback page. Frames that scroll are how images get into scrollback.
+    for i in (seq 60)
+        for j in (seq 10)
+            echo ""
+        end
+        printf '\e[10A'
+        printf '\e7'
+        __image 400 200 1 "a=T,f=32,o=z,s=400,v=200,i=9005,q=2,C=1,c=40,r=10"
+        printf '\e8\r'
+        printf '\e[10B'
     end
 end
 
