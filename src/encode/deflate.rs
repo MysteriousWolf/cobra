@@ -1,11 +1,16 @@
-//! A tiny zlib (RFC 1950/1951) compressor tuned for flat raster images.
+//! A tiny zlib (RFC 1950/1951) compressor for raster images.
 //!
-//! It emits one fixed-Huffman block and only ever looks for matches at two distances:
-//! one pixel back (horizontal runs) and one scanline back (vertical repetition). That
-//! is all a braille canvas needs: frames are mostly transparent with flat-coloured
-//! dots, so this shrinks them by two orders of magnitude at a fraction of the cost of
-//! a general LZ77 search, and it makes the kitty (`o=z`) and PNG paths cheap enough
-//! for animation without pulling in a compression crate.
+//! It emits one fixed-Huffman block, and finds matches two ways. The caller's hint
+//! distances -- one pixel back, one scanline back -- are tried directly, because a
+//! braille canvas is mostly transparent with flat-coloured dots and those two answer
+//! it almost every time for the cost of two comparisons. Everything they miss goes to
+//! a hash chain over the whole window.
+//!
+//! The hints alone used to be the whole search, which cost an order of magnitude on
+//! any frame that was not flat: a colour-per-dot gradient compressed to 27KB where a
+//! general LZ77 search reaches 4KB, and every byte of that went down the wire on
+//! every frame. Keeping both is what makes the flat case cheap and the detailed case
+//! small, still without pulling in a compression crate.
 
 const LEN_BASE: [u16; 29] =
     [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
@@ -16,8 +21,21 @@ const DIST_BASE: [u16; 30] = [
 ];
 const DIST_EXTRA: [u8; 30] =
     [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+const MIN_MATCH: usize = 3;
 const MAX_MATCH: usize = 258;
 const MAX_DIST: usize = 32768;
+
+/// Slots in the hash table, and the ring of previous positions. The ring is the
+/// window: two positions that far apart share a slot, and a match that far back is
+/// out of range anyway.
+const HASH_BITS: u32 = 15;
+const HASH_SIZE: usize = 1 << HASH_BITS;
+
+/// How many positions of a hash chain to walk before taking the best so far. Chains
+/// run long on repetitive rasters, and the tail of one rarely improves the match.
+const MAX_CHAIN: usize = 128;
+
+const NIL: u32 = u32::MAX;
 
 struct Bits<'a> {
     out: &'a mut Vec<u8>,
@@ -90,45 +108,128 @@ fn match_len(data: &[u8], pos: usize, dist: usize) -> usize {
     n + ra.iter().zip(rb).take_while(|(x, y)| x == y).count()
 }
 
-/// Appends a zlib stream for `data` to `out`, trying only the match distances in
-/// `dists` (in bytes). For a raster that is one pixel back, one cell back, one row
-/// back and one dot row back: flat runs, dither patterns and vertical repetition.
+/// Three bytes at `pos`, scattered into a hash-table slot.
+#[inline]
+fn hash3(data: &[u8], pos: usize) -> usize {
+    let v = (data[pos] as u32) << 16 | (data[pos + 1] as u32) << 8 | data[pos + 2] as u32;
+    (v.wrapping_mul(0x9E37_79B1) >> (32 - HASH_BITS)) as usize
+}
+
+/// Records `pos` as the most recent position starting with its three bytes, pushing
+/// whatever held that slot onto the chain behind it, and hands back that older
+/// position: it is where a search from `pos` starts, since `pos` cannot match itself.
+#[inline]
+fn insert(data: &[u8], pos: usize, head: &mut [u32], prev: &mut [u32]) -> u32 {
+    if pos + MIN_MATCH > data.len() {
+        return NIL;
+    }
+    let h = hash3(data, pos);
+    let older = head[h];
+    prev[pos & (MAX_DIST - 1)] = older;
+    head[h] = pos as u32;
+    older
+}
+
+/// The longest match for `data[pos..]`, as (length, distance), or a length below
+/// [`MIN_MATCH`] when there is nothing worth encoding as a pair.
+fn find(data: &[u8], pos: usize, chain: u32, prev: &[u32], hints: &[usize], last: usize) -> (usize, usize) {
+    let (mut best, mut best_dist) = (0, 0);
+    // The distance that matched last time usually matches again: a run continues, a
+    // row repeats. When it gives a maximal match there is nothing left to beat.
+    if last > 0 && last <= pos {
+        best = match_len(data, pos, last);
+        best_dist = last;
+    }
+    if best < MAX_MATCH {
+        for &d in hints {
+            if d > 0 && d != last && d <= pos && d <= MAX_DIST {
+                let l = match_len(data, pos, d);
+                if l > best {
+                    best = l;
+                    best_dist = d;
+                }
+            }
+        }
+    }
+    if best < MAX_MATCH {
+        let mut p = chain;
+        for _ in 0..MAX_CHAIN {
+            if p == NIL {
+                break;
+            }
+            let cand = p as usize;
+            // A slot can hold a position from before the window wrapped; both tests
+            // end the walk rather than trusting it.
+            if cand >= pos || pos - cand > MAX_DIST {
+                break;
+            }
+            let l = match_len(data, pos, pos - cand);
+            if l > best {
+                best = l;
+                best_dist = pos - cand;
+                if l >= MAX_MATCH {
+                    break;
+                }
+            }
+            p = prev[cand & (MAX_DIST - 1)];
+        }
+    }
+    (best, best_dist)
+}
+
+/// Appends a zlib stream for `data` to `out`. `dists` are match distances worth
+/// trying first (in bytes): for a raster that is one pixel back, one cell back, one
+/// row back and one dot row back -- flat runs, dither patterns, vertical repetition.
+/// Anything they do not catch is found by searching the window.
 pub(crate) fn zlib(data: &[u8], dists: &[usize], out: &mut Vec<u8>) {
     out.extend_from_slice(&[0x78, 0x01]);
     let mut w = Bits { out, acc: 0, n: 0 };
     w.put(1, 1); // BFINAL
     w.put(1, 2); // BTYPE = fixed Huffman
-    let mut i = 0;
+
+    let mut head = vec![NIL; HASH_SIZE];
+    let mut prev = vec![NIL; MAX_DIST];
     let mut last = dists.first().copied().unwrap_or(0);
+
+    // Lazy matching: a match found here is held back one byte to see whether the next
+    // position starts a longer one, which is worth more than the literal it costs.
+    let mut held: Option<(usize, usize)> = None;
+    let mut i = 0;
     while i < data.len() {
-        // The distance that matched last time usually matches again (a run continues,
-        // a pattern repeats); when it gives a maximal match there is nothing to beat.
-        let (mut best, mut best_dist) = (0, 0);
-        if last > 0 && last <= i {
-            best = match_len(data, i, last);
-            best_dist = last;
-        }
-        if best < MAX_MATCH {
-            for &d in dists {
-                if d != last && d > 0 && d <= i && d <= MAX_DIST {
-                    let l = match_len(data, i, d);
-                    if l > best {
-                        best = l;
-                        best_dist = d;
-                    }
+        let chain = insert(data, i, &mut head, &mut prev);
+        let (len, dist) = find(data, i, chain, &prev, dists, last);
+        match held {
+            // The next position beat it: let the held match go and keep the better one.
+            Some((hl, _)) if len > hl => {
+                w.literal(data[i - 1] as u32);
+                held = Some((len, dist));
+                i += 1;
+            }
+            Some((hl, hd)) => {
+                w.pair(hl, hd);
+                last = hd;
+                // The match started one byte back, so it ends here; every position it
+                // covers still belongs in the chain for later matches to find.
+                let end = i - 1 + hl;
+                for k in i + 1..end {
+                    insert(data, k, &mut head, &mut prev);
                 }
+                i = end;
+                held = None;
+            }
+            None if len >= MIN_MATCH => {
+                held = Some((len, dist));
+                i += 1;
+            }
+            None => {
+                w.literal(data[i] as u32);
+                i += 1;
             }
         }
-        if best >= 3 {
-            last = best_dist;
-        }
-        if best >= 3 {
-            w.pair(best, best_dist);
-            i += best;
-        } else {
-            w.literal(data[i] as u32);
-            i += 1;
-        }
+    }
+    if let Some((hl, hd)) = held {
+        // Nothing followed it, so the held match stands as it is.
+        w.pair(hl, hd);
     }
     w.literal(256);
     w.finish();
@@ -228,6 +329,46 @@ mod tests {
             assert_eq!(inflate_fixed(&z), data);
             assert_eq!(&z[z.len() - 4..], adler32(&data).to_be_bytes());
         }
+    }
+
+    /// A repeat at a distance the caller never hints at is exactly what the old
+    /// search could not see: it only ever probed the distances it was given.
+    #[test]
+    fn finds_matches_the_hints_miss() {
+        let mut data = Vec::new();
+        for i in 0..3000u32 {
+            data.extend_from_slice(&(i % 251).to_le_bytes());
+        }
+        data.extend_from_within(..); // the whole thing again, 12000 bytes back
+        let mut z = Vec::new();
+        zlib(&data, &[4, 160], &mut z);
+        assert_eq!(inflate_fixed(&z), data);
+        assert!(z.len() < data.len() / 4, "{} of {}", z.len(), data.len());
+    }
+
+    /// A colour per dot is cobra's own hard case and the one that used to blow up:
+    /// the picture repeats by dot and by row, but never at a single fixed distance.
+    #[test]
+    fn compresses_detailed_images() {
+        const W: usize = 400;
+        const DOT: usize = 5;
+        let mut img = vec![0u8; W * 200 * 4];
+        for y in 0..200 {
+            for x in 0..W {
+                let (dx, dy) = (x / DOT, y / DOT);
+                let p = (y * W + x) * 4;
+                img[p] = (dx * 3) as u8;
+                img[p + 1] = (dy * 5) as u8;
+                img[p + 2] = ((dx + dy) * 2) as u8;
+                img[p + 3] = if (dx + dy) % 3 == 0 { 255 } else { 0 };
+            }
+        }
+        let mut z = Vec::new();
+        zlib(&img, &[4, 40, W * 4, W * 4 * 5], &mut z);
+        assert_eq!(inflate_fixed(&z), img);
+        // zlib itself needs ~20200 bytes for this at fixed Huffman, so this is the
+        // search working, not the coding; what is left to win is a dynamic table.
+        assert!(z.len() < 22_000, "{}", z.len());
     }
 
     #[test]
