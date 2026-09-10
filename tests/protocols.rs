@@ -5,7 +5,7 @@
 mod common;
 
 use cobra::{Canvas, CellSize, Color, Depth, Options, Palette, Placement, Protocol, Renderer, Rgb, Terminal};
-use common::{Image, parse_iterm2, parse_kitty, parse_sixel};
+use common::{Image, parse_iterm2, parse_kitty, parse_kitty_all, parse_sixel, stack};
 
 const CELL: CellSize = CellSize { width: 8, height: 16 };
 
@@ -60,8 +60,10 @@ fn kitty_payload_is_the_raster() {
 
 #[test]
 fn kitty_chunks_reassemble() {
-    // A canvas large enough that the payload needs several 4096-byte chunks.
-    let mut canvas = Canvas::new(60, 20);
+    // Large enough that the payload needs several 4096-byte chunks. Whether it also
+    // needs more than one image is the splitting's business; what matters here is that
+    // a continuation chunk decodes back into the picture it was cut out of.
+    let mut canvas = Canvas::new(30, 8);
     for y in 0..canvas.height() {
         for x in 0..canvas.width() {
             canvas.set(x, y, Rgb::new((x * 3) as u8, (y * 5) as u8, (x ^ y) as u8));
@@ -69,10 +71,35 @@ fn kitty_chunks_reassemble() {
     }
     let mut r = renderer(Protocol::Kitty);
     let bytes = r.encode(&canvas, Placement::Flow).to_vec();
-    assert!(bytes.windows(3).filter(|w| *w == b"\x1b_G").count() > 1, "expected a chunked frame");
+    let tiles = parse_kitty_all(&bytes);
+    let chunks = bytes.windows(3).filter(|w| *w == b"\x1b_G").count();
+    assert!(chunks > tiles.len(), "expected continuation chunks, got {chunks} for {} image(s)", tiles.len());
     // `parse_kitty` asserts the m= flags and reassembles; decoding proves the split
     // happened on byte boundaries of the base64 stream.
-    assert_matches_canvas(&parse_kitty(&bytes).image(), &canvas, &Palette::default());
+    assert_matches_canvas(&stack(&tiles), &canvas, &Palette::default());
+}
+
+#[test]
+fn kitty_splits_an_oversized_frame_into_bands_that_stack_back() {
+    // Detail everywhere, so the payload stays too large for one image however well it
+    // compresses. The bands must tile the picture exactly: same width, rows adding up,
+    // and the pixels in order.
+    let mut canvas = Canvas::new(60, 20);
+    for y in 0..canvas.height() {
+        for x in 0..canvas.width() {
+            canvas.set(x, y, Rgb::new(((x * 7) ^ y) as u8, (y * 5) as u8, (x + y * 3) as u8));
+        }
+    }
+    let mut r = renderer(Protocol::Kitty);
+    let bytes = r.encode(&canvas, Placement::Flow).to_vec();
+    let tiles = parse_kitty_all(&bytes);
+    assert!(tiles.len() > 1, "expected the frame to be split, got {} image(s)", tiles.len());
+    let ids: std::collections::BTreeSet<&str> = tiles.iter().map(|t| t.get("i").unwrap()).collect();
+    assert_eq!(ids.len(), tiles.len(), "each band needs an id of its own");
+    let rows: u32 = tiles.iter().map(|t| t.get("r").unwrap().parse::<u32>().unwrap()).sum();
+    assert_eq!(rows, canvas.height() as u32 / 4, "the bands cover exactly the canvas rows");
+    assert!(tiles.windows(2).all(|p| p[0].get("s") == p[1].get("s")), "every band is the full width");
+    assert_matches_canvas(&stack(&tiles), &canvas, &Palette::default());
 }
 
 #[test]

@@ -249,8 +249,39 @@ impl KittyFrame {
     }
 }
 
-/// Parses the `ESC _ G ... ESC \` chunks of a kitty frame, checking the `m=` chunking
-/// flags line up with the number of chunks.
+/// Every image in a frame. An oversized frame is sent as several, each one a
+/// horizontal band placed under the one before it.
+pub fn parse_kitty_all(frame: &[u8]) -> Vec<KittyFrame> {
+    // A new image starts at a chunk whose control data carries the action; the chunks
+    // after it carry `m=` alone.
+    let mut starts: Vec<usize> = Vec::new();
+    let mut at = 0;
+    while let Some(i) = find(&frame[at..], b"\x1b_Ga=") {
+        starts.push(at + i);
+        at += i + 3;
+    }
+    assert!(!starts.is_empty(), "no kitty images in frame");
+    starts
+        .iter()
+        .enumerate()
+        .map(|(k, &from)| {
+            let to = starts.get(k + 1).copied().unwrap_or(frame.len());
+            parse_kitty(&frame[from..to])
+        })
+        .collect()
+}
+
+/// The bands of an oversized frame stacked back into the single picture they tile.
+/// The raster is row-major, so that is their payloads end to end.
+pub fn stack(tiles: &[KittyFrame]) -> Image {
+    let w: usize = tiles[0].get("s").expect("no width").parse().unwrap();
+    let h: usize = tiles.iter().map(|t| t.get("v").unwrap().parse::<usize>().unwrap()).sum();
+    let rgba: Vec<u8> = tiles.iter().flat_map(|t| t.payload.iter().copied()).collect();
+    Image::from_rgba(&rgba, w, h)
+}
+
+/// Parses the `ESC _ G ... ESC \` chunks of one kitty image, checking the `m=`
+/// chunking flags line up with the number of chunks.
 pub fn parse_kitty(frame: &[u8]) -> KittyFrame {
     let mut control = Vec::new();
     let mut b64 = Vec::new();

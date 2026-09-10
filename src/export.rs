@@ -70,7 +70,7 @@ pub fn png(canvas: &Canvas, style: &Style) -> Vec<u8> {
     }
     let (mut scratch, mut out) = (Vec::new(), Vec::new());
     let dists = [1, style.cell.width as usize, w as usize, w as usize * (style.cell.height as usize / 4).max(1)];
-    crate::encode::png::encode(&raster.rgba, w, h, &dists, &mut scratch, &mut out);
+    crate::encode::png::encode(&mut Default::default(), &raster.rgba, w, h, &dists, &mut scratch, &mut out);
     out
 }
 
