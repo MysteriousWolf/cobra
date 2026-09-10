@@ -14,15 +14,18 @@
 #   ci/soak.fish slow                      # one frame at a time, on Enter
 #   ci/soak.fish animate                   # 30 frames per scene at 15 fps, the animation path
 #   ci/soak.fish last                      # what the last run got to before it stopped
+#   ci/soak.fish sweep [sizes...]          # one run per chunk size, each in a fresh window
 #   ci/soak.fish replay <file.bin>         # send one dumped frame back to this terminal
 #   ci/soak.fish check                     # the headless suite: cargo test --test soak
 #
 # Everything lands in `target/soak/`: `soak.log` and `frames/NNNN-scene-rep.bin`. Run
 # `last` from a *fresh* terminal after a crash — the crashed one took your shell with it.
 #
-# The log is appended to, so runs that differ by one variable can be compared in it:
-#
-#   for c in 4096 2048 1024; env COBRA_CHUNK=$c ci/soak.fish run; end
+# The log is appended to, so runs that differ by one variable can be compared in it.
+# Do not drive such a comparison with a loop in this shell: the terminal under test is
+# the one that dies, and it takes the shell and the rest of the loop with it. That is
+# what `sweep` is for — it keeps the loop in a terminal that is not being tested, and
+# spends a fresh one on each run.
 #
 # Each run's header names the COBRA_CHUNK it saw, and its `packets` line says what
 # actually went out — if the two disagree, the binary is older than the override.
@@ -55,6 +58,53 @@ function __run --description 'Run the harness with the standard log and dump loc
     $repo/target/release/examples/soak --log $log --dump $frames $argv
 end
 
+function __sweep --description 'Run once per chunk size, each in a terminal of its own'
+    # A crash takes the whole terminal, so a loop running inside it never reaches its
+    # second iteration. This loop stays in the terminal you launched from and spends a
+    # fresh one on each run, which also puts the child's death — signal and all — in
+    # this terminal's scrollback where it survives.
+    set --local sizes $argv
+    test (count $sizes) -gt 0
+    or set sizes 4096 2048 1024
+
+    set --local launcher $COBRA_TERM
+    if test -z "$launcher"
+        for candidate in ghostty kitty wezterm alacritty foot xterm
+            if command --query $candidate
+                set launcher $candidate
+                break
+            end
+        end
+    end
+    test -n "$launcher"
+    or __fail "found no terminal to spend; set COBRA_TERM to one that takes -e"
+
+    __build
+    echo "soak: $launcher, one window per chunk size: $sizes" >&2
+    echo "soak: log $log" >&2
+
+    set --local soak $repo/target/release/examples/soak
+    for size in $sizes
+        set --local inner env COBRA_CHUNK=$size $soak --log $log --dump $frames
+        switch $launcher
+            case wezterm
+                $launcher start -- $inner
+            case '*'
+                $launcher -e $inner
+        end
+        set --local code $status
+        if test $code -eq 0
+            echo "soak: chunk=$size — the terminal came back alive" >&2
+        else
+            echo "soak: chunk=$size — the terminal exited $code" >&2
+        end
+    end
+
+    echo >&2
+    echo "soak: what each run asked for, against what it actually sent:" >&2
+    grep -E 'COBRA_CHUNK=|packets ' $log >&2
+end
+
 switch "$argv[1]"
     case run ''
         __run $argv[2..-1]
@@ -84,6 +134,8 @@ switch "$argv[1]"
         else
             tail -n 20 $log
         end
+    case sweep
+        __sweep $argv[2..-1]
     case replay
         test -f "$argv[2]"
         or __fail "usage: ci/soak.fish replay <file.bin>"
@@ -93,5 +145,5 @@ switch "$argv[1]"
         cargo test --manifest-path $repo/Cargo.toml --all-features --test soak $argv[2..-1]
         or __fail "the headless soak suite failed"
     case '*'
-        __fail "unknown command $argv[1]; try run, safe, slow, animate, last, replay, check"
+        __fail "unknown command $argv[1]; try run, safe, slow, animate, sweep, last, replay, check"
 end
