@@ -7,6 +7,23 @@ use crate::encode::base64;
 /// Base64 characters per chunk (the protocol's maximum is 4096).
 const CHUNK: usize = 4096;
 
+/// The chunk size to use, `COBRA_CHUNK` if it names a usable one.
+///
+/// Terminals have been known to die on a picture that arrives in many chunks rather
+/// than on anything wrong with the picture, and telling the two apart means sending
+/// the same bytes split differently. This override does that without a rebuild; the
+/// protocol's own maximum is the default and the ceiling.
+fn chunk() -> usize {
+    static CHOSEN: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CHOSEN.get_or_init(|| {
+        std::env::var("COBRA_CHUNK")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .map_or(CHUNK, |n| n.min(CHUNK))
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn frame(
     zlib: &[u8],
@@ -36,7 +53,7 @@ pub(super) fn frame(
     if z != 0 {
         let _ = write!(control, ",z={z}");
     }
-    let chunks = scratch.chunks(CHUNK);
+    let chunks = scratch.chunks(chunk());
     let n = chunks.len().max(1);
     for (k, chunk) in chunks.enumerate() {
         // A continuation chunk carries `m` alone: a leading comma would make the

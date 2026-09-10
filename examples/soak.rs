@@ -42,7 +42,9 @@
 //! ```
 //!
 //! `COBRA_PROTOCOL`, `COBRA_CELL`, `COBRA_COLORS` and `COBRA_DOT` are read by
-//! detection as usual and are written into the log's header.
+//! detection as usual and are written into the log's header. `COBRA_CHUNK` splits
+//! kitty frames into smaller packets than the protocol's 4096, which tells a terminal
+//! that dies on many chunks apart from one that dies on the picture itself.
 
 #[path = "common/scenes.rs"]
 mod scenes;
