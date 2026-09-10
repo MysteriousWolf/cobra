@@ -60,6 +60,10 @@ name = "layers"
 required-features = ["detect"]
 
 [[example]]
+name = "soak"
+required-features = ["detect"]
+
+[[example]]
 name = "tui"
 required-features = ["ratatui", "detect"]
 

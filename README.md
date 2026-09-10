@@ -189,6 +189,27 @@ cargo run --example detect                  # what detection decided, and from w
 cargo run --release --example snake         # animation, with timing
 cargo run --release --features ratatui --example tui
 cargo run --example docs                    # regenerate docs/
+cargo run --release --example soak          # every scene in sequence, with a record of it
+```
+
+## When a terminal misbehaves
+
+Some terminals crash on graphics that are perfectly valid, and a live animation is the
+hardest thing to hand to whoever has to fix it. `examples/soak.rs` draws every scene of
+`examples/common/scenes.rs` in sequence and writes down what each frame is — protocol,
+geometry, control keys, packet sizes, compression ratio, CRC — *before* the bytes reach
+the terminal, each line fsynced. If the terminal dies, the last block in the log names
+the frame that did it, and `--dump` has already left that frame on disk as a file
+anyone can `cat` back.
+
+```sh
+ci/soak.fish run            # draw everything here, log to target/soak/soak.log
+ci/soak.fish safe           # encode and log only, never write to the tty
+ci/soak.fish slow           # one frame at a time, on Enter
+ci/soak.fish animate        # 30 frames per scene at 15 fps, three times over
+ci/soak.fish last           # from a fresh terminal: what the last run got to
+ci/soak.fish replay target/soak/frames/0007-gradient-0.bin
+ci/soak.fish check          # the same scenes, headless: cargo test --test soak
 ```
 
 ## Versioning
@@ -210,8 +231,10 @@ ci/docs.fish check        # docs/ matches the source, and every public item has 
 ```
 
 Integration tests decode frames back to pixels with their own PNG, zlib, sixel and kitty
-readers, so a round trip is real evidence. The **Docs** workflow regenerates the reference
-by hand and commits it to main when something changed.
+readers, so a round trip is real evidence. `tests/soak.rs` runs the harness's own scene
+table through every protocol, so anything the soak run sends to a terminal is also checked
+headlessly. The **Docs** workflow regenerates the reference by hand and commits it to main
+when something changed.
 
 ## License
 
