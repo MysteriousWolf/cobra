@@ -26,7 +26,15 @@ fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], body: &[u8]) {
 /// the LZ77 distances in *pixels* worth trying (see [`deflate::zlib`]); rows are one
 /// filter byte longer than the raster, which is accounted for here.
 /// `scratch` is reused for the filtered scanlines and the zlib stream.
-pub(crate) fn encode(rgba: &[u8], width: u32, height: u32, dists: &[usize], scratch: &mut Vec<u8>, out: &mut Vec<u8>) {
+pub(crate) fn encode(
+    window: &mut deflate::Window,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    dists: &[usize],
+    scratch: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) {
     let stride = width as usize * 4;
     scratch.clear();
     scratch.reserve(height as usize * (stride + 1));
@@ -41,7 +49,7 @@ pub(crate) fn encode(rgba: &[u8], width: u32, height: u32, dists: &[usize], scra
         // boundary crossed adds a filter byte.
         *slot = d * 4 + d / width as usize;
     }
-    deflate::zlib(&filtered, &byte_dists[..dists.len().min(8)], scratch);
+    deflate::zlib(window, &filtered, &byte_dists[..dists.len().min(8)], scratch);
     let idat = std::mem::replace(scratch, filtered);
 
     out.extend_from_slice(b"\x89PNG\r\n\x1a\n");
@@ -66,7 +74,15 @@ mod tests {
     fn structure() {
         let mut out = Vec::new();
         let mut scratch = Vec::new();
-        super::encode(&[255, 0, 0, 255, 0, 255, 0, 255], 2, 1, &[1, 2], &mut scratch, &mut out);
+        super::encode(
+            &mut Default::default(),
+            &[255, 0, 0, 255, 0, 255, 0, 255],
+            2,
+            1,
+            &[1, 2],
+            &mut scratch,
+            &mut out,
+        );
         assert_eq!(&out[..8], b"\x89PNG\r\n\x1a\n");
         assert_eq!(&out[12..16], b"IHDR");
         assert_eq!(&out[out.len() - 8..out.len() - 4], b"IEND");

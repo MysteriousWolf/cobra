@@ -8,7 +8,7 @@
 //!
 //! | [`Protocol`] | How the frame travels | Copyable as braille |
 //! |---|---|---|
-//! | `Kitty`  | zlib RGBA, chunked APC, one image id reused per canvas | with `copy_text` |
+//! | `Kitty`  | zlib RGBA, chunked APC, one image id reused per canvas, split into bands when a frame is too large for one | with `copy_text` |
 //! | `Iterm2` | PNG in OSC 1337                                         | with `copy_text` |
 //! | `Sixel`  | palettised DCS with transparent background              | with `copy_text` |
 //! | `Text`   | braille glyphs, dominant colour per cell, quantised to the terminal's [`Depth`] | yes |
@@ -41,6 +41,9 @@
 //! and for the colour scheme. Terminals do not expose font names or point sizes; the
 //! cell box in pixels is what they publish and what alignment needs. The dot diameter
 //! is a style choice, `COBRA_DOT`, that `cargo run --example calibrate` helps pick.
+//! `COBRA_MAX_PAYLOAD` bounds how much compressed image goes in one kitty transmission
+//! (`0` for no bound); past it a frame is sent as several stacked bands, because a
+//! terminal has been seen to die on a single large one.
 //! Inside tmux the outer terminal is read from the environment and images go through
 //! tmux's passthrough (`allow-passthrough on`); under screen, or when the cell size
 //! cannot be learned, the text protocol is used. See [`Terminal::detect`].

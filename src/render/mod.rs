@@ -65,6 +65,7 @@ pub struct Renderer {
     raster: Raster,
     scratch: Vec<u8>,
     payload: Vec<u8>,
+    window: crate::encode::deflate::Window,
     out: Vec<u8>,
     /// The last text frame, for [`Placement::At`] to send only what changed.
     history: History,
@@ -78,14 +79,18 @@ impl Renderer {
 
     /// Creates a renderer with explicit options.
     pub fn with_options(term: Terminal, opts: Options) -> Self {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(0x00C0_B7A0);
+        // A renderer owns a block of ids, not one: an oversized frame is sent as
+        // several images and each needs an id of its own that no other renderer will
+        // reuse. The block is aligned, so a tile's id never leaves the 24 bits.
+        static NEXT_ID: AtomicU32 = AtomicU32::new(0x00C0_B780);
         Self {
             term,
             opts,
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed) & 0x00FF_FFFF,
+            id: NEXT_ID.fetch_add(MAX_TILES as u32, Ordering::Relaxed) & 0x00FF_FFFF,
             raster: Raster::default(),
             scratch: Vec::new(),
             payload: Vec::new(),
+            window: crate::encode::deflate::Window::default(),
             out: Vec::new(),
             history: History::default(),
         }
@@ -229,18 +234,83 @@ impl Renderer {
         }
 
         let image_from = self.out.len();
+        let mut wrapped = false;
         match self.term.protocol {
             Protocol::Kitty => {
                 let bytes = dists.map(|d| d * 4);
-                crate::encode::deflate::zlib(rgba, &bytes, &mut self.payload);
+                crate::encode::deflate::zlib(&mut self.window, rgba, &bytes, &mut self.payload);
                 let virt = placement == Placement::Virtual;
                 // Text cells are printed after the image, so on kitty the image has to
                 // sit below the text layer for them to show.
                 let z = if canvas.has_text() { -1 } else { 0 };
-                kitty::frame(&self.payload, w, h, self.id, (cols, rows), virt, z, &mut self.scratch, &mut self.out);
+                // A virtual placement is positioned by the placeholder cells printed
+                // for it, not by the cursor, so it cannot be split this way: its tiles
+                // would all land on the same cells.
+                let cap = max_payload();
+                let bands = if virt || cap == 0 || rows < 2 || self.payload.len() <= cap {
+                    1
+                } else {
+                    self.payload.len().div_ceil(cap).min(rows as usize).min(MAX_TILES)
+                };
+                if bands == 1 {
+                    kitty::frame(&self.payload, w, h, self.id, (cols, rows), virt, z, &mut self.scratch, &mut self.out);
+                } else {
+                    // Rows split as evenly as they divide, the remainder going to the
+                    // first bands. Each band is whole cell rows, so every tile lands on
+                    // a cell boundary and the placements tile the same area the one
+                    // image would have covered.
+                    let (base, rem) = (rows as usize / bands, rows as usize % bands);
+                    let (mut row0, mut walked) = (0usize, 0u16);
+                    for k in 0..bands {
+                        let n = base + usize::from(k < rem);
+                        if k > 0 {
+                            // Between tiles the cursor walks down the pane, so these
+                            // moves must stay outside tmux's passthrough: wrapped, they
+                            // would move the outer terminal's cursor instead of the
+                            // pane's, and every tile would land in the same place.
+                            text::step(walked_step(base, rem, k), b'B', &mut self.out);
+                            walked += walked_step(base, rem, k);
+                            if self.term.passthrough {
+                                self.out.extend_from_slice(b"\x1b[1X");
+                            }
+                        }
+                        // The raster is row-major, so a band of rows is one slice.
+                        let (y0, y1) = (row0 * h as usize / rows as usize, (row0 + n) * h as usize / rows as usize);
+                        self.payload.clear();
+                        let band = &rgba[y0 * w as usize * 4..y1 * w as usize * 4];
+                        crate::encode::deflate::zlib(&mut self.window, band, &bytes, &mut self.payload);
+                        let from = self.out.len();
+                        let id = (self.id + k as u32) & 0x00FF_FFFF;
+                        let cells = (cols, n as u16);
+                        kitty::frame(
+                            &self.payload,
+                            w,
+                            (y1 - y0) as u32,
+                            id,
+                            cells,
+                            virt,
+                            z,
+                            &mut self.scratch,
+                            &mut self.out,
+                        );
+                        if self.term.passthrough {
+                            passthrough(&mut self.out, from, &mut self.scratch);
+                        }
+                        row0 += n;
+                    }
+                    // Every tile wrapped itself, and the moves between them were left
+                    // out of the wrapping on purpose.
+                    wrapped = self.term.passthrough;
+                    // Back to where the first tile started, so what follows sees the
+                    // cursor exactly where a single image would have left it. A zero
+                    // step is not written: terminals read `CSI 0 A` as one row.
+                    if walked > 0 {
+                        text::step(walked, b'A', &mut self.out);
+                    }
+                }
             }
             Protocol::Iterm2 => {
-                crate::encode::png::encode(rgba, w, h, &dists, &mut self.scratch, &mut self.payload);
+                crate::encode::png::encode(&mut self.window, rgba, w, h, &dists, &mut self.scratch, &mut self.payload);
                 iterm2::frame(&self.payload, cols, rows, &mut self.out);
             }
             Protocol::Sixel => {
@@ -248,7 +318,7 @@ impl Renderer {
             }
             Protocol::Text => unreachable!(),
         }
-        if self.term.passthrough {
+        if self.term.passthrough && !wrapped {
             passthrough(&mut self.out, image_from, &mut self.scratch);
         }
 
@@ -266,6 +336,31 @@ impl Renderer {
         }
         &self.out
     }
+}
+
+/// Most images one oversized frame is split into. Also the stride between the image
+/// ids of two renderers, so the tiles of one never collide with another's.
+const MAX_TILES: usize = 64;
+
+/// Largest compressed payload to put in a single kitty image, in bytes.
+///
+/// Ghostty 1.3.1 segfaults in its reader thread on a frame whose payload is tens of
+/// kilobytes, while the same picture at a few kilobytes draws fine; the exact limit
+/// is not known, so this sits nearer the size that is known to work than the one
+/// that is known to crash. `COBRA_MAX_PAYLOAD` overrides it, and `0` turns the
+/// splitting off.
+const MAX_PAYLOAD: usize = 8 * 1024;
+
+/// Rows in band `k - 1`, which is how far the cursor moves to reach band `k`.
+fn walked_step(base: usize, rem: usize, k: usize) -> u16 {
+    (base + usize::from(k - 1 < rem)) as u16
+}
+
+fn max_payload() -> usize {
+    static CHOSEN: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CHOSEN.get_or_init(|| {
+        std::env::var("COBRA_MAX_PAYLOAD").ok().and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(MAX_PAYLOAD)
+    })
 }
 
 /// Rewraps every escape sequence in `out[from..]` (an APC, DCS or OSC, as the image
@@ -359,6 +454,82 @@ mod tests {
         c.set(0, 0, Rgb::hex(0xff0000));
         c.set(5, 7, Rgb::hex(0x00ff00));
         c
+    }
+
+    /// A canvas whose dots all differ: nothing repeats, so the payload stays large
+    /// however well it is compressed, which is what forces the split.
+    fn noisy(cols: u16, rows: u16) -> Canvas {
+        let mut c = Canvas::new(cols, rows);
+        let (w, h) = (cols as u32 * 2, rows as u32 * 4);
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        for y in 0..h {
+            for x in 0..w {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                c.set(x as i32, y as i32, Rgb::hex((seed >> 24) as u32 & 0x00FF_FFFF));
+            }
+        }
+        c
+    }
+
+    /// Every `a=T` starts an image; the chunks after it carry `m=` alone.
+    fn images(s: &str) -> Vec<(u32, u16)> {
+        s.match_indices("\x1b_Ga=T")
+            .map(|(i, _)| {
+                let head = &s[i..s[i..].find(';').map_or(s.len(), |e| i + e)];
+                let field = |k: &str| {
+                    head.split(',')
+                        .find_map(|f| f.strip_prefix(k))
+                        .unwrap_or_else(|| panic!("no {k} in {head:?}"))
+                        .parse()
+                        .unwrap()
+                };
+                (field("i="), field("r=") as u16)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_oversized_frame_is_split_into_tiles() {
+        let cell = CellSize { width: 8, height: 16 };
+        let mut r = Renderer::new(Terminal::new(Protocol::Kitty, cell));
+        let (cols, rows) = (60u16, 40u16);
+        let s = String::from_utf8(r.encode(&noisy(cols, rows), Placement::Flow).to_vec()).unwrap();
+        let tiles = images(&s);
+        assert!(tiles.len() > 1, "a frame this detailed does not fit in one image: {}", tiles.len());
+        assert!(tiles.len() <= MAX_TILES, "{}", tiles.len());
+        assert_eq!(tiles.iter().map(|&(_, r)| r).sum::<u16>(), rows, "the tiles cover exactly the rows reserved");
+        let ids: std::collections::BTreeSet<u32> = tiles.iter().map(|&(i, _)| i).collect();
+        assert_eq!(ids.len(), tiles.len(), "each tile needs an id of its own");
+        assert!(
+            ids.iter().all(|i| (r.image_id()..r.image_id() + MAX_TILES as u32).contains(i)),
+            "ids stay in the block"
+        );
+        // The cursor walks down to each tile and all the way back, so what follows
+        // starts where a single image would have left it.
+        let down: u16 = s.matches("\x1b[").filter(|_| true).count() as u16;
+        let _ = down;
+        assert!(s.contains(&format!("\x1b[{}A", rows - tiles.last().unwrap().1)), "the walk is undone: {s:.120?}");
+    }
+
+    #[test]
+    fn a_frame_that_fits_stays_one_image() {
+        let cell = CellSize { width: 8, height: 16 };
+        let mut r = Renderer::new(Terminal::new(Protocol::Kitty, cell));
+        let s = String::from_utf8(r.encode(&canvas(), Placement::Flow).to_vec()).unwrap();
+        assert_eq!(images(&s).len(), 1, "nothing to split");
+        assert_eq!(images(&s)[0].0, r.image_id(), "and it uses the renderer's own id");
+    }
+
+    #[test]
+    fn tiles_move_the_pane_cursor_not_the_outer_one() {
+        let cell = CellSize { width: 8, height: 16 };
+        let mut r = Renderer::new(Terminal::new(Protocol::Kitty, cell).with_passthrough(true));
+        let s = String::from_utf8(r.encode(&noisy(60, 40), Placement::Flow).to_vec()).unwrap();
+        assert!(images(&s).len() > 1, "this frame should have been split");
+        assert!(!s.contains("\x1bPtmux;\x1b\x1b["), "a wrapped cursor move would move the outer terminal");
+        assert!(s.contains("\x1b[1X\x1bPtmux;\x1b\x1b_G"), "each tile still syncs the pane cursor first");
     }
 
     #[test]
@@ -481,8 +652,25 @@ mod tests {
         let mut r = Renderer::new(Terminal::new(Protocol::Kitty, CellSize { width: 9, height: 18 }));
         let c = canvas();
         r.encode(&c, Placement::Flow);
-        let caps = (r.out.capacity(), r.payload.capacity(), r.scratch.capacity(), r.raster.rgba.capacity());
+        let caps = |r: &Renderer| {
+            (
+                r.out.capacity(),
+                r.payload.capacity(),
+                r.scratch.capacity(),
+                r.raster.rgba.capacity(),
+                r.window.capacity(),
+            )
+        };
+        let before = caps(&r);
         r.encode(&c, Placement::Flow);
-        assert_eq!(caps, (r.out.capacity(), r.payload.capacity(), r.scratch.capacity(), r.raster.rgba.capacity()));
+        assert_eq!(before, caps(&r));
+
+        // A frame split into tiles compresses once per tile, and the search tables are
+        // a quarter of a megabyte: reallocating them per tile is what this catches.
+        let big = noisy(60, 40);
+        r.encode(&big, Placement::Flow);
+        let before = caps(&r);
+        r.encode(&big, Placement::Flow);
+        assert_eq!(before, caps(&r));
     }
 }

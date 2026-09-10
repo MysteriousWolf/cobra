@@ -108,6 +108,38 @@ fn match_len(data: &[u8], pos: usize, dist: usize) -> usize {
     n + ra.iter().zip(rb).take_while(|(x, y)| x == y).count()
 }
 
+/// The hash table and chain the search walks, kept across frames.
+///
+/// They are a quarter of a megabyte together, which is not worth allocating and
+/// zeroing for every image -- and an oversized frame is several images.
+#[derive(Default)]
+pub(crate) struct Window {
+    head: Vec<u32>,
+    prev: Vec<u32>,
+}
+
+impl Window {
+    /// The tables, ready for a fresh stream.
+    ///
+    /// Only `head` is cleared. A stale chain entry in `prev` can only send the search
+    /// to a position whose bytes are then compared like any other, so it costs a
+    /// probe and never a wrong match.
+    /// How much the tables hold, for tests that watch for per-frame allocation.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> (usize, usize) {
+        (self.head.capacity(), self.prev.capacity())
+    }
+
+    fn tables(&mut self) -> (&mut [u32], &mut [u32]) {
+        self.head.clear();
+        self.head.resize(HASH_SIZE, NIL);
+        if self.prev.len() < MAX_DIST {
+            self.prev.resize(MAX_DIST, NIL);
+        }
+        (&mut self.head, &mut self.prev)
+    }
+}
+
 /// Three bytes at `pos`, scattered into a hash-table slot.
 #[inline]
 fn hash3(data: &[u8], pos: usize) -> usize {
@@ -181,14 +213,13 @@ fn find(data: &[u8], pos: usize, chain: u32, prev: &[u32], hints: &[usize], last
 /// trying first (in bytes): for a raster that is one pixel back, one cell back, one
 /// row back and one dot row back -- flat runs, dither patterns, vertical repetition.
 /// Anything they do not catch is found by searching the window.
-pub(crate) fn zlib(data: &[u8], dists: &[usize], out: &mut Vec<u8>) {
+pub(crate) fn zlib(window: &mut Window, data: &[u8], dists: &[usize], out: &mut Vec<u8>) {
     out.extend_from_slice(&[0x78, 0x01]);
     let mut w = Bits { out, acc: 0, n: 0 };
     w.put(1, 1); // BFINAL
     w.put(1, 2); // BTYPE = fixed Huffman
 
-    let mut head = vec![NIL; HASH_SIZE];
-    let mut prev = vec![NIL; MAX_DIST];
+    let (head, prev) = window.tables();
     let mut last = dists.first().copied().unwrap_or(0);
 
     // Lazy matching: a match found here is held back one byte to see whether the next
@@ -196,8 +227,8 @@ pub(crate) fn zlib(data: &[u8], dists: &[usize], out: &mut Vec<u8>) {
     let mut held: Option<(usize, usize)> = None;
     let mut i = 0;
     while i < data.len() {
-        let chain = insert(data, i, &mut head, &mut prev);
-        let (len, dist) = find(data, i, chain, &prev, dists, last);
+        let chain = insert(data, i, head, prev);
+        let (len, dist) = find(data, i, chain, prev, dists, last);
         match held {
             // The next position beat it: let the held match go and keep the better one.
             Some((hl, _)) if len > hl => {
@@ -212,7 +243,7 @@ pub(crate) fn zlib(data: &[u8], dists: &[usize], out: &mut Vec<u8>) {
                 // covers still belongs in the chain for later matches to find.
                 let end = i - 1 + hl;
                 for k in i + 1..end {
-                    insert(data, k, &mut head, &mut prev);
+                    insert(data, k, head, prev);
                 }
                 i = end;
                 held = None;
@@ -325,7 +356,7 @@ mod tests {
             vec![vec![], b"a".to_vec(), b"abcabcabcabcabc".to_vec(), img, (0..=255u8).cycle().take(1000).collect()];
         for data in cases {
             let mut z = Vec::new();
-            zlib(&data, &[4, 160], &mut z);
+            zlib(&mut Window::default(), &data, &[4, 160], &mut z);
             assert_eq!(inflate_fixed(&z), data);
             assert_eq!(&z[z.len() - 4..], adler32(&data).to_be_bytes());
         }
@@ -341,7 +372,7 @@ mod tests {
         }
         data.extend_from_within(..); // the whole thing again, 12000 bytes back
         let mut z = Vec::new();
-        zlib(&data, &[4, 160], &mut z);
+        zlib(&mut Window::default(), &data, &[4, 160], &mut z);
         assert_eq!(inflate_fixed(&z), data);
         assert!(z.len() < data.len() / 4, "{} of {}", z.len(), data.len());
     }
@@ -364,7 +395,7 @@ mod tests {
             }
         }
         let mut z = Vec::new();
-        zlib(&img, &[4, 40, W * 4, W * 4 * 5], &mut z);
+        zlib(&mut Window::default(), &img, &[4, 40, W * 4, W * 4 * 5], &mut z);
         assert_eq!(inflate_fixed(&z), img);
         // zlib itself needs ~20200 bytes for this at fixed Huffman, so this is the
         // search working, not the coding; what is left to win is a dynamic table.
@@ -375,7 +406,7 @@ mod tests {
     fn compresses_flat_images() {
         let data = vec![0u8; 100_000];
         let mut z = Vec::new();
-        zlib(&data, &[4, 400], &mut z);
+        zlib(&mut Window::default(), &data, &[4, 400], &mut z);
         assert!(z.len() < 1000, "{}", z.len());
     }
 }
