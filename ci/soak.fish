@@ -19,6 +19,13 @@
 #
 # Everything lands in `target/soak/`: `soak.log` and `frames/NNNN-scene-rep.bin`. Run
 # `last` from a *fresh* terminal after a crash — the crashed one took your shell with it.
+#
+# The log is appended to, so runs that differ by one variable can be compared in it:
+#
+#   for c in 4096 2048 1024; env COBRA_CHUNK=$c ci/soak.fish run; end
+#
+# Each run's header names the COBRA_CHUNK it saw, and its `packets` line says what
+# actually went out — if the two disagree, the binary is older than the override.
 
 set --global repo (git rev-parse --show-toplevel 2>/dev/null)
 if test -z "$repo"

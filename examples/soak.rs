@@ -50,7 +50,7 @@
 mod scenes;
 
 use std::fmt::Write as _;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -244,7 +244,14 @@ struct Recorder {
 
 impl Recorder {
     fn open(args: &Args) -> io::Result<Self> {
-        let file = File::create(&args.log)?;
+        // Append, never truncate: a crash is usually chased by running again with one
+        // thing changed, and a log that starts over each time throws away the very
+        // comparison the second run was for. A rule off the end separates the runs.
+        let existing = std::fs::metadata(&args.log).map(|m| m.len()).unwrap_or(0);
+        let mut file = OpenOptions::new().append(true).create(true).open(&args.log)?;
+        if existing > 0 {
+            let _ = file.write_all(b"\n---\n");
+        }
         Ok(Self { file, start: Instant::now(), seq: 0, echo: args.echo, sync: !args.no_sync })
     }
 
@@ -282,8 +289,19 @@ impl Recorder {
             term.passthrough,
             term.palette_queried
         ));
-        const WATCHED: [&str; 7] =
-            ["TERM", "TERM_PROGRAM", "COLORTERM", "COBRA_PROTOCOL", "COBRA_CELL", "COBRA_COLORS", "COBRA_DOT"];
+        // COBRA_CHUNK earns its place next to the rest: when it is set and the packet
+        // sizes below do not follow it, the binary predates the override and the run
+        // that was supposed to test a smaller split never did.
+        const WATCHED: [&str; 8] = [
+            "TERM",
+            "TERM_PROGRAM",
+            "COLORTERM",
+            "COBRA_PROTOCOL",
+            "COBRA_CELL",
+            "COBRA_COLORS",
+            "COBRA_DOT",
+            "COBRA_CHUNK",
+        ];
         let env: Vec<String> =
             WATCHED.iter().map(|k| format!("{k}={}", std::env::var(k).unwrap_or_else(|_| "-".into()))).collect();
         let tmux = if std::env::var_os("TMUX").is_some() { "set" } else { "-" };
