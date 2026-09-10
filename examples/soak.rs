@@ -158,6 +158,7 @@ fn frame(
          canvas={}x{} cells dots={}x{} text_layer={} bytes={} crc32={:#010x} draw={:.3}ms encode={:.3}ms",
         scene.name,
         term.protocol,
+        placement,
         scene.cols,
         scene.rows,
         canvas.width(),
@@ -304,9 +305,7 @@ impl Recorder {
 /// Seconds since the epoch: enough to line the log up against a terminal's own log
 /// without pulling in a date library.
 fn now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_secs_f64());
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
     format!("unix {secs:.3}")
 }
 
