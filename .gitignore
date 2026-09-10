@@ -1,2 +1,5 @@
 /target
 Cargo.lock
+
+# The soak harness writes here when it is run without --log.
+cobra-soak.log
