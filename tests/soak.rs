@@ -12,7 +12,7 @@ mod common;
 #[path = "../examples/common/scenes.rs"]
 mod scenes;
 
-use cobra::{Canvas, CellSize, Options, Palette, Placement, Protocol, Renderer, Terminal};
+use cobra::{Canvas, CellSize, DOTS_X, DOTS_Y, Options, Palette, Placement, Protocol, Renderer, Terminal};
 use common::{Image, find, parse_iterm2, parse_kitty, parse_sixel};
 use scenes::{SCENES, Scene};
 
@@ -49,6 +49,12 @@ fn assert_matches_canvas(image: &Image, canvas: &Canvas, slack: u8, what: &str) 
     let palette = Palette::default();
     for y in 0..canvas.height() {
         for x in 0..canvas.width() {
+            // A cell holding a printed character contributes no dots to the raster:
+            // the terminal prints the real glyph over the picture, so the image is
+            // deliberately empty there (see `Raster::draw`).
+            if canvas.text_cell(x / DOTS_X as i32, y / DOTS_Y as i32).is_some() {
+                continue;
+            }
             let (px, py) = dot_centre(x, y);
             let got = image.at(px, py);
             match canvas.get(x, y) {
